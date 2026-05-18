@@ -150,12 +150,29 @@ BLUESKY_ACCOUNTS_WHA = [
     # ═══════════════════════════════════════════════════════════
     # VENEZUELA-specific
     # ═══════════════════════════════════════════════════════════
-    ('mariacorinaya.govmirrors.com',    1.0, ['venezuela'],
-        'Maria Corina Machado (X mirror) -- opposition leader [UNVERIFIED Apr 25]'),
-    ('nicolasmaduro.govmirrors.com',    1.2, ['venezuela'],
-        'Maduro (X mirror) -- regime head [SPECULATIVE]'),
+    # Refreshed May 18 2026 to reflect post-Maduro-capture reality.
+    # Maduro captured Jan 3 2026 by US forces; Delcy Rodriguez sworn in
+    # as acting president Jan 5 2026 (first woman to hold the role).
+    # Machado/Gonzalez remain primary opposition signal sources but are
+    # currently sidelined by US-Rodriguez transactional alignment.
+
+    # ── Current Acting Government (Rodriguez interim) ──
+    ('drodriguez-en.govmirrors.com',    1.2, ['venezuela'],
+        'Delcy Rodriguez (X mirror @DRodriguez_en) -- ACTING PRESIDENT post-Maduro [NEW May 18]'),
+    ('jorgerpsuv.govmirrors.com',       1.0, ['venezuela'],
+        'Jorge Rodriguez (X mirror) -- Pres of National Assembly, Delcy brother [NEW May 18]'),
     ('vencancilleria.govmirrors.com',   1.0, ['venezuela'],
         'Venezuela Foreign Ministry (X mirror) [SPECULATIVE]'),
+
+    # ── Democratic Opposition (sidelined but primary signal source) ──
+    ('mariacorinaya.govmirrors.com',    1.1, ['venezuela'],
+        'Maria Corina Machado (X mirror @mariacorinaYA) -- Nobel laureate, opposition leader, sidelined by Trump [REFRESHED May 18]'),
+    ('edmundogu.govmirrors.com',        1.0, ['venezuela'],
+        'Edmundo Gonzalez (X mirror) -- 2024 election winner per opposition tallies [NEW May 18]'),
+
+    # ── Maduro (historical-only post-capture; kept for archival corpus) ──
+    ('nicolasmaduro.govmirrors.com',    0.5, ['venezuela'],
+        'Maduro (X mirror) -- CAPTURED Jan 3 2026, archival signal only [HISTORICAL]'),
 
 
     # ═══════════════════════════════════════════════════════════
