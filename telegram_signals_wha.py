@@ -106,13 +106,29 @@ SESSION_NAME      = 'asifah_wha_session'
 
 # ── Cross-theater channels (mentioned across multiple WHA targets) ──
 # These are *added on top of* per-theatre lists in fetch functions.
+# Expanded May 18 2026 to capture Iran/Hezbollah Spanish-language
+# Latin America signal sources -- HispanTV is the canonical IRIB
+# Spanish channel explicitly targeting Venezuela/Cuba/Argentina; ADL
+# and FDD have flagged it as IRGC influence/intelligence vehicle.
 CROSS_THEATER_GLOBAL = [
     # ── Multi-theater axis: Russia / Iran / China saying things about WHA ──
     'IntelSlava',           # Intel Slava -- multilingual OSINT, frequently covers RU-Cuba/Venezuela
     'tasnimnews_en',        # Tasnim News English -- IRGC-affiliated, catches Iran-WHA MOUs
     'PressTV',              # Press TV -- Iranian state, anti-imperialist framing on WHA
     'FarsNewsAgency',       # Fars News English -- IRGC-affiliated
-    'ManarNewsEN',          # Al-Manar -- anti-imperialist axis, frequent WHA framing
+    'ManarNewsEN',          # Al-Manar EN -- Hezbollah, anti-imperialist axis, frequent WHA framing
+
+    # ── Iran Spanish-language LatAm propaganda (NEW May 18 2026) ──
+    # HispanTV is IRIB's Spanish-language outlet explicitly targeting
+    # 600M Spanish-speakers; documented IRGC influence operations on
+    # Venezuela / Cuba / Argentina. ADL + FDD + Argentine intelligence
+    # all flag HispanTV as more than journalism. Critical channel for
+    # detecting Iran-LatAm coordination and Hezbollah Latin America
+    # messaging (HispanTV regularly covers AMIA-attack denialism).
+    'hispantv',             # HispanTV -- Iran IRIB Spanish (IRGC influence vehicle) [NEW May 18]
+    'NourNewsAgency',       # Nour News -- IRGC SNSC-affiliated, EN/FA [NEW May 18]
+    'AlAhed_News',          # Al-Ahed News -- Hezbollah English news outlet [NEW May 18]
+    'almanarnews',          # Al-Manar Arabic primary -- Hezbollah flagship [NEW May 18]
 
     # ── US government / sanctions / military posture ──
     'CentcomOfficial',      # CENTCOM -- broader regional ops (occasional Caribbean ref)
@@ -168,21 +184,37 @@ MEXICO_CHANNELS = [
 ]
 
 # ========================================
-# VENEZUELA (NEW v1.1.0)
+# VENEZUELA (Refreshed v1.2.0 May 18 2026)
 # ========================================
-# Venezuela has limited official TG presence; opposition uses TG more.
-# Heavy oil signal -- PDVSA, sanctions, Russia/Iran/China oil deals.
+# Post-Maduro-capture (Jan 3 2026) reality: Delcy Rodriguez interim govt
+# backed by Trump for stability; Machado/Gonzalez sidelined; PDVSA oil
+# flows resuming under US oil-major re-entry; Russia/Iran/China legacy
+# ties continuing under Rodriguez (her chavismo background + Iran/Russia
+# embassy continuity). Heavy 4-language coverage: Spanish primary,
+# English diplomatic, Farsi (IRGC signals), Arabic (Hezbollah).
 VENEZUELA_CHANNELS = [
-    # ── Spanish-language news ──
+    # ── Spanish-language mainstream / regional press ──
     'eluniversalvenezuela', # El Universal VE [SPECULATIVE NEW]
-    'ntn24',                # NTN24 -- regional news [SPECULATIVE NEW]
+    'ntn24',                # NTN24 -- regional Spanish-language news [SPECULATIVE NEW]
     'efectococuyo',         # Efecto Cocuyo -- independent Venezuelan journalism [SPECULATIVE NEW]
     'caraotadigital',       # Caraota Digital [SPECULATIVE NEW]
+    'elnacionalweb',        # El Nacional VE [SPECULATIVE NEW May 18]
+    'tvvenezuela',          # TV Venezuela (Miami-based VE diaspora) [SPECULATIVE NEW May 18]
 
-    # ── Opposition / human rights ──
+    # ── Opposition / human rights / democratic transition ──
     'foroPenalCanal',       # Foro Penal -- political prisoner tracking [SPECULATIVE NEW]
-]
+    'PROVEAdh',             # PROVEA -- human rights monitoring [SPECULATIVE NEW May 18]
 
+    # ── Bolivarian / regime-aligned (track narrative posture) ──
+    # Telesur explicitly content-shares with RT + HispanTV; canonical
+    # Venezuela-regime narrative + Iran-Russia-China axis amplifier.
+    'teleSUR_tv',           # Telesur Spanish (Venezuela 51%-owned) [NEW May 18]
+    'telesurenglish',       # Telesur English [SPECULATIVE NEW May 18]
+
+    # ── Oil / commodity specialist (Venezuela = oil-economy) ──
+    # PDVSA + heavy crude + sanctions evasion + tanker tracking.
+    'PDVSAweb',             # PDVSA official (status unknown) [SPECULATIVE NEW May 18]
+]
 # ========================================
 # CHILE (NEW v1.1.0) -- Copper Convergence Anchor
 # ========================================
