@@ -46,8 +46,8 @@ WHY 12 HOURS for commodity-pressure / 1 HOUR for fingerprints:
 
 TARGETS SUPPORTED:
   Whatever ME backend's COUNTRY_COMMODITY_EXPOSURE has registered.
-  Phase 1 WHA active set: peru, cuba (mexico, chile, panama, brazil,
-  argentina, usa coming as their stability/rhetoric pages ship).
+  Phase 1 WHA active set: peru, cuba, chile, venezuela (mexico, panama,
+  brazil, argentina, usa coming as their stability/rhetoric pages ship).
 
 ENDPOINTS REGISTERED:
   GET /api/wha/commodity/<target>                            — country pressure
@@ -348,7 +348,7 @@ def get_commodity_fingerprint_pair(country, commodity, force=False):
 # WHA-active stability/rhetoric pages get their commodity pressure +
 # fingerprints proactively refreshed so users don't see slow first-loads.
 # Add new countries here as their pages ship.
-PROACTIVE_REFRESH_TARGETS = ['peru', 'cuba', 'chile']
+PROACTIVE_REFRESH_TARGETS = ['peru', 'cuba', 'chile', 'venezuela']
 
 _refresh_lock = threading.Lock()
 _last_pressure_refresh    = {}   # target -> ts
