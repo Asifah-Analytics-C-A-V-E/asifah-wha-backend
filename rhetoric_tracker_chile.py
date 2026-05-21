@@ -772,7 +772,126 @@ def _write_chile_fingerprints(actor_levels, vector_scores, tripwires_global):
 # ============================================
 # MAIN SCAN
 # ============================================
-def scan_chile_rhetoric(force=False, days=7):
+# ============================================================
+# L5 RESERVATION CONTRACT (v1.0.0 — May 21 2026)
+# ============================================================
+# Per platform-wide L5 Reservation Contract: L5 "Active Crisis" requires
+# an explicit kinetic / humanitarian / economic / diplomatic L5 trigger.
+# Chile is a stable democracy; absent crisis-class events (currency collapse,
+# armed conflict surge with casualties, mass displacement, diplomatic
+# rupture) Chile correctly caps at L4 "Imminent Crisis" ceiling.
+#
+# AXIS MAPPING: Each ACTORS entry has a 'vector' field. Tripwires of
+# severity >= 5 from each vector activate the corresponding L5 axis.
+# When the weekend audit adds severity-5 tripwires to ACTORS, the gate
+# auto-activates without requiring code changes here.
+
+VECTOR_TO_L5_AXIS = {
+    'domestic_stability':  'kinetic',       # Mapuche armed conflict, state-of-emergency events
+    'cancilleria':         'diplomatic',    # boundary crises, ICJ filings, PNG events
+    'mining_sector':       'economic',      # Las Bambas-scale shutdowns, codelco collapse
+    'resource_sector':     'economic',      # commodity collapse, sovereign default
+    'us_alignment':        'diplomatic',    # US sanctions, embassy actions
+    'china_alignment':     'diplomatic',    # China rupture events
+    # New vectors added in weekend audit can append here.
+}
+
+WHA_LABEL_VOCAB = {
+    0: 'Monitoring',
+    1: 'Rhetoric',
+    2: 'Warning',
+    3: 'Direct Threat',
+    4: 'Imminent Crisis',
+    5: 'Active Crisis',
+}
+
+
+def _compute_chile_l5_gate(tripwires_global, actor_summaries, vector_scores):
+    """
+    Per platform L5 Reservation Contract: Chile L5 "Active Crisis" requires
+    an explicit axis trigger. Scans fired tripwires for severity >= 5 and
+    maps each one's actor->vector->axis to set the corresponding gate flag.
+
+    Today: no Chile tripwires defined at severity 5 — gate returns any=False.
+    When tripwires of severity 5 are added in weekend audit, the gate
+    auto-activates without further code changes.
+
+    Returns dict: {kinetic, humanitarian, economic, diplomatic, reason, any}
+    """
+    gate = {
+        'kinetic':      False,
+        'humanitarian': False,
+        'economic':     False,
+        'diplomatic':   False,
+        'reason':       '',
+        'any':          False,
+    }
+    reasons = []
+
+    # tripwires_global format: list of (actor_id, tw_id, severity) tuples
+    for entry in tripwires_global or []:
+        if not (isinstance(entry, (list, tuple)) and len(entry) >= 3):
+            continue
+        actor_id, tw_id, severity = entry[0], entry[1], entry[2]
+        try:
+            sev_int = int(severity)
+        except (TypeError, ValueError):
+            continue
+        if sev_int < 5:
+            continue
+
+        # Look up actor's vector to determine which axis to flag
+        actor_cfg = ACTORS.get(actor_id, {})
+        vector    = actor_cfg.get('vector', '')
+        axis      = VECTOR_TO_L5_AXIS.get(vector)
+        if axis and not gate[axis]:
+            gate[axis] = True
+            reasons.append(f"{axis.title()}: {actor_id}:{tw_id} (sev {sev_int})")
+
+    gate['any']    = any(gate[k] for k in ('kinetic', 'humanitarian', 'economic', 'diplomatic'))
+    gate['reason'] = '; '.join(reasons) if reasons else 'No L5 axis trigger fired'
+    return gate
+
+
+def _build_chile_signal_text(theatre_level, theatre_score, vector_levels, actor_summaries, l5_capped=False):
+    """
+    Build short_text + long_text for Chile's theatre_high signal.
+    Uses WHA label vocabulary (Imminent Crisis at L4, Active Crisis at L5).
+    """
+    # Active vectors (elevated/high/surge)
+    vectors_active = []
+    if isinstance(vector_levels, dict):
+        for vec, lvl in vector_levels.items():
+            if lvl in ('elevated', 'high', 'surge'):
+                vectors_active.append(vec.replace('_', ' '))
+    vectors_brief = ', '.join(vectors_active[:3]) if vectors_active else 'baseline'
+
+    # Active actors
+    actors_active = []
+    if isinstance(actor_summaries, dict):
+        for actor, summary in actor_summaries.items():
+            lvl = summary.get('level', 'low') if isinstance(summary, dict) else 'low'
+            if lvl in ('elevated', 'high', 'surge'):
+                actors_active.append(actor.replace('_', ' '))
+    actors_brief = ', '.join(actors_active[:3]) if actors_active else ''
+
+    label = WHA_LABEL_VOCAB.get(theatre_level, 'Monitoring')
+
+    short = f"🇨🇱 CHILE L{theatre_level} {label} — {vectors_brief}"
+    if len(short) > 120:
+        short = short[:117] + '...'
+
+    long_parts = [f"🇨🇱 CHILE at L{theatre_level} {label} (theatre score {theatre_score}/100)."]
+    if vectors_active:
+        long_parts.append(f"Active vectors: {vectors_brief}.")
+    if actors_active:
+        long_parts.append(f"Top actors: {actors_brief}.")
+    if l5_capped:
+        long_parts.append("L5 axis gate did not fire — capped at L4 ceiling per platform L5 Reservation Contract.")
+    else:
+        long_parts.append("Chile is a stable democracy; tracking domestic political and economic pressure.")
+
+    return {'short': short, 'long': ' '.join(long_parts)}
     """Full scan: fetch → classify → score → tripwires → interpret → cache."""
     if not force:
         cached = load_cache()
@@ -857,8 +976,20 @@ def scan_chile_rhetoric(force=False, days=7):
 
     # ── BLUF compatibility shim ──
     LEVEL_TO_THEATRE_INT = {'low': 0, 'normal': 1, 'elevated': 2, 'high': 3, 'surge': 4}
-    theatre_level = LEVEL_TO_THEATRE_INT.get(composite_level, 0)
-    theatre_score = min(100, int(composite_score))
+    raw_theatre_level = LEVEL_TO_THEATRE_INT.get(composite_level, 0)
+    theatre_score     = min(100, int(composite_score))
+
+    # ── L5 Reservation Contract (v1.0.0 May 21 2026) ──
+    # Compute L5 gate from fired tripwires. If raw_theatre_level >= 5 and no
+    # axis fires, cap at L4 "Imminent Crisis" ceiling per platform contract.
+    l5_gate     = _compute_chile_l5_gate(tripwires_global, actor_summaries, vector_scores)
+    l5_capped   = (raw_theatre_level >= 5 and not l5_gate['any'])
+    theatre_level = 4 if l5_capped else raw_theatre_level
+    theatre_label = WHA_LABEL_VOCAB.get(theatre_level, 'Monitoring')
+
+    if l5_capped:
+        print(f"[Chile Rhetoric] L5 GATE CAPPED: raw={raw_theatre_level}, "
+              f"no axis fired → effective L4 ceiling")
 
     # ── Read commodity pressure + cross-theater amplifiers ──
     commodity_pressure       = _read_commodity_pressure_for_chile()
@@ -884,6 +1015,27 @@ def scan_chile_rhetoric(force=False, days=7):
     else:
         top_signals, executive_summary, so_what = [], '', []
 
+    # ── L5 Reservation Contract: emit theatre_high signal in top_signals ──
+    # This signal carries the composite Chile posture in the canonical schema
+    # the WHA BLUF consumes. Without it, Chile's L4 composite never surfaces
+    # to the regional card (only actor-specific signals do).
+    signal_text = _build_chile_signal_text(
+        theatre_level, theatre_score, vector_levels, actor_summaries, l5_capped
+    )
+    theatre_high_signal = {
+        'priority':   9 + theatre_level,
+        'category':   'theatre_high',
+        'theatre':    'chile',
+        'level':      theatre_level,
+        'icon':       '🔴' if theatre_level >= 4 else '🟠',
+        'color':      '#dc2626' if theatre_level >= 5 else ('#ef4444' if theatre_level == 4 else '#f97316'),
+        'short_text': signal_text['short'],
+        'long_text':  signal_text['long'],
+    }
+    # Prepend so it ranks high in priority sort
+    if not any(s.get('category') == 'theatre_high' and s.get('theatre') == 'chile' for s in top_signals):
+        top_signals = [theatre_high_signal] + list(top_signals)
+
     # ── Write Chile fingerprints for downstream consumers ──
     actor_levels = {a: s['level'] for a, s in actor_summaries.items()}
     _write_chile_fingerprints(actor_levels, vector_scores, tripwires_global)
@@ -891,31 +1043,38 @@ def scan_chile_rhetoric(force=False, days=7):
     scan_time = round(time.time() - scan_start, 1)
 
     result = {
-        'success':               True,
-        'country':               'chile',
-        'composite_score':       composite_score,
-        'composite_level':       composite_level,
-        'theatre_level':         theatre_level,
-        'theatre_score':         theatre_score,
-        'vector_scores':         vector_scores,
-        'vector_levels':         vector_levels,
-        'actor_summaries':       actor_summaries,
-        'tripwires_global':      tripwires_global,
-        'commodity_pressure':    commodity_pressure,
-        'crosstheater_amplifiers': crosstheater_amplifiers,
-        'top_signals':           top_signals,
-        'executive_summary':     executive_summary,
-        'so_what':               so_what,
-        'total_articles_scanned': len(all_articles),
-        'rss_count':             len(rss_articles),
-        'gdelt_count':           len(gdelt_articles),
-        'newsapi_count':         len(newsapi_articles),
-        'brave_count':           len(brave_articles),
-        'scan_time_seconds':     scan_time,
-        'scanned_at':            datetime.now(timezone.utc).isoformat(),
-        'last_updated':          datetime.now(timezone.utc).isoformat(),
-        'cached':                False,
-        'version':               '1.0.0',
+        'success':                  True,
+        'country':                  'chile',
+        'composite_score':          composite_score,
+        'composite_level':          composite_level,
+        'theatre_level':            theatre_level,
+        'raw_theatre_level':        raw_theatre_level,           # NEW v1.1.0
+        'theatre_score':            theatre_score,
+        'theatre_label':            theatre_label,               # NEW v1.1.0
+        'source_class':             'absorber',                  # NEW v1.1.0
+        'l5_gate':                  l5_gate,                     # NEW v1.1.0
+        'l5_capped':                l5_capped,                   # NEW v1.1.0
+        'signal_text_short':        signal_text['short'],        # NEW v1.1.0
+        'signal_text_long':         signal_text['long'],         # NEW v1.1.0
+        'vector_scores':            vector_scores,
+        'vector_levels':            vector_levels,
+        'actor_summaries':          actor_summaries,
+        'tripwires_global':         tripwires_global,
+        'commodity_pressure':       commodity_pressure,
+        'crosstheater_amplifiers':  crosstheater_amplifiers,
+        'top_signals':              top_signals,
+        'executive_summary':        executive_summary,
+        'so_what':                  so_what,
+        'total_articles_scanned':   len(all_articles),
+        'rss_count':                len(rss_articles),
+        'gdelt_count':              len(gdelt_articles),
+        'newsapi_count':            len(newsapi_articles),
+        'brave_count':              len(brave_articles),
+        'scan_time_seconds':        scan_time,
+        'scanned_at':               datetime.now(timezone.utc).isoformat(),
+        'last_updated':             datetime.now(timezone.utc).isoformat(),
+        'cached':                   False,
+        'version':                  '1.1.0',                     # bumped per L5 contract retrofit
     }
 
     save_cache(result)
