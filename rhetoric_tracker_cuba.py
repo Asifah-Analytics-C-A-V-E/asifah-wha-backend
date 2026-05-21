@@ -1809,6 +1809,128 @@ def _write_crosstheater_fingerprint(actor_results, vectors, global_signals=None,
 
 
 # ============================================
+# L5 RESERVATION CONTRACT (v1.0.0 — May 21 2026)
+# ============================================
+def _compute_cuba_l5_gate(theatre_level, vectors, actor_results, civ_press_lvl, migration_out_lvl, global_signals):
+    """
+    Per platform L5 Reservation Contract: Cuba L5 "Active Crisis" requires
+    an explicit kinetic / humanitarian / economic / diplomatic L5 trigger.
+
+    Cuba is the WHA tracker most likely to genuinely trip L5 in the near term
+    (US invasion rhetoric, RU/IR drone deliveries, economic collapse, fuel
+    crisis, mass migration surge). Real triggers are wired to existing
+    civilian_pressure and migration vectors that Cuba already computes.
+
+    Returns dict with axis flags + reason string.
+    """
+    gate = {
+        'kinetic':      False,
+        'humanitarian': False,
+        'economic':     False,
+        'diplomatic':   False,
+        'reason':       '',
+        'any':          False,
+    }
+    reasons = []
+
+    # ── KINETIC L5 (scaffold for now — refine in weekend audit) ──
+    # Would fire on: US military invasion-class kinetic posture + sustained
+    # Cuban government invasion language. Cuba does not yet have L5-class
+    # kinetic detection phrases; this scaffold awaits weekend tripwire audit.
+    # Today: never fires.
+    # (No real trigger logic yet — kinetic axis remains False)
+
+    # ── HUMANITARIAN L5 (REAL) ──
+    # Fires when civilian_pressure detects national grid collapse, famine,
+    # mass starvation phrases (CIVILIAN_PRESSURE_TRIGGERS[5]) OR mass migration
+    # surge (MIGRATION_OUT_TRIGGERS[5]).
+    if civ_press_lvl >= 5:
+        gate['humanitarian'] = True
+        reasons.append('Humanitarian: civilian pressure at catastrophic level (grid collapse, famine, or mass starvation detected)')
+    elif migration_out_lvl >= 5:
+        gate['humanitarian'] = True
+        reasons.append('Humanitarian: mass migration surge detected')
+
+    # ── ECONOMIC L5 (REAL) ──
+    # Fires when civilian_pressure detects currency collapse, medical system
+    # collapse, or sustained catastrophic infrastructure failure. Cuba's
+    # CIVILIAN_PRESSURE_TRIGGERS[5] includes 'cuba currency collapse',
+    # 'peso colapso', 'colapso del peso cubano', 'medical system collapsed cuba'.
+    if civ_press_lvl >= 5:
+        # If civilian pressure is at L5, that almost certainly includes
+        # economic collapse triggers. Check trigger phrases more precisely.
+        econ_triggers_detected = False
+        for sig in global_signals.get('civilian_pressure_signals', []):
+            phrase = (sig.get('phrase') or '').lower()
+            if any(k in phrase for k in (
+                'currency collapse', 'peso colapso', 'colapso del peso',
+                'medical system collapsed', 'sistema de salud colapsado',
+                'colapso sanitario', 'hospitales cerrados',
+            )):
+                econ_triggers_detected = True
+                break
+        if econ_triggers_detected:
+            gate['economic'] = True
+            reasons.append('Economic: systemic collapse-class event detected (currency / medical infrastructure)')
+
+    # ── DIPLOMATIC L5 (scaffold for now — refine in weekend audit) ──
+    # Would fire on: mutual PNG between US-Cuba, allied embassy mass closure,
+    # severance of diplomatic relations. Cuba tracker does not yet have
+    # diplomatic L5 detection phrases; this scaffold awaits weekend audit.
+    # Today: never fires.
+    # (No real trigger logic yet — diplomatic axis remains False)
+
+    gate['any']    = any(gate[k] for k in ('kinetic', 'humanitarian', 'economic', 'diplomatic'))
+    gate['reason'] = '; '.join(reasons) if reasons else 'No L5 axis trigger fired'
+
+    return gate
+
+
+def _build_cuba_signal_text(theatre_level, vectors, civ_press_lvl, civ_press_label,
+                              migration_net_label, l5_capped=False):
+    """
+    Build short_text + long_text for Cuba's theatre_high signal.
+    Returns dict {'short': str, 'long': str}.
+    """
+    us_p   = vectors.get('us_pressure', 0)
+    fracture = vectors.get('regime_fracture', 0)
+    adv    = vectors.get('adversary_access', 0)
+
+    label_map = {0: 'Monitoring', 1: 'Rhetoric', 2: 'Warning', 3: 'Direct Threat',
+                 4: 'Coercion', 5: 'Active Crisis'}
+    label = label_map.get(theatre_level, 'Monitoring')
+
+    # Identify which composite vector is highest
+    if us_p >= fracture and us_p >= adv:
+        driver = 'US pressure'
+    elif fracture >= adv:
+        driver = 'regime fracture'
+    else:
+        driver = 'adversary access (RU/CN/IR)'
+
+    short = f"🇨🇺 CUBA L{theatre_level} {label} — driven by {driver}"
+    if civ_press_lvl >= 3:
+        short = f"🇨🇺 CUBA L{theatre_level} {label} — {driver}; civilian pressure {civ_press_label}"
+    if len(short) > 120:
+        short = short[:117] + '...'
+
+    long_parts = [
+        f"🇨🇺 CUBA at L{theatre_level} {label}.",
+        f"Composite vectors: US pressure L{us_p}, regime fracture L{fracture}, adversary access L{adv}.",
+    ]
+    if civ_press_lvl >= 2:
+        long_parts.append(f"Civilian pressure: L{civ_press_lvl} ({civ_press_label}).")
+    if migration_net_label and migration_net_label != 'baseline':
+        long_parts.append(f"Migration net: {migration_net_label}.")
+    if l5_capped:
+        long_parts.append("L5 axis gate did not fire — capped at L4 ceiling per platform L5 Reservation Contract.")
+    else:
+        long_parts.append("Cuba is a hybrid command-node/absorber tracker; reads RU/CN/IR axis activity and US sanctions posture.")
+
+    return {'short': short, 'long': ' '.join(long_parts)}
+
+
+# ============================================
 # MAIN SCAN
 # ============================================
 def run_cuba_rhetoric_scan(force=False):
@@ -1992,10 +2114,46 @@ def run_cuba_rhetoric_scan(force=False):
 
         # Theatre-level headline score:
         # Cuba's theatre score = max of the three composite vectors
-        theatre_level = max(
+        raw_theatre_level = max(
             vectors.get('us_pressure', 0),
             vectors.get('regime_fracture', 0),
             vectors.get('adversary_access', 0),
+        )
+
+        # ── L5 RESERVATION CONTRACT (v1.0.0 May 21 2026) ──
+        # Compute L5 gate FIRST, then cap theatre_level at L4 if gate doesn't fire.
+        # Cuba is most likely WHA tracker to trip L5 (econ collapse, humanitarian
+        # crisis, US invasion rhetoric). Gate honors civilian_pressure detection.
+        civ_press_lvl_for_gate     = global_signals.get('civilian_pressure_max', 0)
+        migration_out_lvl_for_gate = global_signals.get('migration_out_max', 0)
+        l5_gate = _compute_cuba_l5_gate(
+            raw_theatre_level, vectors, actor_results,
+            civ_press_lvl_for_gate, migration_out_lvl_for_gate, global_signals,
+        )
+
+        # Cap at L4 if raw >= 5 but gate didn't fire on any axis
+        if raw_theatre_level >= 5 and not l5_gate['any']:
+            theatre_level = 4
+            l5_capped = True
+            print(f"[Cuba Rhetoric] L5 gate enforced: raw={raw_theatre_level} capped at L4 "
+                  f"(reason: {l5_gate['reason']})")
+        else:
+            theatre_level = raw_theatre_level
+            l5_capped = False
+
+        # ── Build label + signal text for BLUF consumption ──
+        label_map_cuba = {0: 'Monitoring', 1: 'Rhetoric', 2: 'Warning',
+                          3: 'Direct Threat', 4: 'Coercion', 5: 'Active Crisis'}
+        theatre_label = label_map_cuba.get(theatre_level, 'Monitoring')
+
+        # Need civ_press_label + migration_net_label for signal text
+        # These get assembled below; build placeholders here
+        _civ_press_label_local = _lvl(civ_press_lvl_for_gate)
+        _migration_net_label_local = migration_net_label  # already computed earlier
+
+        signal_text = _build_cuba_signal_text(
+            theatre_level, vectors, civ_press_lvl_for_gate,
+            _civ_press_label_local, _migration_net_label_local, l5_capped,
         )
 
         result = {
@@ -2004,6 +2162,15 @@ def run_cuba_rhetoric_scan(force=False):
             'theatre_level':         theatre_level,
             'theatre_escalation_label': _lvl(theatre_level),
             'theatre_color':         '#38bdf8',  # arctic scheme accent
+
+            # ── L5 Reservation Contract fields (v1.0.0 May 21 2026) ──
+            'theatre_label':         theatre_label,
+            'signal_text_short':     signal_text['short'],
+            'signal_text_long':      signal_text['long'],
+            'l5_gate':               l5_gate,
+            'raw_theatre_level':     raw_theatre_level,
+            'l5_capped':             l5_capped,
+            'source_class':          'hybrid',  # command-node for US/RU/CN/IR reads; absorber for civilian pressure
 
             # 9 actors
             'actors':                actor_results,
