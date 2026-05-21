@@ -892,6 +892,9 @@ def _build_chile_signal_text(theatre_level, theatre_score, vector_levels, actor_
         long_parts.append("Chile is a stable democracy; tracking domestic political and economic pressure.")
 
     return {'short': short, 'long': ' '.join(long_parts)}
+
+
+def scan_chile_rhetoric(force=False, days=7):
     """Full scan: fetch → classify → score → tripwires → interpret → cache."""
     if not force:
         cached = load_cache()
