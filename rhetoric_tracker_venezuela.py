@@ -108,22 +108,38 @@ BRAVE_API_KEY   = os.environ.get('BRAVE_API_KEY', '')
 # ════════════════════════════════════════════════════════════════════
 # ESCALATION LEVELS (canonical platform schema)
 # ════════════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════════════
+# ESCALATION LEVELS — canonical band/level vocabulary (v1.1 May 21 2026)
+# ════════════════════════════════════════════════════════════════════
+# Bands harmonize across trackers (STABLE / ACTIVE / VOLATILE / CRISIS).
+# Tracker-specific level names preserve analytical voice.
+# Phase 4b platform reconciliation: canonical target = US tracker vocab.
 ESCALATION_LEVELS = {
-    0: {'label': 'Baseline',      'color': '#6b7280', 'icon': '⚪'},
-    1: {'label': 'Rhetoric',      'color': '#3b82f6', 'icon': '🔵'},
-    2: {'label': 'Warning',       'color': '#f59e0b', 'icon': '🟡'},
-    3: {'label': 'Confrontation', 'color': '#f97316', 'icon': '🟠'},
-    4: {'label': 'Coercion',      'color': '#ef4444', 'icon': '🔴'},
-    5: {'label': 'Active Crisis', 'color': '#7f1d1d', 'icon': '⚫'},
+    0: {'label': 'Stable',            'band': 'STABLE',   'color': '#6b7280', 'icon': '🟢'},
+    1: {'label': 'Active',            'band': 'ACTIVE',   'color': '#3b82f6', 'icon': '🟢'},
+    2: {'label': 'Active+',           'band': 'ACTIVE',   'color': '#f59e0b', 'icon': '🟡'},
+    3: {'label': 'Pressure Building', 'band': 'VOLATILE', 'color': '#f97316', 'icon': '🟠'},
+    4: {'label': 'Pressure Peak',     'band': 'VOLATILE', 'color': '#ef4444', 'icon': '🔴'},
+    5: {'label': 'Active Crisis',     'band': 'CRISIS',   'color': '#7f1d1d', 'icon': '🔴'},
 }
 
 THEATRE_LABELS = {
     0: 'Stable',
-    1: 'Rhetoric',
-    2: 'Warning',
-    3: 'Confrontation',
-    4: 'Coercion',
+    1: 'Active',
+    2: 'Active+',
+    3: 'Pressure Building',
+    4: 'Pressure Peak',
     5: 'Active Crisis',
+}
+
+# Convenience lookup: level → band (for cross-tracker aggregation)
+THEATRE_BANDS = {
+    0: 'STABLE',
+    1: 'ACTIVE',
+    2: 'ACTIVE',
+    3: 'VOLATILE',
+    4: 'VOLATILE',
+    5: 'CRISIS',
 }
 
 # ════════════════════════════════════════════════════════════════════
@@ -1352,7 +1368,7 @@ def _classify_articles(articles):
             'actor_score':          0,
             'statement_count':      0,
             'escalation_level':     0,
-            'escalation_label':     'Baseline',
+            'escalation_label':     'Stable',
             'escalation_color':     '#6b7280',
             'escalation_phrase':    None,
             'silence_alert':        True,
@@ -1616,7 +1632,8 @@ def _write_vz_fingerprint(actor_results, vectors, civ_press_lvl,
                       for k, v in actor_results.items()}
     fingerprint = {
         'theater':                 'venezuela',
-        'theatre_label':           THEATRE_LABELS.get(vectors.get('us_pressure', 0), 'Baseline'),
+        'theatre_label':           THEATRE_LABELS.get(vectors.get('us_pressure', 0), 'Stable'),
+        'theatre_band':            THEATRE_BANDS.get(vectors.get('us_pressure', 0), 'STABLE'),
         'actor_scores':            {k: v.get('actor_score', 0) for k, v in actor_results.items()},
         'vectors':                 vectors,
         'civilian_pressure_level': civ_press_lvl,
@@ -1732,7 +1749,7 @@ def _build_vz_signal_text(theatre_level, theatre_score, vectors, civ_press_lvl,
                           oil_lvl, migration_net_mod, diplomatic_lvl,
                           essequibo_lvl, l5_gate, l5_capped=False):
     """Build short_text + long_text for VZ's theatre_high signal."""
-    label = THEATRE_LABELS.get(theatre_level, 'Baseline')
+    label = THEATRE_LABELS.get(theatre_level, 'Stable')
 
     # Top vector contributors
     top_vectors = sorted(vectors.items(), key=lambda kv: kv[1], reverse=True)[:3]
@@ -1989,7 +2006,7 @@ def run_venezuela_rhetoric_scan(force=False):
             theatre_level = raw_theatre_level
             l5_capped = False
 
-        theatre_label = THEATRE_LABELS.get(theatre_level, 'Baseline')
+        theatre_label = THEATRE_LABELS.get(theatre_level, 'Stable')
 
         # Phase 8: signal text
         signal_text = _build_vz_signal_text(theatre_level, composite, vectors,
@@ -2055,6 +2072,7 @@ def run_venezuela_rhetoric_scan(force=False):
             'theatre_level':            theatre_level,
             'theatre_score':            composite,
             'theatre_label':            theatre_label,
+            'theatre_band':             THEATRE_BANDS.get(theatre_level, 'STABLE'),
             'theatre_color':            ESCALATION_LEVELS.get(theatre_level, ESCALATION_LEVELS[0])['color'],
             'theatre_escalation_label': theatre_label,
             'signal_text_short':        signal_text['short'],
