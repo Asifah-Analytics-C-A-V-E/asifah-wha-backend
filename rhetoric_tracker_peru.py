@@ -1106,6 +1106,120 @@ def _write_peru_fingerprints(actor_levels, vector_scores, tripwires_global):
 
 
 # ============================================
+# L5 RESERVATION CONTRACT (v1.0.0 — May 21 2026)
+# ============================================
+def _compute_peru_l5_gate(tripwires_global, actor_summaries, vector_scores):
+    """
+    Per platform L5 Reservation Contract: Peru L5 "Active Crisis" requires
+    an explicit kinetic / humanitarian / economic / diplomatic L5 trigger.
+
+    Peru is a resource-economy absorber-class tracker. Today's typical signals
+    (Las Bambas surge, Boluarte politics, mining-community conflict, US/China
+    alignment shifts) all sit at L1-L4 ceiling. L5 would require crisis-class
+    events (VRAEM mass-casualty attack, sol collapse, sovereign default,
+    mass displacement).
+
+    Today: scaffold — no L5 tripwires defined in actor matrix at severity 5.
+    Weekend audit will add real L5-class tripwires per axis. Until then,
+    gate correctly returns any=False.
+
+    Returns dict with axis flags + reason string.
+    """
+    gate = {
+        'kinetic':      False,
+        'humanitarian': False,
+        'economic':     False,
+        'diplomatic':   False,
+        'reason':       '',
+        'any':          False,
+    }
+
+    # Convert tripwires_global to a flat set for lookup by (actor_id, tw_id)
+    fired_tws = set()
+    for entry in tripwires_global or []:
+        if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+            fired_tws.add(f"{entry[0]}:{entry[1]}")
+        elif isinstance(entry, dict):
+            actor = entry.get('actor_id', '')
+            twid  = entry.get('tw_id', '')
+            if actor and twid:
+                fired_tws.add(f"{actor}:{twid}")
+
+    reasons = []
+
+    # ── KINETIC L5 (scaffold — refine in weekend audit) ──
+    # Would fire on: VRAEM mass-casualty attack, sustained Las Bambas violence
+    # with deaths, military coup with kinetic action. No severity-5 tripwires
+    # currently defined in Peru's ACTORS dict. Awaits weekend audit.
+    # Today: never fires.
+
+    # ── HUMANITARIAN L5 (scaffold — refine in weekend audit) ──
+    # Would fire on: mass displacement from extractive conflict, famine,
+    # major disaster IDPs. No severity-5 tripwires currently defined.
+    # Today: never fires.
+
+    # ── ECONOMIC L5 (scaffold — refine in weekend audit) ──
+    # Would fire on: sol currency collapse, sovereign default, mining sector
+    # total shutdown with GDP shock. No severity-5 tripwires currently defined.
+    # Today: never fires.
+
+    # ── DIPLOMATIC L5 (scaffold — refine in weekend audit) ──
+    # Would fire on: mutual PNG with US/Chile/Bolivia, embassy closure,
+    # OAS rupture. No severity-5 tripwires currently defined.
+    # Today: never fires.
+
+    gate['any']    = any(gate[k] for k in ('kinetic', 'humanitarian', 'economic', 'diplomatic'))
+    gate['reason'] = '; '.join(reasons) if reasons else 'No L5 axis trigger fired (Peru is a resource-economy absorber; L5 reserved for crisis-class events)'
+
+    return gate
+
+
+def _build_peru_signal_text(theatre_level, theatre_score, vector_levels, actor_summaries, l5_capped=False):
+    """
+    Build short_text + long_text for Peru's theatre_high signal.
+    Returns dict {'short': str, 'long': str}.
+    """
+    # Identify top vectors at elevated+
+    vectors_active = []
+    if isinstance(vector_levels, dict):
+        for vec, lvl in vector_levels.items():
+            if lvl in ('elevated', 'high', 'surge'):
+                vectors_active.append(vec.replace('_', ' '))
+
+    vectors_brief = ', '.join(vectors_active[:3]) if vectors_active else 'baseline'
+
+    # Identify top actors at elevated+
+    actors_active = []
+    if isinstance(actor_summaries, dict):
+        for actor, summary in actor_summaries.items():
+            lvl = summary.get('level', 'low') if isinstance(summary, dict) else 'low'
+            if lvl in ('elevated', 'high', 'surge'):
+                actors_active.append(actor.replace('_', ' '))
+
+    actors_brief = ', '.join(actors_active[:3]) if actors_active else ''
+
+    label_map = {0: 'Monitoring', 1: 'Rhetoric', 2: 'Warning',
+                 3: 'Direct Threat', 4: 'Coercion', 5: 'Active Crisis'}
+    label = label_map.get(theatre_level, 'Monitoring')
+
+    short = f"🇵🇪 PERU L{theatre_level} {label} — {vectors_brief}"
+    if len(short) > 120:
+        short = short[:117] + '...'
+
+    long_parts = [f"🇵🇪 PERU at L{theatre_level} {label} (theatre score {theatre_score}/100)."]
+    if vectors_active:
+        long_parts.append(f"Active vectors: {vectors_brief}.")
+    if actors_active:
+        long_parts.append(f"Top actors: {actors_brief}.")
+    if l5_capped:
+        long_parts.append("L5 axis gate did not fire — capped at L4 ceiling per platform L5 Reservation Contract.")
+    else:
+        long_parts.append("Peru is a resource-economy absorber-class tracker; reads commodity pressure and US/China alignment.")
+
+    return {'short': short, 'long': ' '.join(long_parts)}
+
+
+# ============================================
 # MAIN SCAN ORCHESTRATOR
 # ============================================
 def scan_peru_rhetoric(force=False, days=7):
@@ -1232,9 +1346,32 @@ def scan_peru_rhetoric(force=False, days=7):
     # categorical composite_level + a free-running composite_score; map
     # them so the regional BLUF can ingest Peru cleanly alongside Cuba.
     LEVEL_TO_THEATRE_INT = {'low': 0, 'normal': 1, 'elevated': 2, 'high': 3, 'surge': 4}
-    theatre_level = LEVEL_TO_THEATRE_INT.get(composite_level, 0)
+    raw_theatre_level = LEVEL_TO_THEATRE_INT.get(composite_level, 0)
     # Cap theatre_score at 100 — composite_score is unbounded by design
     theatre_score = min(100, int(composite_score))
+
+    # ── L5 RESERVATION CONTRACT (v1.0.0 May 21 2026) ──
+    # Compute L5 gate; cap theatre_level at L4 if raw is L5 but gate didn't fire.
+    # Peru scaffolds today — no severity-5 tripwires yet. Gate is silent until
+    # weekend audit adds real L5-class triggers per axis.
+    l5_gate = _compute_peru_l5_gate(tripwires_global, actor_summaries, vector_scores)
+    if raw_theatre_level >= 5 and not l5_gate['any']:
+        theatre_level = 4
+        l5_capped = True
+        print(f"[Peru Rhetoric] L5 gate enforced: raw={raw_theatre_level} capped at L4 "
+              f"(reason: {l5_gate['reason']})")
+    else:
+        theatre_level = raw_theatre_level
+        l5_capped = False
+
+    # ── Build label + signal text for BLUF consumption ──
+    label_map_peru = {0: 'Monitoring', 1: 'Rhetoric', 2: 'Warning',
+                      3: 'Direct Threat', 4: 'Coercion', 5: 'Active Crisis'}
+    theatre_label = label_map_peru.get(theatre_level, 'Monitoring')
+
+    signal_text = _build_peru_signal_text(
+        theatre_level, theatre_score, vector_levels, actor_summaries, l5_capped,
+    )
 
     scan_time = round(time.time() - scan_start, 1)
 
@@ -1246,6 +1383,15 @@ def scan_peru_rhetoric(force=False, days=7):
         # BLUF compatibility shim — see definitions above
         'theatre_level':         theatre_level,
         'theatre_score':         theatre_score,
+
+        # ── L5 Reservation Contract fields (v1.0.0 May 21 2026) ──
+        'theatre_label':         theatre_label,
+        'signal_text_short':     signal_text['short'],
+        'signal_text_long':      signal_text['long'],
+        'l5_gate':               l5_gate,
+        'raw_theatre_level':     raw_theatre_level,
+        'l5_capped':             l5_capped,
+        'source_class':          'absorber',  # resource-economy absorber; reads commodity pressure + US/CN alignment
         'vector_scores':         vector_scores,
         'vector_levels':         vector_levels,
         'actor_summaries':       actor_summaries,
