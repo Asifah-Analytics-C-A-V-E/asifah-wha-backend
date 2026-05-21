@@ -92,7 +92,8 @@ THEATRE_DISPLAY = {
 }
 
 # Top-N signals emitted to GPI (matches ME / Asia pattern)
-TOP_SIGNALS_COUNT = 5
+TOP_SIGNALS_COUNT = 12      # v2.4.0 May 21 2026 — bumped from 5; supports per-theatre quota
+MAX_PER_THEATRE   = 3       # v2.4.0 May 21 2026 — per-tracker quota during selection
 
 # Our synthesis cache
 BLUF_CACHE_KEY    = 'rhetoric:wha:regional_bluf'
@@ -811,14 +812,23 @@ def _build_signals(posture, trackers):
     # Global sort
     all_signals.sort(key=lambda x: x.get('priority', 0), reverse=True)
 
-    # Dedupe by (theatre, category)
-    seen = set()
-    deduped = []
+    # Dedupe by (theatre, category) AND enforce per-theatre quota (v2.4.0 May 21 2026)
+    # Per-tracker quota: max MAX_PER_THEATRE signals per country tracker.
+    # Cross-tracker signals (theatre='regional', e.g. wha_cascade) bypass the
+    # quota — they're platform-level convergence signals, not per-country emissions.
+    seen           = set()
+    theatre_counts = {}
+    deduped        = []
     for s in all_signals:
-        key = f'{s.get("theatre", "")}:{s.get("category", "")}'
-        if key not in seen:
-            seen.add(key)
-            deduped.append(s)
+        theatre = s.get('theatre', '')
+        key     = f'{theatre}:{s.get("category", "")}'
+        if key in seen:
+            continue
+        if theatre != 'regional' and theatre_counts.get(theatre, 0) >= MAX_PER_THEATRE:
+            continue
+        seen.add(key)
+        theatre_counts[theatre] = theatre_counts.get(theatre, 0) + 1
+        deduped.append(s)
 
     if not deduped:
         deduped.append({
