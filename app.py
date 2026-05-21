@@ -1599,8 +1599,18 @@ if CHILE_RHETORIC_AVAILABLE:
     register_chile_rhetoric_endpoints(app)
 
 # Register US Rhetoric tracker endpoints
-# to ME backend. The US tracker imports detect_jawboning_via_proxy from this
-# module to fire Trump signatures into the cross-theater fingerprint graph.
+# (/api/rhetoric/us, /api/rhetoric/us/debug)
+# 9 actors across 3 layers; cross-theater fingerprint reads from all 23 theaters.
+if US_RHETORIC_AVAILABLE:
+    register_us_rhetoric_endpoints(app)
+
+# Register Venezuela Rhetoric tracker endpoints
+# (/api/rhetoric/venezuela, /summary, /history, /refresh)
+# 16 actors / 6 vectors. Contract-native L5 gate with ceasefire-aware kinetic axis
+# (US-VZ détente suppresses kinetic L5 when active). Reads commodity pressure.
+if VENEZUELA_RHETORIC_AVAILABLE:
+    register_venezuela_rhetoric_endpoints(app)
+
 # Butterfly Proxy (May 16, 2026) — fetches cross-theater signal bundle
 # from ME backend's /api/butterfly/read/<consumer> endpoint. Caches 1h
 # locally. US tracker calls this; future Cuba/Mexico/Venezuela trackers
@@ -2094,6 +2104,19 @@ if CUBA_RHETORIC_AVAILABLE:
     start_cuba_rhetoric_refresh()
 
 # Start US Rhetoric tracker background refresh (12h cycle, 90s boot delay)
+# Reads cross-theater fingerprints from all 23 trackers. Writes fingerprint:us:current
+# that every other tracker reads back for cross-theater awareness.
+if US_RHETORIC_AVAILABLE:
+    start_us_rhetoric_refresh()
+
+# Start Venezuela Rhetoric tracker background refresh (12h cycle, 90s boot delay)
+# Reads US/CU/IR/RU/CN fingerprints + pulls commodity pressure for oil/gold/wheat.
+# Writes fingerprint:venezuela:current with canonical schema (diplomatic_active +
+# ceasefire_level + diplomatic_modifier so US tracker reads back the détente state).
+if VENEZUELA_RHETORIC_AVAILABLE:
+    start_venezuela_rhetoric_refresh()
+
+# Start US Stability periodic scanner (12h cycle, 90s boot delay)
 # Pulls fresh economic indicators, government composition, all keyword dimensions,
 # and military fingerprint reads. Writes composite score + 30-day history.
 if US_STABILITY_AVAILABLE:
