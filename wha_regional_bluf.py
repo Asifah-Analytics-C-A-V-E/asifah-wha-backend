@@ -55,8 +55,8 @@ TRACKER_KEYS = {
     'cuba':      'rhetoric:cuba:latest',
     'peru':      'rhetoric:peru:latest',
     'chile':     'rhetoric:chile:latest',
+    'venezuela': 'rhetoric:venezuela:latest',  # v2.5 May 21 2026 — first contract-native tracker
     # Future WHA trackers slot in here:
-    # 'venezuela':  'rhetoric:venezuela:latest',
     # 'haiti':      'rhetoric:haiti:latest',
     # 'mexico':     'rhetoric:mexico:latest',
     # 'panama':     'rhetoric:panama:latest',
@@ -752,6 +752,53 @@ def _build_bluf_prose(posture, trackers):
             else:
                 chile_desc += " — composite pressure elevated."
             parts.append(chile_desc)
+        elif theatre == 'venezuela' and threat >= 2:
+            # VZ uses 6-vector frame (v1.0.0 May 21 2026) — first contract-native tracker:
+            #   us_pressure, regime_legitimacy, adversary_access, oil_extraction,
+            #   migration_outflow, essequibo_dispute
+            # PLUS ceasefire-aware kinetic gate via US-VZ détente (active = L5 suppressor).
+            # VZ emits its own theatre_label/band ("Pressure Peak" at L4, "Active Crisis" at L5
+            # under canonical bands STABLE/ACTIVE/VOLATILE/CRISIS).
+            raw            = data.get('raw', {}) or {}
+            vectors        = raw.get('vectors', {}) or {}
+            l5_gate        = raw.get('l5_gate', {}) or {}
+            diplomatic_lvl = _safe_int(raw.get('diplomatic_level'))
+
+            us_pres_lvl    = _safe_int(vectors.get('us_pressure'))
+            regime_lvl     = _safe_int(vectors.get('regime_legitimacy'))
+            adversary_lvl  = _safe_int(vectors.get('adversary_access'))
+            oil_lvl        = _safe_int(vectors.get('oil_extraction'))
+            migration_lvl  = _safe_int(vectors.get('migration_outflow'))
+            essequibo_lvl  = _safe_int(vectors.get('essequibo_dispute'))
+
+            vz_desc = f"{display} composite L{threat}"
+            vector_phrases = []
+            if us_pres_lvl >= 2:
+                vector_phrases.append(f"U.S. pressure L{us_pres_lvl}")
+            if regime_lvl >= 2:
+                vector_phrases.append(f"regime legitimacy L{regime_lvl}")
+            if adversary_lvl >= 2:
+                vector_phrases.append(f"adversary access L{adversary_lvl}")
+            if oil_lvl >= 2:
+                vector_phrases.append(f"oil sector L{oil_lvl}")
+            if migration_lvl >= 2:
+                vector_phrases.append(f"migration outflow L{migration_lvl}")
+            if essequibo_lvl >= 3:
+                vector_phrases.append(f"Essequibo L{essequibo_lvl}")
+            if vector_phrases:
+                vz_desc += " — " + ", ".join(vector_phrases) + "."
+            else:
+                vz_desc += " — composite pressure elevated."
+
+            # Surface US-VZ détente status when active (acts as kinetic L5 suppressor)
+            if diplomatic_lvl >= 3:
+                vz_desc += f" US-VZ détente active (L{diplomatic_lvl}, de-escalator)."
+            # Surface ceasefire suppression if applicable
+            suppressed = l5_gate.get('l5_ceasefire_suppressed_sources') if isinstance(l5_gate, dict) else None
+            if suppressed:
+                vz_desc += " ⚠️ Underlying L5 pressure suppressed by détente."
+
+            parts.append(vz_desc)
         elif threat >= 3:
             # Generic treatment for other future trackers
             parts.append(f"{display} L{threat} — {ESCALATION_LABELS.get(threat, 'elevated')}.")
