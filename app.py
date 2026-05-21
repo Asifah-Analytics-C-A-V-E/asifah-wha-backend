@@ -114,6 +114,22 @@ except ImportError as e:
     US_RHETORIC_AVAILABLE = False
     print(f'[WHA Backend] WARNING: US rhetoric tracker unavailable ({e})')
 
+# Venezuela Rhetoric Tracker (v1.0.0 May 21 2026) — first contract-native build.
+# 16 actors / 6 vectors. Post-Maduro-arrest reality (Jan 3 2026): Delcy Rodríguez
+# is interim president, US-VZ détente acts as L5 kinetic suppressor (ceasefire-aware
+# gate). Reads cross-theater fingerprints from US/CU/IR/RU/CN. Wires commodity
+# pressure for oil/gold/wheat coupling signals. 12hr refresh cadence.
+try:
+    from rhetoric_tracker_venezuela import (
+        register_venezuela_rhetoric_endpoints,
+        start_background_refresh as start_venezuela_rhetoric_refresh,
+    )
+    VENEZUELA_RHETORIC_AVAILABLE = True
+    print('[WHA Backend] Venezuela rhetoric tracker module loaded')
+except ImportError as e:
+    VENEZUELA_RHETORIC_AVAILABLE = False
+    print(f'[WHA Backend] WARNING: Venezuela rhetoric tracker unavailable ({e})')
+
 # Jawboning proxy — forwards detection requests to ME backend's /api/jawboning/detect.
 # Used by rhetoric_tracker_us.py (and future Cuba/Mexico/Venezuela trackers) to fire
 # jawboning signatures from the shared ME-hosted catalog (jawboning_signatures.py +
@@ -1583,12 +1599,6 @@ if CHILE_RHETORIC_AVAILABLE:
     register_chile_rhetoric_endpoints(app)
 
 # Register US Rhetoric tracker endpoints
-# (/api/rhetoric/us, /api/rhetoric/us/debug)
-# 9 actors across 3 layers; cross-theater fingerprint reads from all 23 theaters.
-if US_RHETORIC_AVAILABLE:
-    register_us_rhetoric_endpoints(app)
-
-# Register jawboning proxy endpoints — forwards POST /api/wha/jawboning/detect
 # to ME backend. The US tracker imports detect_jawboning_via_proxy from this
 # module to fire Trump signatures into the cross-theater fingerprint graph.
 # Butterfly Proxy (May 16, 2026) — fetches cross-theater signal bundle
@@ -2084,12 +2094,6 @@ if CUBA_RHETORIC_AVAILABLE:
     start_cuba_rhetoric_refresh()
 
 # Start US Rhetoric tracker background refresh (12h cycle, 90s boot delay)
-# Reads cross-theater fingerprints from all 23 trackers. Writes fingerprint:us:current
-# that every other tracker reads back for cross-theater awareness.
-if US_RHETORIC_AVAILABLE:
-    start_us_rhetoric_refresh()
-
-# Start US Stability periodic scanner (12h cycle, 90s boot delay)
 # Pulls fresh economic indicators, government composition, all keyword dimensions,
 # and military fingerprint reads. Writes composite score + 30-day history.
 if US_STABILITY_AVAILABLE:
