@@ -65,6 +65,25 @@ from urllib.parse import quote_plus
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from flask import request, jsonify
 
+# ── Signal interpreter (red lines + so-what + executive summary) ──
+try:
+    from venezuela_signal_interpreter import interpret_venezuela_signals
+    INTERPRETER_AVAILABLE = True
+except ImportError:
+    print('[VZ Rhetoric] WARNING: venezuela_signal_interpreter not available')
+    INTERPRETER_AVAILABLE = False
+
+# ── Commodity proxy (pulls oil/gold/wheat pressure from ME backend) ──
+try:
+    from commodity_proxy_wha import (
+        get_commodity_pressure,
+        get_commodity_fingerprints_for_country,
+    )
+    COMMODITY_PROXY_AVAILABLE = True
+except ImportError:
+    print('[VZ Rhetoric] WARNING: commodity_proxy_wha not available')
+    COMMODITY_PROXY_AVAILABLE = False
+
 # ════════════════════════════════════════════════════════════════════
 # REDIS CONFIG
 # ════════════════════════════════════════════════════════════════════
@@ -75,7 +94,10 @@ RHETORIC_CACHE_KEY  = 'rhetoric:venezuela:latest'
 SUMMARY_CACHE_KEY   = 'rhetoric:venezuela:summary'
 HISTORY_KEY         = 'rhetoric:venezuela:history'
 FINGERPRINT_KEY     = 'fingerprint:venezuela:current'
-CACHE_TTL           = 3600  # 1hr default
+
+# 12-hour refresh cadence (matches Cuba + other WHA trackers)
+SCAN_INTERVAL_HOURS = 12
+CACHE_TTL           = SCAN_INTERVAL_HOURS * 3600  # 43200 = 12 hours
 
 # ════════════════════════════════════════════════════════════════════
 # API KEYS
@@ -1926,6 +1948,24 @@ def run_venezuela_rhetoric_scan(force=False):
         cross_theater_fps = _read_crosstheater_fingerprints()
         print(f'[VZ Rhetoric] Read fingerprints from {len(cross_theater_fps)} theaters: {list(cross_theater_fps.keys())}')
 
+        # Phase 4.5: commodity pull (VZ-specific: oil + gold + wheat pressure from ME backend)
+        commodity_pressure = {}
+        commodity_fingerprints = {}
+        if COMMODITY_PROXY_AVAILABLE:
+            try:
+                print('[VZ Rhetoric] Phase 4.5: pulling commodity pressure...')
+                commodity_pressure = get_commodity_pressure('venezuela') or {}
+                commodity_fingerprints = get_commodity_fingerprints_for_country('venezuela') or {}
+                print(f"[VZ Rhetoric] Commodity pressure: {commodity_pressure.get('commodity_pressure', 0)}, "
+                      f"alert: {commodity_pressure.get('alert_level', 'unknown')}, "
+                      f"fingerprints: {list(commodity_fingerprints.get('fingerprints', {}).keys())}")
+            except Exception as e:
+                print(f'[VZ Rhetoric] Commodity pull failed: {type(e).__name__}: {e}')
+                commodity_pressure = {}
+                commodity_fingerprints = {}
+        else:
+            print('[VZ Rhetoric] Phase 4.5: commodity proxy unavailable, skipping')
+
         # Phase 5: vectors
         vectors = _compute_vectors(actor_results, civ_press_lvl, oil_lvl,
                                    essequibo_lvl, mig_net_mod)
@@ -1961,6 +2001,46 @@ def run_venezuela_rhetoric_scan(force=False):
         top_signals = _build_top_signals(theatre_level, composite, signal_text,
                                          vectors, civ_press_lvl, oil_lvl,
                                          essequibo_lvl, l5_gate)
+
+        # Phase 9.5: signal interpreter (red lines + executive summary + so-what)
+        # Mid-scan call so we can include outputs in the result dict.
+        # We pass a PRELIM scan_data snapshot containing what's been computed.
+        interpreter_output = {}
+        if INTERPRETER_AVAILABLE:
+            try:
+                prelim_scan_data = {
+                    'theatre_level':            theatre_level,
+                    'theatre_label':            theatre_label,
+                    'theatre_score':            composite,
+                    'vectors':                  vectors,
+                    'civilian_pressure_level':  civ_press_lvl,
+                    'civilian_pressure_signals': civ_signals,
+                    'oil_extraction_level':     oil_lvl,
+                    'oil_extraction_signals':   oil_signals,
+                    'essequibo_level':          essequibo_lvl,
+                    'essequibo_signals':        essequibo_signals,
+                    'migration_out_signals':    mig_out_signals,
+                    'migration_net_modifier':   mig_net_mod,
+                    'diplomatic_level':         diplomatic_lvl,
+                    'l5_gate':                  l5_gate,
+                    'actors':                   {k: {kk: v[kk] for kk in v if kk != 'articles'}
+                                                 for k, v in actor_results.items()},
+                    'commodity_pressure':       commodity_pressure,
+                    'commodity_fingerprints':   commodity_fingerprints,
+                }
+                interpreter_output = interpret_venezuela_signals(prelim_scan_data)
+                print(f"[VZ Rhetoric] Interpreter: {interpreter_output.get('red_lines_count', 0)} red lines, "
+                      f"scenario: {interpreter_output.get('so_what', {}).get('scenario', 'unknown')}")
+
+                # Merge commodity-driven top_signals from interpreter into our top_signals
+                commodity_top_signals = interpreter_output.get('commodity_top_signals', [])
+                if commodity_top_signals:
+                    top_signals.extend(commodity_top_signals)
+                    # Resort by priority
+                    top_signals.sort(key=lambda s: -s.get('priority', 0))
+            except Exception as e:
+                print(f'[VZ Rhetoric] Interpreter failed: {type(e).__name__}: {e}')
+                interpreter_output = {}
 
         # Phase 10: fingerprint write
         fingerprint = _write_vz_fingerprint(actor_results, vectors, civ_press_lvl,
@@ -2031,6 +2111,16 @@ def run_venezuela_rhetoric_scan(force=False):
             # ── Cross-theater ──
             'cross_theater_fps_keys':   list(cross_theater_fps.keys()),
 
+            # ── Commodity pressure (from commodity_proxy_wha) ──
+            'commodity_pressure':       commodity_pressure,
+            'commodity_fingerprints':   commodity_fingerprints,
+
+            # ── Signal interpreter output ──
+            'red_lines':                interpreter_output.get('red_lines', []) if interpreter_output else [],
+            'red_lines_count':          interpreter_output.get('red_lines_count', 0) if interpreter_output else 0,
+            'executive_summary':        interpreter_output.get('executive_summary', {}) if interpreter_output else {},
+            'so_what':                  interpreter_output.get('so_what', {}) if interpreter_output else {},
+
             # ── Fingerprint ──
             'fingerprint':              fingerprint,
 
@@ -2090,17 +2180,27 @@ def get_venezuela_rhetoric_cache():
 
 
 def _background_refresh():
-    """Background scan trigger."""
-    try:
-        run_venezuela_rhetoric_scan(force=True)
-    except Exception as e:
-        print(f'[VZ Rhetoric] Background refresh failed: {e}')
+    """
+    Background thread: refresh VZ scan every SCAN_INTERVAL_HOURS hours.
+    Boot delay lets Render warm up before first scan kicks off.
+    Pattern mirrors Cuba/Chile/Peru/US — canonical platform behavior.
+    """
+    time.sleep(90)  # Boot delay — let Render warm up
+    while True:
+        try:
+            print(f'[VZ Rhetoric] Background refresh starting...')
+            run_venezuela_rhetoric_scan(force=True)
+        except Exception as e:
+            print(f'[VZ Rhetoric] Background refresh error: {str(e)[:120]}')
+        # Sleep until next scheduled refresh
+        time.sleep(SCAN_INTERVAL_HOURS * 3600)
 
 
 def start_background_refresh():
-    """Start a background refresh thread."""
+    """Start the persistent background refresh thread (12hr cadence)."""
     t = threading.Thread(target=_background_refresh, daemon=True)
     t.start()
+    print(f'[VZ Rhetoric] Background refresh thread started — every {SCAN_INTERVAL_HOURS}hr')
     return t
 
 
