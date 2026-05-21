@@ -1582,6 +1582,34 @@ def run_us_rhetoric_scan(force=False):
             print("[US Rhetoric] Phase 5.5: jawboning primitive unavailable — skipping")
 
         # Phase 6: write fingerprint
+        fingerprint = _write_us_fingerprint(actor_results, composite, branch_div, fracture, outbound_targets)
+
+        # ── L5 Reservation Contract: build signal text now that branch_div + fracture exist ──
+        signal_text = _build_us_signal_text(
+            theatre_level, tier_band, composite, branch_div, fracture,
+            outbound_targets, l5_gate, l5_capped,
+        )
+
+        # Phase 7: build full result
+        elapsed = round(time.time() - start_time, 1)
+        result = {
+            'composite_score':         composite,
+            'tier':                    tier_lvl,
+            'tier_name':               tier_name,
+            'tier_band':               tier_band,
+            'tier_icon':               tier_icon,
+            'tier_description':        tier_desc,
+
+            # ── L5 Reservation Contract fields (v1.0.0 May 21 2026) ──
+            'theatre_level':           theatre_level,
+            'theatre_score':           composite,           # alias for BLUF compatibility
+            'theatre_label':           theatre_label,
+            'signal_text_short':       signal_text['short'],
+            'signal_text_long':        signal_text['long'],
+            'l5_gate':                 l5_gate,
+            'raw_theatre_level':       raw_theatre_level,
+            'l5_capped':               l5_capped,
+            'source_class':            'command_node_anchor',  # US is command-node + platform anchor tracker
             'actors':                  {k: {kk: v[kk] for kk in v if kk != 'articles'}
                                         for k, v in actor_results.items()},
             'cross_theater_fps':       cross_theater_fps,
