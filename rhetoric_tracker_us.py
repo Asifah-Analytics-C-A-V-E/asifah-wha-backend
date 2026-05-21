@@ -1296,6 +1296,177 @@ _scan_lock    = threading.Lock()
 _scan_running = False
 
 
+# ════════════════════════════════════════════════════════════════════
+# L5 RESERVATION CONTRACT (v1.0.0 — May 21 2026)
+# ════════════════════════════════════════════════════════════════════
+#
+# CEASEFIRE_PARTNERS: theaters where US has an active diplomatic/ceasefire
+# track. When kinetic L5 conditions are detected with a partner that has
+# an active ceasefire (diplomatic_active=True AND ceasefire_level>=3),
+# the L5 trigger is SUPPRESSED for that source. Other kinetic sources
+# (or domestic) still fire normally.
+#
+# Today: Iran is the only active US ceasefire partner (May 21, 2026).
+# Future: add 'russia', 'dprk', etc. when ceasefires emerge. The platform's
+# canonical schema is consistent — diplomatic_active (bool) +
+# ceasefire_level (0-5) + diplomatic_modifier (negative int) across all
+# tracker fingerprints.
+CEASEFIRE_PARTNERS  = ['iran']
+CEASEFIRE_THRESHOLD = 3  # ceasefire_level >= 3 = framework agreed or better
+
+# Map tier_lvl string ('L0'-'L5') to integer 0-5 for BLUF compatibility
+def _us_tier_to_int(tier_str):
+    """Convert tier string like 'L4' to integer 4. Defaults to 0."""
+    if isinstance(tier_str, str) and tier_str.startswith('L'):
+        try:
+            return int(tier_str[1:])
+        except (ValueError, IndexError):
+            return 0
+    return 0
+
+
+def _compute_us_l5_gate(tier_lvl, actor_results, cross_theater_fps, outbound_targets):
+    """
+    Per platform L5 Reservation Contract: US L5 "Crisis" requires
+    an explicit kinetic / humanitarian / economic / diplomatic L5 trigger.
+
+    US is a command-node + anchor tracker. Real L5 events ARE possible
+    (2008-class economic collapse, constitutional crisis, mass-casualty
+    domestic event, active hot war). Kinetic axis gets REAL ceasefire-aware
+    logic because US-Iran is in active ceasefire (May 21 2026).
+    Humanitarian / Economic / Diplomatic axes scaffold for weekend audit.
+
+    Returns dict with axis flags + reason + ceasefire-suppression transparency.
+    """
+    gate = {
+        'kinetic':                        False,
+        'humanitarian':                   False,
+        'economic':                       False,
+        'diplomatic':                     False,
+        'reason':                         '',
+        'any':                            False,
+        'l5_ceasefire_suppressed_sources': [],
+    }
+    reasons = []
+
+    # ── KINETIC L5 (REAL — ceasefire-aware) ──
+    # Fires when US defense+executive actors at L4+ AND outbound targeting
+    # specific theaters at high mention count. Per-source suppression if
+    # that source has active ceasefire with US.
+    defense_lvl   = _us_tier_to_int(actor_results.get('us_defense', {}).get('tier', 'L0'))
+    executive_lvl = _us_tier_to_int(actor_results.get('us_executive', {}).get('tier', 'L0'))
+
+    if defense_lvl >= 4 or executive_lvl >= 4:
+        # Detect potential kinetic L5 sources (top outbound targets)
+        potential_sources = []
+        for target in (outbound_targets or [])[:5]:
+            country  = target.get('country', '')
+            mentions = target.get('mention_count', 0)
+            if mentions >= 5 and country:
+                potential_sources.append({
+                    'source':   country,
+                    'reason':   f'US defense L{defense_lvl} + executive L{executive_lvl}; {mentions} outbound mentions',
+                    'mentions': mentions,
+                })
+
+        # Filter through ceasefire awareness
+        kinetic_fired = []
+        for src in potential_sources:
+            source = src['source']
+            if source in CEASEFIRE_PARTNERS:
+                partner_fp = cross_theater_fps.get(source, {}) if isinstance(cross_theater_fps, dict) else {}
+                if (partner_fp.get('diplomatic_active') and
+                    partner_fp.get('ceasefire_level', 0) >= CEASEFIRE_THRESHOLD):
+                    gate['l5_ceasefire_suppressed_sources'].append({
+                        'source':           source,
+                        'reason':           src['reason'],
+                        'ceasefire_level':  partner_fp.get('ceasefire_level', 0),
+                        'note':             f'Kinetic L5 conditions present vs {source.upper()}; suppressed by active ceasefire (level {partner_fp.get("ceasefire_level", 0)})',
+                    })
+                    continue
+            kinetic_fired.append(src)
+
+        # Gate fires if ANY kinetic source survived ceasefire filtering
+        if kinetic_fired:
+            gate['kinetic'] = True
+            sources_str = ', '.join(s['source'].upper() for s in kinetic_fired)
+            reasons.append(f'Kinetic: US operational posture vs {sources_str} (defense L{defense_lvl}, exec L{executive_lvl})')
+
+    # ── HUMANITARIAN L5 (scaffold — refine in weekend audit) ──
+    # Would fire on: Katrina-class disaster IDPs, mass political IDPs,
+    # major famine/food crisis. No detection logic yet.
+    # Today: never fires.
+
+    # ── ECONOMIC L5 (scaffold — refine in weekend audit) ──
+    # Would fire on: 2008-class systemic collapse, sovereign debt crisis,
+    # mass bank failures. us_federal_reserve actor would be key signal.
+    # No detection logic yet. Today: never fires.
+
+    # ── DIPLOMATIC L5 (scaffold — refine in weekend audit) ──
+    # Would fire on: mass allied PNG/embassy closure, NATO rupture,
+    # constitutional crisis with foreign isolation. branch_divergence_score
+    # would be key signal. No detection logic yet. Today: never fires.
+
+    gate['any']    = any(gate[k] for k in ('kinetic', 'humanitarian', 'economic', 'diplomatic'))
+    if reasons:
+        gate['reason'] = '; '.join(reasons)
+    elif gate['l5_ceasefire_suppressed_sources']:
+        gate['reason'] = f"L5 conditions suppressed by active ceasefire(s) with: {', '.join(s['source'] for s in gate['l5_ceasefire_suppressed_sources'])}"
+    else:
+        gate['reason'] = 'No L5 axis trigger fired'
+
+    return gate
+
+
+def _build_us_signal_text(theatre_level, tier_band, composite, branch_div, fracture,
+                           outbound_targets, l5_gate, l5_capped=False):
+    """
+    Build short_text + long_text for US's theatre_high signal.
+    Returns dict {'short': str, 'long': str}.
+    """
+    label_map = {0: 'Stable', 1: 'Active', 2: 'Active+', 3: 'Volatile',
+                 4: 'Volatile+', 5: 'Crisis'}
+    label = label_map.get(theatre_level, 'Stable')
+
+    # Top outbound targets
+    targets_brief = ''
+    if outbound_targets:
+        top_3 = [t.get('country', '').upper() for t in outbound_targets[:3] if t.get('country')]
+        if top_3:
+            targets_brief = ', '.join(top_3)
+
+    # Short text: prioritize ceasefire transparency if suppression fired
+    suppressed = l5_gate.get('l5_ceasefire_suppressed_sources', []) if isinstance(l5_gate, dict) else []
+    if suppressed:
+        suppressed_brief = ', '.join(s.get('source', '').upper() for s in suppressed)
+        short = f"🇺🇸 US L{theatre_level} {label} — ceasefire holding vs {suppressed_brief}"
+    elif targets_brief:
+        short = f"🇺🇸 US L{theatre_level} {label} — outbound focus: {targets_brief}"
+    else:
+        short = f"🇺🇸 US L{theatre_level} {label}"
+
+    if len(short) > 120:
+        short = short[:117] + '...'
+
+    # Long text: full picture
+    long_parts = [f"🇺🇸 US at L{theatre_level} {label} (composite score {composite}/100, band {tier_band})."]
+    if branch_div is not None:
+        long_parts.append(f"Branch divergence: {branch_div}.")
+    if fracture is not None:
+        long_parts.append(f"Domestic fracture: {fracture}.")
+    if targets_brief:
+        long_parts.append(f"Outbound targeting: {targets_brief}.")
+    if suppressed:
+        for s in suppressed:
+            long_parts.append(f"⚠️ L5 conditions present vs {s.get('source', '').upper()} but suppressed by active ceasefire (level {s.get('ceasefire_level', 0)}).")
+    if l5_capped:
+        long_parts.append("L5 axis gate did not fire — capped at L4 ceiling per platform L5 Reservation Contract.")
+    else:
+        long_parts.append("US is a command-node + anchor tracker; reads outbound rhetoric and 5+ cross-theater fingerprints.")
+
+    return {'short': short, 'long': ' '.join(long_parts)}
+
+
 def run_us_rhetoric_scan(force=False):
     """Run a full US rhetoric scan. Returns the result dict."""
     global _scan_running
@@ -1330,6 +1501,25 @@ def run_us_rhetoric_scan(force=False):
 
         outbound_targets = _detect_outbound_targets(actor_results, cross_theater_fps)
         print(f"[US Rhetoric] Outbound targets detected: {[t['country'] for t in outbound_targets[:5]]}")
+
+        # ── L5 RESERVATION CONTRACT (v1.0.0 May 21 2026) ──
+        # Map tier_lvl (string 'L0'-'L5') to integer for BLUF compatibility,
+        # compute L5 gate (ceasefire-aware for kinetic axis), build signal text.
+        raw_theatre_level = _us_tier_to_int(tier_lvl)
+        l5_gate = _compute_us_l5_gate(tier_lvl, actor_results, cross_theater_fps, outbound_targets)
+        if raw_theatre_level >= 5 and not l5_gate['any']:
+            theatre_level = 4
+            l5_capped = True
+            print(f"[US Rhetoric] L5 gate enforced: raw={raw_theatre_level} capped at L4 "
+                  f"(reason: {l5_gate['reason']})")
+        else:
+            theatre_level = raw_theatre_level
+            l5_capped = False
+
+        # ── Build label + signal text for BLUF consumption ──
+        us_label_map = {0: 'Stable', 1: 'Active', 2: 'Active+', 3: 'Volatile',
+                        4: 'Volatile+', 5: 'Crisis'}
+        theatre_label = us_label_map.get(theatre_level, 'Stable')
 
         # Phase 5: branch divergence + domestic fracture (interpreter)
         if INTERPRETER_AVAILABLE:
@@ -1392,17 +1582,6 @@ def run_us_rhetoric_scan(force=False):
             print("[US Rhetoric] Phase 5.5: jawboning primitive unavailable — skipping")
 
         # Phase 6: write fingerprint
-        fingerprint = _write_us_fingerprint(actor_results, composite, branch_div, fracture, outbound_targets)
-
-        # Phase 7: build full result
-        elapsed = round(time.time() - start_time, 1)
-        result = {
-            'composite_score':         composite,
-            'tier':                    tier_lvl,
-            'tier_name':               tier_name,
-            'tier_band':               tier_band,
-            'tier_icon':               tier_icon,
-            'tier_description':        tier_desc,
             'actors':                  {k: {kk: v[kk] for kk in v if kk != 'articles'}
                                         for k, v in actor_results.items()},
             'cross_theater_fps':       cross_theater_fps,
