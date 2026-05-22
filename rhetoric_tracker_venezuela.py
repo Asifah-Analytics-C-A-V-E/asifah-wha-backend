@@ -2164,11 +2164,15 @@ def run_venezuela_rhetoric_scan(force=False):
         )}
         _redis_set(SUMMARY_CACHE_KEY, compact, ttl=CACHE_TTL)
 
-        # Phase 13: history snapshot
+        # ── Phase 13: canonical history snapshot (May 22 2026 reconciled schema) ──
+        # Universal fields read by wha_regional_bluf.prose_v2:
+        #   theatre_level, theatre_score, scanned_at, red_lines_count
+        # Plus VZ-specific vector levels.
         snapshot = {
-            'date':              datetime.now(timezone.utc).strftime('%Y-%m-%d'),
             'theatre_level':     theatre_level,
             'theatre_score':     composite,
+            'scanned_at':        result.get('scanned_at') or datetime.now(timezone.utc).isoformat(),
+            'red_lines_count':   len(interpreter_output.get('red_lines', [])) if interpreter_output else 0,
             'civilian_pressure': civ_press_lvl,
             'oil_extraction':    oil_lvl,
             'essequibo':         essequibo_lvl,
