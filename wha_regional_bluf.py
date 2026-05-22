@@ -818,6 +818,375 @@ def _build_bluf_prose(posture, trackers):
     return ' '.join(parts)
 
 
+# ════════════════════════════════════════════════════════════════════════
+# BLUF PROSE v2 — Human-language regional analytical summary
+# Added: May 22 2026
+# ────────────────────────────────────────────────────────────────────────
+# Design goals (per editorial decisions May 22 2026 session):
+#   Q1: Lead with regional posture, then dive into most-volatile theater
+#   Q2: Pull each tracker's so_what.factor into the prose (best signal)
+#   Q3: Add directional language ("up from L3 last cycle") via history reads
+#
+# Data contract (May 22 2026 reconciled schema):
+#   Each tracker writes 4 canonical fields to {tracker}:history Redis list:
+#     theatre_level, theatre_score, scanned_at, red_lines_count
+#   + tracker-specific vector levels (read by prose_v2 only when present)
+#
+# Graceful degradation:
+#   - Tracker has no history -> no direction language for that tracker
+#   - Tracker missing so_what.factor -> falls back to vector enumeration
+#   - All trackers missing data -> emits "data not available" version
+#
+# Reusability:
+#   This block is portable to me_regional_bluf, asia_regional_bluf,
+#   europe_regional_bluf with only theatre-name lookups customized.
+# ════════════════════════════════════════════════════════════════════════
+
+# Theatre-display names for prose (proper-noun capitalization).
+THEATRE_DISPLAY_NAMES = {
+    'cuba':      'Cuba',
+    'peru':      'Peru',
+    'chile':     'Chile',
+    'venezuela': 'Venezuela',
+    'haiti':     'Haiti',
+    'mexico':    'Mexico',
+    'panama':    'Panama',
+    'colombia':  'Colombia',
+    'brazil':    'Brazil',
+    'us':        'the United States',
+}
+
+
+def _read_history_snapshot(theatre, depth=3):
+    """
+    Read the last N history snapshots for a theatre from Redis.
+
+    Returns a list of snapshot dicts (most recent first), or [] on miss/error.
+    Each snapshot is guaranteed to be a dict with at least 'theatre_level' if
+    the tracker is on the canonical (May 22 2026) schema.
+    """
+    if not UPSTASH_REDIS_URL or not UPSTASH_REDIS_TOKEN:
+        return []
+    history_key = f'rhetoric:{theatre}:history'
+    try:
+        # LRANGE 0..depth-1 returns most recent snapshots first
+        url = f"{UPSTASH_REDIS_URL}/lrange/{history_key}/0/{depth - 1}"
+        resp = requests.get(
+            url,
+            headers={'Authorization': f'Bearer {UPSTASH_REDIS_TOKEN}'},
+            timeout=5,
+        )
+        if resp.status_code != 200:
+            return []
+        result = resp.json().get('result', [])
+        snapshots = []
+        for entry in result or []:
+            try:
+                snap = json.loads(entry) if isinstance(entry, str) else entry
+                if isinstance(snap, dict):
+                    snapshots.append(snap)
+            except (json.JSONDecodeError, TypeError):
+                continue
+        return snapshots
+    except Exception as e:
+        print(f"[WHA BLUF v2] History read error for {theatre}: {str(e)[:120]}")
+        return []
+
+
+def _compute_direction(current_level, history_snapshots):
+    """
+    Compare current theatre_level vs. the previous snapshot's level.
+
+    Returns dict with:
+        direction: 'up' | 'down' | 'steady' | 'first_scan' | 'no_history'
+        delta:     int (current - previous)
+        previous:  int previous level (or None)
+        phrase:    short human phrase for inline prose
+    """
+    if not history_snapshots:
+        return {'direction': 'no_history', 'delta': 0, 'previous': None, 'phrase': ''}
+
+    # Snapshots are stored most-recent-first via LPUSH.
+    # Index 0 IS the current scan, index 1 is the previous one.
+    if len(history_snapshots) < 2:
+        return {'direction': 'first_scan', 'delta': 0, 'previous': None, 'phrase': ''}
+
+    previous = history_snapshots[1]
+    prev_level = previous.get('theatre_level')
+    if prev_level is None:
+        return {'direction': 'no_history', 'delta': 0, 'previous': None, 'phrase': ''}
+
+    delta = current_level - prev_level
+
+    if delta > 0:
+        return {'direction': 'up', 'delta': delta, 'previous': prev_level,
+                'phrase': f'up from L{prev_level} last cycle'}
+    elif delta < 0:
+        return {'direction': 'down', 'delta': delta, 'previous': prev_level,
+                'phrase': f'down from L{prev_level} last cycle'}
+    else:
+        return {'direction': 'steady', 'delta': 0, 'previous': prev_level,
+                'phrase': f'steady at L{current_level}'}
+
+
+def _extract_so_what_phrase(raw_data):
+    """
+    Pull a short analytical phrase from a tracker's so_what dict.
+
+    Normalizes 3 different so_what shapes:
+        - {factor, scenario, description, watch_for}  (VZ/Peru/Chile)
+        - {scenario, ...}                              (Cuba legacy)
+        - missing -> return ''
+    """
+    if not isinstance(raw_data, dict):
+        return ''
+    so_what = raw_data.get('so_what')
+    if not isinstance(so_what, dict):
+        return ''
+
+    factor = so_what.get('factor')
+    if factor and isinstance(factor, str) and factor.strip():
+        return factor.strip()
+
+    scenario = so_what.get('scenario')
+    if scenario and isinstance(scenario, str) and scenario.strip():
+        # snake_case -> readable
+        return scenario.replace('_', ' ').strip()
+
+    return ''
+
+
+def _extract_active_vectors(raw_data, threshold=2):
+    """
+    Return vector-level fields at or above threshold as (display_name, level) tuples.
+
+    Normalizes 3 different vector shapes:
+        - VZ:    raw['vectors'] = {us_pressure: 3, ...}                   (int)
+        - Peru:  raw['vector_levels'] = {'domestic_stability': 'high', ...} (string)
+        - Chile: raw['vector_levels'] = {...}                              (string)
+        - Cuba:  raw['us_pressure'] = 3 (flat top-level)                   (int)
+    """
+    if not isinstance(raw_data, dict):
+        return []
+
+    VECTOR_LVL_INT = {'low': 0, 'normal': 1, 'elevated': 2, 'high': 3, 'surge': 4}
+
+    VECTOR_DISPLAY = {
+        'us_pressure':         'U.S. pressure',
+        'regime_legitimacy':   'regime legitimacy',
+        'regime_fracture':     'regime fracture',
+        'adversary_access':    'adversary access',
+        'oil_extraction':      'oil sector',
+        'migration_outflow':   'migration outflow',
+        'essequibo_dispute':   'Essequibo dispute',
+        'domestic_stability':  'domestic stability',
+        'resource_sector':     'resource sector',
+        'us_alignment':        'U.S. alignment',
+        'china_alignment':     'China alignment',
+    }
+
+    active = []
+
+    # VZ pattern (raw.vectors, int values)
+    vectors = raw_data.get('vectors')
+    if isinstance(vectors, dict):
+        for key, val in vectors.items():
+            try:
+                lvl = int(val)
+                if lvl >= threshold:
+                    active.append((VECTOR_DISPLAY.get(key, key.replace('_', ' ')), lvl))
+            except (ValueError, TypeError):
+                continue
+        return sorted(active, key=lambda x: -x[1])
+
+    # Peru/Chile pattern (raw.vector_levels, string OR int)
+    vector_levels = raw_data.get('vector_levels')
+    if isinstance(vector_levels, dict):
+        for key, val in vector_levels.items():
+            if isinstance(val, str):
+                lvl = VECTOR_LVL_INT.get(val, 0)
+            elif isinstance(val, int):
+                lvl = val
+            else:
+                lvl = 0
+            if lvl >= threshold:
+                active.append((VECTOR_DISPLAY.get(key, key.replace('_', ' ')), lvl))
+        return sorted(active, key=lambda x: -x[1])
+
+    # Cuba pattern (flat top-level)
+    for key in ['us_pressure', 'regime_fracture', 'adversary_access']:
+        val = raw_data.get(key)
+        try:
+            lvl = int(val) if val is not None else 0
+            if lvl >= threshold:
+                active.append((VECTOR_DISPLAY.get(key, key.replace('_', ' ')), lvl))
+        except (ValueError, TypeError):
+            continue
+    return sorted(active, key=lambda x: -x[1])
+
+
+def _build_bluf_prose_v2(posture, trackers):
+    """
+    BLUF prose v2 — human-language regional analytical summary.
+
+    Structure (per editorial decisions May 22 2026):
+        Para 1: Regional posture headline + theater count + most-volatile theater dive
+                with so_what.factor + active vectors + directional language
+        Para 2: Soft-name the other elevated theaters (L2+) with brief factor
+        Para 3: Cascade closer
+
+    Graceful degradation: missing data fields adapt the prose, never error.
+    """
+    if not trackers:
+        return ('Western Hemisphere Rhetoric Monitor: no live tracker data '
+                'available at this scan. BLUF will populate as trackers come online.')
+
+    today = datetime.now(timezone.utc).strftime('%B %d, %Y')
+    posture_label = posture.get('label', 'BASELINE')
+    peak_level = posture.get('peak_level', 0)
+    theatres_at_l3plus = posture.get('theatres_at_l3plus', 0)
+    breached = posture.get('breached_count', 0)
+
+    # Sort trackers by threat level descending (most-volatile first)
+    sorted_theatres = sorted(
+        trackers.items(),
+        key=lambda kv: -kv[1].get('levels', {}).get('threat', 0),
+    )
+
+    # ════════ PARA 1: Posture + most-volatile theater dive ════════
+    para1_parts = [f"**Western Hemisphere -- {today}**"]
+
+    n_live = len(trackers)
+    if theatres_at_l3plus >= 2:
+        posture_sentence = (
+            f"Regional posture at {posture_label}, with {theatres_at_l3plus} theaters "
+            f"at L3 or higher simultaneously across {n_live} live trackers."
+        )
+    elif peak_level >= 3:
+        posture_sentence = (
+            f"Regional posture at {posture_label}, with peak escalation L{peak_level} "
+            f"across {n_live} live trackers."
+        )
+    else:
+        posture_sentence = (
+            f"Regional posture at {posture_label} -- {n_live} live trackers, "
+            f"peak L{peak_level} (baseline range)."
+        )
+    if breached >= 1:
+        posture_sentence += f" {breached} red line{'s' if breached > 1 else ''} breached."
+
+    para1_parts.append(posture_sentence)
+
+    # Dive into top theater
+    top_theatre, top_data = sorted_theatres[0]
+    top_level = top_data.get('levels', {}).get('threat', 0)
+    top_name = THEATRE_DISPLAY_NAMES.get(top_theatre, top_theatre.title())
+    top_raw = top_data.get('raw', {}) or {}
+
+    top_history = _read_history_snapshot(top_theatre, depth=3)
+    top_direction = _compute_direction(top_level, top_history)
+    top_factor = _extract_so_what_phrase(top_raw)
+    top_vectors = _extract_active_vectors(top_raw, threshold=2)
+
+    if top_level >= 3:
+        dive = f"The most volatile theater is **{top_name}** (composite L{top_level}"
+        if top_direction.get('phrase'):
+            dive += f", {top_direction['phrase']}"
+        dive += ")"
+        if top_factor:
+            dive += f" -- analytical read: {top_factor}."
+        else:
+            dive += "."
+        if top_vectors:
+            top_3 = top_vectors[:3]
+            vec_phrases = [f"{name} L{lvl}" for name, lvl in top_3]
+            dive += f" Active vectors: {', '.join(vec_phrases)}."
+        para1_parts.append(dive)
+    elif top_level >= 1:
+        dive = f"Highest tracker is **{top_name}** at L{top_level}"
+        if top_direction.get('phrase'):
+            dive += f" ({top_direction['phrase']})"
+        if top_factor:
+            dive += f" -- {top_factor}."
+        else:
+            dive += "."
+        para1_parts.append(dive)
+
+    # ════════ PARA 2: Other elevated theaters + baselines ════════
+    para2_parts = []
+    other_elevated = [
+        (t, d) for t, d in sorted_theatres[1:]
+        if d.get('levels', {}).get('threat', 0) >= 2
+    ]
+    baseline_theatres = [
+        t for t, d in sorted_theatres[1:]
+        if d.get('levels', {}).get('threat', 0) < 2
+    ]
+
+    for theatre, data in other_elevated:
+        level = data.get('levels', {}).get('threat', 0)
+        name = THEATRE_DISPLAY_NAMES.get(theatre, theatre.title())
+        raw = data.get('raw', {}) or {}
+        history = _read_history_snapshot(theatre, depth=3)
+        direction = _compute_direction(level, history)
+        factor = _extract_so_what_phrase(raw)
+
+        sent = f"**{name}** registers L{level}"
+        if direction.get('phrase'):
+            sent += f" ({direction['phrase']})"
+        if factor:
+            sent += f" -- {factor}."
+        else:
+            vecs = _extract_active_vectors(raw, threshold=2)
+            if vecs:
+                sent += f" -- {vecs[0][0]} elevated at L{vecs[0][1]}."
+            else:
+                sent += "."
+        para2_parts.append(sent)
+
+    if baseline_theatres:
+        names = [THEATRE_DISPLAY_NAMES.get(t, t.title()) for t in baseline_theatres]
+        if len(names) == 1:
+            para2_parts.append(f"{names[0]} remains at baseline.")
+        elif len(names) == 2:
+            para2_parts.append(f"{names[0]} and {names[1]} remain at baseline.")
+        else:
+            para2_parts.append(f"{', '.join(names[:-1])}, and {names[-1]} remain at baseline.")
+
+    # ════════ PARA 3: Cascade closer ════════
+    para3_parts = []
+    if theatres_at_l3plus >= 3:
+        para3_parts.append(
+            f"**Why this matters:** {theatres_at_l3plus} simultaneous L3+ theaters in the "
+            "Western Hemisphere is a structurally rare convergence. Concrete cascade risks "
+            "across migration corridors, sanctions-evasion routes (oil/gold/wheat), and "
+            "adversary-access vectors (Russia/China/Iran) are now active simultaneously."
+        )
+    elif theatres_at_l3plus == 2:
+        para3_parts.append(
+            "**Why this matters:** Two simultaneous L3+ theaters create real migration and "
+            "sanctions cascade risk. Monitor for adversary-axis amplification."
+        )
+    elif peak_level >= 4:
+        para3_parts.append(
+            "**Why this matters:** A single L4+ theater is the floor for cross-region cascade "
+            "concerns -- particularly when red lines have been breached."
+        )
+    elif peak_level >= 3:
+        para3_parts.append(
+            "**Why this matters:** L3 pressure represents direct-threat language. "
+            "Single-theater dynamics, but trajectory bears watching."
+        )
+
+    # Assemble paragraphs (separated by blank lines for frontend rendering)
+    paragraphs = [' '.join(para1_parts)]
+    if para2_parts:
+        paragraphs.append(' '.join(para2_parts))
+    if para3_parts:
+        paragraphs.append(' '.join(para3_parts))
+    return '\n\n'.join(paragraphs)
+
+
 # ============================================================
 # TOP SIGNALS COLLECTOR
 # ============================================================
@@ -931,6 +1300,14 @@ def build_regional_bluf(force=False):
 
         posture     = _determine_regional_posture(trackers)
         bluf        = _build_bluf_prose(posture, trackers)
+        # ── prose_v2 (May 22 2026) — richer human-language synthesis ──
+        # Hybrid rollout: emit both 'bluf' (legacy) and 'bluf_v2' (new).
+        # Frontend prefers bluf_v2 if present, falls back to bluf.
+        try:
+            bluf_v2 = _build_bluf_prose_v2(posture, trackers)
+        except Exception as e:
+            print(f"[WHA BLUF v2] prose_v2 build failed (falling back to legacy): {e}")
+            bluf_v2 = None
         all_signals = _build_signals(posture, trackers)            # v2.3.0: full pool — for GPI axis aggregation
         top_signals = all_signals[:TOP_SIGNALS_COUNT]                # v2.3.0: capped for display
 
@@ -966,6 +1343,7 @@ def build_regional_bluf(force=False):
             'success':            True,
             'from_cache':         False,
             'bluf':               bluf,
+            'bluf_v2':            bluf_v2,  # May 22 2026 — richer human-language prose (None if build failed)
             'signals':            all_signals,                # v2.3.0: FULL signal pool — for GPI axis aggregation
             'top_signals':        top_signals,                # v2.3.0: capped — for display + prose synthesis
             'posture_label':      posture['label'],
