@@ -253,6 +253,17 @@ ACTORS = {
             'venezuela gold sanctions', 'arco minero sanctions',
             'venezuela oil waiver', 'venezuela secondary sanctions',
             'venezuela financial sanctions', 'venezuela banking',
+            # May 22 2026: Oil-major activity (Exxon, Repsol, ENI, Shell, Maurel)
+            'exxon venezuela', 'exxonmobil venezuela', 'exxon pdvsa', 'exxon pump oil',
+            'repsol venezuela', 'eni venezuela', 'shell venezuela',
+            'maurel prom venezuela', 'reliance venezuela',
+            'venezuela oil deal', 'venezuela oil pump', 'venezuela mineral deal',
+            'pdvsa joint venture', 'venezuela crude exports',
+            'jose terminal', 'orinoco crude', 'heavy crude venezuela',
+            'venezuela oil recovery', 'venezuela oil flow',
+            # White House / Trump VZ direct statements (May 2026)
+            'white house venezuela', 'trump venezuela oil',
+            'venezuela mineral white house', 'venezuela oil flowing',
         ],
         'tripwires': [
             'sanctions reimposed', 'license revoked', 'sdn added',
@@ -344,6 +355,7 @@ ACTORS = {
             'language, sanctions relief asks, oil reform announcements.'
         ),
         'keywords': [
+            # Domestic identity (existing)
             'delcy rodriguez', 'delcy rodríguez', 'presidenta delcy',
             'acting president venezuela', 'interim president venezuela',
             'venezuela acting president', 'presidenta encargada',
@@ -352,6 +364,14 @@ ACTORS = {
             'miraflores delcy', 'delcy miraflores',
             'venezuela cabinet', 'consejo de ministros venezuela',
             'venezuela oil minister', 'delcy oil',
+            # May 22 2026: Rodriguez foreign engagement + oil-pivot diplomacy
+            'rodriguez india', 'rodriguez visit india', 'delcy india',
+            'venezuela india oil', 'venezuela india oil supply',
+            'rodriguez china visit', 'rodriguez beijing',
+            'rodriguez moscow', 'rodriguez russia visit',
+            'rodriguez tehran', 'rodriguez iran visit',
+            'delcy foreign trip', 'delcy travel',
+            'venezuela oil diplomacy', 'rodriguez oil agenda',
         ],
         'tripwires': [
             'delcy steps down', 'delcy resigns', 'delcy removed',
@@ -1806,10 +1826,15 @@ def _build_vz_signal_text(theatre_level, theatre_score, vectors, civ_press_lvl,
 
 def _compute_composite_score(actor_results, vectors, civ_press_lvl,
                              oil_lvl, essequibo_lvl, diplomatic_mod,
-                             migration_net_mod):
+                             migration_net_mod, commodity_pressure=None):
     """
     Weighted composite for theatre_score (0-100).
     Includes diplomatic_mod as DOWNWARD pressure (canonical pattern).
+
+    May 22 2026: now also reads commodity_pressure (commodity tracker SURGE/elevated)
+    so that external commodity dynamics (oil-recovery, food shortages, gold sanctions
+    flows) feed into the composite. This catches scenarios where Venezuela's commodity
+    posture is reshaping rapidly even when domestic rhetoric volume stays low.
     """
     # Actor-driven baseline
     actor_avg = sum(v.get('actor_score', 0) for v in actor_results.values()) / max(1, len(actor_results))
@@ -1824,7 +1849,23 @@ def _compute_composite_score(actor_results, vectors, civ_press_lvl,
     oil_component = oil_lvl * 2          # 0-10
     essequibo_component = essequibo_lvl * 2  # 0-10
 
-    raw = actor_component + vector_component + civ_component + oil_component + essequibo_component
+    # ── Commodity pressure component (May 22 2026 — VZ baseline calibration) ──
+    # commodity_pressure dict has 'alert_level': 'normal'|'low'|'elevated'|'high'|'surge'
+    # Translates external commodity reality (oil-major activity, food prices, gold flows)
+    # into VZ composite. Conservative weighting: SURGE = +8, elevated = +4, else 0.
+    commodity_component = 0
+    if commodity_pressure and isinstance(commodity_pressure, dict):
+        alert = (commodity_pressure.get('alert_level') or '').lower()
+        if alert == 'surge':
+            commodity_component = 8
+        elif alert == 'high':
+            commodity_component = 6
+        elif alert == 'elevated':
+            commodity_component = 4
+        # 'normal' and 'low' contribute 0
+
+    raw = (actor_component + vector_component + civ_component +
+           oil_component + essequibo_component + commodity_component)
     raw += migration_net_mod  # +8 to -8 range
     raw += diplomatic_mod      # 0 to -15 (de-escalator)
 
@@ -1988,9 +2029,10 @@ def run_venezuela_rhetoric_scan(force=False):
                                    essequibo_lvl, mig_net_mod)
 
         # Phase 6: composite + theatre_level
+        # (May 22 2026: commodity_pressure now feeds composite for VZ baseline calibration)
         composite = _compute_composite_score(actor_results, vectors, civ_press_lvl,
                                              oil_lvl, essequibo_lvl, diplomatic_mod,
-                                             mig_net_mod)
+                                             mig_net_mod, commodity_pressure=commodity_pressure)
         raw_theatre_level = _composite_to_theatre_level(composite)
         print(f'[VZ Rhetoric] Composite: {composite}, raw_theatre_level: L{raw_theatre_level}')
 
