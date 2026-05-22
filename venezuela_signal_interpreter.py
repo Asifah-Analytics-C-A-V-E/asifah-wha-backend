@@ -470,6 +470,10 @@ def build_so_what_factor(scan_data, red_lines_triggered):
     delcy_lvl   = actor_results.get('vz_delcy_rodriguez', {}).get('actor_score', 0)
     us_mil_lvl  = actor_results.get('us_military_posture', {}).get('actor_score', 0)
 
+    # May 22 2026: commodity pressure feeds scenario classification
+    commodity_pressure = scan_data.get('commodity_pressure', {}) or {}
+    commodity_alert    = (commodity_pressure.get('alert_level') or '').lower()
+
     # Scenario classification (priority cascade)
     if l5_gate.get('kinetic') and l5_gate.get('any'):
         scenario = 'kinetic_l5_active'
@@ -594,6 +598,44 @@ def build_so_what_factor(scan_data, red_lines_triggered):
             'Political prisoner release pace',
             'Delcy vs. NA 90-day cap dynamics',
             'Sponsor-axis (RU/CN/IR) quiescence signals',
+        ]
+    elif commodity_alert == 'surge':
+        # ── May 22 2026: commodity-driven scenarios ─────────────────────
+        # Surge in oil/gold/wheat = real-world commercial/strategic activity
+        # that the rhetoric tracker may not yet have picked up in actor signals.
+        # Most likely an oil-recovery acceleration (Exxon/Chevron expansion,
+        # sanctions-lift trajectory, Rubio-India oil pivot).
+        scenario = 'commodity_surge_pressure'
+        factor   = 'COMMODITY SURGE — STRATEGIC REPOSITIONING'
+        description = (
+            'Commodity pressure at SURGE level even as rhetoric tracker reads '
+            'baseline-quiet on domestic actors. This pattern is consistent with '
+            'oil-recovery acceleration (Exxon, Chevron, Repsol license expansions), '
+            'sanctions-lift trajectory, or sponsor-axis commercial repositioning '
+            '(Rosneft tanker continuity, CNPC offtake adjustments, Rodriguez '
+            'India oil pivot). Strategic activity is happening in the commercial '
+            'arena before it surfaces in political rhetoric.'
+        )
+        watch_for = [
+            'Chevron/Exxon/Repsol OFAC license actions',
+            'PDVSA monthly export volumes + Jose Terminal traffic',
+            'Rodriguez foreign-visit oil agenda (India, China)',
+            'White House Venezuela mineral-deal announcements',
+            'Rosneft/CNPC tanker continuity at Venezuelan ports',
+        ]
+    elif commodity_alert in ('high', 'elevated'):
+        scenario = 'commodity_pressure_building'
+        factor   = 'COMMODITY PRESSURE BUILDING'
+        description = (
+            'Commodity pressure elevated. Oil/gold/wheat dynamics ahead of '
+            'political rhetoric — worth watching whether this leads, lags, or '
+            'predicts domestic political moves on PDVSA, Chevron, or sanctions.'
+        )
+        watch_for = [
+            'Oil sector regulatory signals',
+            'Food/agricultural import flows',
+            'Gold/Orinoco mining arc reporting',
+            'Whether rhetoric tracker catches up next cycle',
         ]
     else:
         scenario = 'baseline_quiet'
