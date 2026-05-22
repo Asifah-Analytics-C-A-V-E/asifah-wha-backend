@@ -77,6 +77,7 @@ NEWSAPI_KEY         = os.environ.get('NEWSAPI_KEY')
 BRAVE_API_KEY       = os.environ.get('BRAVE_API_KEY')
 
 CACHE_KEY           = 'rhetoric:chile:latest'
+HISTORY_KEY         = 'rhetoric:chile:history'  # canonical snapshot index (May 22 2026 — read by wha_regional_bluf.prose_v2)
 CACHE_TTL_HOURS     = 13          # 12h refresh + 1h buffer
 SCAN_INTERVAL_HOURS = 12
 
@@ -464,6 +465,31 @@ def _redis_set(key, value, ttl_hours=CACHE_TTL_HOURS):
         return resp.status_code == 200
     except Exception as e:
         print(f"[Chile Rhetoric] Redis set error ({key}): {str(e)[:120]}")
+        return False
+
+
+def _redis_lpush_trim(key, value, max_len=336):
+    """LPUSH + LTRIM to keep rolling history (336 = 14 days × 24 hourly entries).
+    Canonical helper added May 22 2026 — mirrors Cuba pattern, read by wha_regional_bluf.prose_v2."""
+    if not UPSTASH_REDIS_URL or not UPSTASH_REDIS_TOKEN:
+        return False
+    try:
+        resp = requests.post(
+            f"{UPSTASH_REDIS_URL}/lpush/{key}",
+            headers={'Authorization': f'Bearer {UPSTASH_REDIS_TOKEN}'},
+            data=json.dumps(value, default=str),
+            timeout=8,
+        )
+        if resp.status_code != 200:
+            return False
+        requests.post(
+            f"{UPSTASH_REDIS_URL}/ltrim/{key}/0/{max_len - 1}",
+            headers={'Authorization': f'Bearer {UPSTASH_REDIS_TOKEN}'},
+            timeout=8,
+        )
+        return True
+    except Exception as e:
+        print(f"[Chile Rhetoric] Redis LPUSH error ({key}): {str(e)[:120]}")
         return False
 
 
@@ -1081,6 +1107,25 @@ def scan_chile_rhetoric(force=False, days=7):
     }
 
     save_cache(result)
+
+    # ── Canonical history snapshot (May 22 2026 reconciled schema) ──
+    # Universal fields read by wha_regional_bluf.prose_v2:
+    #   theatre_level, theatre_score, scanned_at, red_lines_count
+    # Plus Chile-specific vector levels.
+    try:
+        _redis_lpush_trim(HISTORY_KEY, {
+            'theatre_level':       theatre_level,
+            'theatre_score':       theatre_score,
+            'scanned_at':          result.get('scanned_at') or datetime.now(timezone.utc).isoformat(),
+            'red_lines_count':     len(tripwires_global),
+            'domestic_stability':  vector_levels.get('domestic_stability'),
+            'resource_sector':     vector_levels.get('resource_sector'),
+            'us_alignment':        vector_levels.get('us_alignment'),
+            'china_alignment':     vector_levels.get('china_alignment'),
+        }, max_len=336)
+    except Exception as e:
+        print(f"[Chile Rhetoric] History snapshot write failed: {e}")
+
     print(f"[Chile Rhetoric] ✅ Scan complete: composite={composite_score} ({composite_level}), "
           f"{len(all_articles)} articles, {scan_time}s")
     return result
