@@ -2248,13 +2248,18 @@ def run_cuba_rhetoric_scan(force=False):
 
         # Write cache + history + fingerprint
         _redis_set(RHETORIC_CACHE_KEY, result)
+        # ── Canonical history snapshot (May 22 2026 reconciled schema) ──
+        # Universal fields read by wha_regional_bluf.prose_v2:
+        #   theatre_level, theatre_score, scanned_at, red_lines_count
+        # Plus Cuba-specific vector levels (us_pressure / regime_fracture / adversary_access)
         _redis_lpush_trim(HISTORY_KEY, {
             'theatre_level':    theatre_level,
+            'theatre_score':    result.get('theatre_score', 0),
+            'scanned_at':       result['scanned_at'],
+            'red_lines_count':  len(red_lines_triggered),
             'us_pressure':      vectors.get('us_pressure', 0),
             'regime_fracture':  vectors.get('regime_fracture', 0),
             'adversary_access': vectors.get('adversary_access', 0),
-            'scanned_at':       result['scanned_at'],
-            'red_lines_count':  len(red_lines_triggered),
         })
         _write_crosstheater_fingerprint(
             actor_results, vectors,
