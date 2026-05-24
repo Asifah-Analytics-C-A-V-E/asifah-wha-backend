@@ -203,52 +203,21 @@ ACTORS = {
             'rubio statement', 'secretary rubio', 'hegseth statement',
             'noem statement', 'secretary noem', 'kennedy hhs statement',
             'lutnick commerce', 'bessent treasury',
+            # ── v1.5.0 (May 24, 2026) — Trump Iran deal Truth Social cycle ──
+            'trump iran deal', 'trump iran agreement',
+            'trump iran largely negotiated', 'trump largely negotiated',
+            'trump iran final details', 'trump iran peace deal',
+            'trump iran peace agreement', 'trump iran hormuz reopen',
+            'trump iran hormuz', 'trump iran framework',
+            'trump iran nuclear deal', 'trump iran witkoff',
+            'trump iran pakistan', 'trump iran munir',
+            'trump credits pakistan iran', 'trump praises pakistan iran',
+            'trump iran encouraging progress', 'trump iran 14-clause',
+            'trump iran mou', 'trump iran memorandum',
+            'truth social iran deal', 'truth social iran',
             # Spanish (for ES tab)
             'declaración trump', 'casa blanca declara', 'comunicado casa blanca',
         ],
-        'tripwires': [
-            'trump invokes insurrection act', 'trump declares national emergency',
-            'trump threatens military', 'trump fires cabinet',
-            'wh threatens', 'trump withdraws', 'trump terminates',
-            'trump declares war', 'trump activates national guard',
-        ],
-        'baseline_statements_per_week': 50,
-    },
-
-    'us_state_dept': {
-        'name':  'U.S. State Department',
-        'flag':  '🇺🇸',
-        'icon':  '🌐',
-        'color': '#2563eb',
-        'role':  'Diplomatic Posture / Foggy Bottom',
-        'layer': 'executive',
-        'weight': 1.0,
-        'description': (
-            'State Department official statements, briefings, ambassador postings, '
-            'and treaty/agreement language. Indicator of allied alignment vs friction. '
-            'Watch for: Spokesperson briefings, public statements on foreign policy, '
-            'ambassador recall language, treaty withdrawal signals.'
-        ),
-        'keywords': [
-            'state department briefing', 'state department spokesperson',
-            'state department announces', 'state department condemns',
-            'state department statement', 'foggy bottom',
-            'us ambassador', 'us embassy', 'us chief of mission',
-            'us recalls ambassador', 'us expels diplomat',
-            'state dept human rights', 'state dept democracy',
-            'us treaty', 'us withdraws from treaty', 'us suspends agreement',
-            'us sanctions waiver', 'us travel advisory',
-            'briefing at state department', 'matt miller', 'tammy bruce',
-            # Spanish
-            'departamento de estado', 'secretario de estado',
-        ],
-        'tripwires': [
-            'us recalls ambassador', 'us closes embassy', 'us expels diplomat',
-            'us breaks diplomatic relations', 'us terminates treaty',
-            'state dept resignation', 'mass resignation state dept',
-        ],
-        'baseline_statements_per_week': 30,
-    },
 
     'us_defense': {
         'name':  'U.S. Department of Defense',
