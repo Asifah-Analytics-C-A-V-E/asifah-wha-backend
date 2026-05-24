@@ -218,6 +218,76 @@ ACTORS = {
             # Spanish (for ES tab)
             'declaración trump', 'casa blanca declara', 'comunicado casa blanca',
         ],
+        'tripwires': [
+            'trump invokes insurrection act', 'trump declares national emergency',
+            'trump threatens military', 'trump fires cabinet',
+            'wh threatens', 'trump withdraws', 'trump terminates',
+            'trump declares war', 'trump activates national guard',
+        ],
+        'baseline_statements_per_week': 50,
+    },
+
+    'us_state_dept': {
+        'name':  'U.S. State Department',
+        'flag':  '🇺🇸',
+        'icon':  '🌐',
+        'color': '#2563eb',
+        'role':  'Diplomatic Posture / Foggy Bottom',
+        'layer': 'executive',
+        'weight': 1.0,
+        'description': (
+            'State Department official statements, briefings, ambassador postings, '
+            'and treaty/agreement language. Indicator of allied alignment vs friction. '
+            'Watch for: Spokesperson briefings, public statements on foreign policy, '
+            'ambassador recall language, treaty withdrawal signals. v1.5.0 (May 24, '
+            '2026): expanded with Iran-deal-specific keywords (Witkoff envoy, '
+            'Pakistan/Munir mediation, MOU framework, Hormuz reopening).'
+        ),
+        'keywords': [
+            'state department briefing', 'state department spokesperson',
+            'state department announces', 'state department condemns',
+            'state department statement', 'foggy bottom',
+            'us ambassador', 'us embassy', 'us chief of mission',
+            'us recalls ambassador', 'us expels diplomat',
+            'state dept human rights', 'state dept democracy',
+            'us treaty', 'us withdraws from treaty', 'us suspends agreement',
+            'us sanctions waiver', 'us travel advisory',
+            'briefing at state department', 'matt miller', 'tammy bruce',
+            # ── v1.5.0 (May 24, 2026) — Iran deal envoy diplomacy ──
+            'witkoff envoy', 'steve witkoff', 'witkoff islamabad',
+            'witkoff tehran', 'witkoff iran shuttle', 'witkoff mediation',
+            'us envoy iran', 'us special envoy iran',
+            'us iran deal', 'us iran agreement', 'us iran framework',
+            'us iran mou', 'us iran memorandum',
+            'us iran 14-clause', 'us iran 14 clause',
+            'us formal response iran', 'us responds iran proposal',
+            'us iran proposal response', 'us iran final understanding',
+            'us iran hormuz reopen', 'us iran hormuz agreement',
+            'us iran heu surrender', 'us iran natanz dismantle',
+            'us iran fordow dismantle', 'us iran isfahan dismantle',
+            'us iran nuclear sites dismantle',
+            'us iran largely negotiated', 'us iran encouraging progress',
+            'us iran rapprochement', 'us iran trend rapprochement',
+            'state department iran deal', 'state department iran envoy',
+            'state department iran framework',
+            'state department pakistan mediation',
+            'us welcomes pakistan iran', 'us pakistan iran mediation',
+            'us munir iran', 'us field marshal munir',
+            'us back-channel iran', 'us backchannel iran',
+            # Spanish
+            'departamento de estado', 'secretario de estado',
+        ],
+        'tripwires': [
+            'us recalls ambassador', 'us closes embassy', 'us expels diplomat',
+            'us breaks diplomatic relations', 'us terminates treaty',
+            'state dept resignation', 'mass resignation state dept',
+            # ── v1.5.0 May 24 2026 — DIPLOMATIC BREAKTHROUGH TRIPWIRES (positive) ──
+            'iran us deal announced', 'iran us peace deal signed',
+            'iran us framework signed', 'iran nuclear deal signed',
+            'iran ceasefire deal signed', 'iran hormuz reopening agreement',
+        ],
+        'baseline_statements_per_week': 30,
+    },
 
     'us_defense': {
         'name':  'U.S. Department of Defense',
