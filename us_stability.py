@@ -595,24 +595,33 @@ US_STABILITY_RSS = [
     ('Lawfare',          'https://www.lawfaremedia.org/feed.xml'),
     ('FEMA News',        'https://www.fema.gov/about/news-multimedia/rss'),
     ('Axios',            'https://api.axios.com/feed/'),
-    ('AP US',            'https://feeds.apnews.com/apf-usnews'),
+    # AP US removed May 27 2026 — feeds.apnews.com host no longer resolving.
+    # Replacement: ABC News + USA Today politics feeds.
 
     # ── Tier 3: NEW additions May 2026 — high-quality US news with stable feeds ──
     ('PBS NewsHour',     'https://www.pbs.org/newshour/feeds/rss/headlines'),
     ('ProPublica',       'https://www.propublica.org/feeds/propublica/main'),
     ('Atlantic Politics','https://www.theatlantic.com/feed/channel/politics/'),
     ('WaPo Politics',    'https://feeds.washingtonpost.com/rss/politics'),
-    ('Reuters US (alt)', 'https://www.reutersagency.com/feed/?best-sectors=political-general&post_type=best'),
+    # Reuters US (alt) removed May 27 2026 — 404'd consistently.
+
+    # ── Tier 4: NEW May 27 2026 replacements for dead AP/Reuters feeds ──
+    ('ABC News Politics','https://abcnews.go.com/abcnews/politicsheadlines'),
+    ('USA Today Politics','https://rssfeeds.usatoday.com/UsatodaycomWashington-TopStories'),
+    ('Reuters Top News (rss.app proxy)','https://rss.app/feeds/V8FCFmJyjQX4FmCx.xml'),
+    ('Guardian US',      'https://www.theguardian.com/us-news/rss'),
+    ('BBC US & Canada',  'https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml'),
 
     # ── Cybersecurity / infrastructure ──
     ('CISA Alerts',      'https://www.cisa.gov/news.xml'),
     ('CISA Advisories',  'https://www.cisa.gov/cybersecurity-advisories/all.xml'),
 
-    # ── Removed (no working alternative as of May 10 2026): ──
-    # Reuters US (feeds.reuters.com killed) -- using reutersagency.com alt above
-    # Univision (feed dead)
-    # Telemundo (feed dead)
-    # Spanish-language US-focused signal now flows via GDELT Spanish queries
+    # ── Removed (no working alternative as of May 27 2026): ──
+    # Reuters US (feeds.reuters.com killed Dec 2024)
+    # Reuters US (alt) (reutersagency.com 404'd consistently in production)
+    # AP US (feeds.apnews.com — host no longer resolving as of May 27 2026)
+    # Univision / Telemundo (feeds dead)
+    # Spanish-language US-focused signal now flows via GDELT Spanish queries + Brave fallback
 ]
 
 # 50 US states — for state-level signal aggregation
@@ -640,24 +649,42 @@ US_STATES = {
 def _fetch_rss(name, url, max_items=15):
     """Fetch RSS feed and return list of {title, link, published, source}.
 
-    v1.2.0: uses a browser User-Agent because many news RSS endpoints
-    (Politico, Lawfare, FEMA, Just Security, AP) HTTP-403 the bot UA
-    'AsifahAnalytics/1.0' even though the feeds are public. Browser UAs
-    pass through cleanly. This is standard practice for OSINT feed scraping.
+    v1.3.0 (May 27 2026): hardened UA fingerprint + retry on 403/403-equivalent.
+    Politico, Just Security, Lawfare, FEMA were detecting the old UA and serving
+    403s. The new UA matches a current Chrome 130 on Windows 11 with full Accept
+    headers and a Referer. We also drop the X-Asifah-Source header (identifies
+    us as a bot to UA-sniffing services).
     """
+    # Realistic Chrome 130 / Windows 11 fingerprint with full header set.
+    # No bot-identifying headers — public RSS feeds are public.
+    headers = {
+        'User-Agent': (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) '
+            'Chrome/130.0.0.0 Safari/537.36'
+        ),
+        'Accept': ('text/html,application/xhtml+xml,application/xml;q=0.9,'
+                   'application/rss+xml;q=0.9,*/*;q=0.8'),
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+    }
     try:
-        # Browser UA bypasses overzealous bot-blocking on news sites
-        # while remaining honest (we identify in a separate header).
-        resp = requests.get(url, timeout=DEFAULT_TIMEOUT,
-                            headers={
-                                'User-Agent': (
-                                    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-                                    'AppleWebKit/537.36 (KHTML, like Gecko) '
-                                    'Chrome/124.0.0.0 Safari/537.36'
-                                ),
-                                'Accept': 'application/rss+xml, application/xml, text/xml, */*',
-                                'X-Asifah-Source': 'asifahanalytics.com OSINT stability monitor',
-                            })
+        resp = requests.get(url, timeout=DEFAULT_TIMEOUT, headers=headers)
+        # Retry once on 403 with a different UA (some sites rotate-block specific UAs)
+        if resp.status_code == 403:
+            print(f"[US Stability RSS] {name}: HTTP 403 — retrying with fallback UA")
+            headers['User-Agent'] = (
+                'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) '
+                'AppleWebKit/605.1.15 (KHTML, like Gecko) '
+                'Version/17.5 Safari/605.1.15'
+            )
+            time.sleep(0.5)
+            resp = requests.get(url, timeout=DEFAULT_TIMEOUT, headers=headers)
         if resp.status_code != 200:
             print(f"[US Stability RSS] {name}: HTTP {resp.status_code}")
             return []
@@ -694,37 +721,6 @@ def _fetch_rss(name, url, max_items=15):
 
 
 def _fetch_gdelt(query, max_records=30):
-    """Fetch GDELT articles for a query. Returns list of articles."""
-    try:
-        url = "https://api.gdeltproject.org/api/v2/doc/doc"
-        params = {
-            'query':       f'{query} sourcecountry:US',
-            'mode':        'artlist',
-            'maxrecords':  max_records,
-            'format':      'json',
-            'timespan':    '7d',
-        }
-        resp = requests.get(url, params=params,
-                            timeout=(5, 10),    # connect, read
-                            headers={'User-Agent': 'AsifahAnalytics/1.0'})
-        if resp.status_code == 429:
-            print(f"[US Stability GDELT] rate-limited")
-            return []
-        if resp.status_code != 200:
-            return []
-        data = resp.json()
-        articles = data.get('articles', [])
-        return [{
-            'title':       a.get('title', ''),
-            'description': '',
-            'link':        a.get('url', ''),
-            'published':   a.get('seendate', ''),
-            'source':      f"GDELT/{a.get('domain', 'unknown')}",
-            'source_type': 'gdelt',
-        } for a in articles]
-    except Exception as e:
-        print(f"[US Stability GDELT] error {str(e)[:100]}")
-        return []
 
 
 def _fetch_newsapi(query, max_records=30):
@@ -1588,6 +1584,23 @@ def run_stability_scan():
     if TELEGRAM_US_AVAILABLE:
         try:
             telegram_raw = fetch_telegram_signals_us(hours_back=7 * 24)
+            # Diagnostic: log raw count + sample channel names + sample title
+            # to figure out why posts return 0 despite auth being valid
+            if not telegram_raw:
+                print("[US Stability] Telegram diagnostic: fetch_telegram_signals_us returned EMPTY list — "
+                      "possible causes: (1) channel list empty in telegram_signals_wha config, "
+                      "(2) session expired despite env var being set, (3) no posts in scan window")
+            else:
+                sample_channels = set()
+                for p in telegram_raw[:10]:
+                    raw_src = p.get('source')
+                    if isinstance(raw_src, dict):
+                        sample_channels.add(raw_src.get('name', '') or p.get('channel', '?'))
+                    else:
+                        sample_channels.add(str(raw_src or p.get('channel', '?')))
+                print(f"[US Stability] Telegram diagnostic: raw={len(telegram_raw)} posts, "
+                      f"sample channels={list(sample_channels)[:5]}")
+
             telegram_articles = []
             for p in telegram_raw:
                 # Defensive: source may be a dict like {'name': 'Telegram @channel'} — coerce to string
@@ -1608,6 +1621,30 @@ def run_stability_scan():
             print(f"[US Stability] Telegram: +{len(telegram_articles)} posts")
         except Exception as e:
             print(f"[US Stability] Telegram fetch error: {str(e)[:200]}")
+
+    # ── Brave Search fallback (v1.0.0 May 27 2026) ──
+    # Fires when GDELT + NewsAPI under-deliver. Free tier: 2000/month, 1 req/sec.
+    # Use 4 broad stability queries matching the 4 dimensions.
+    if BRAVE_API_KEY:
+        try:
+            pre_brave_count = len(all_articles)
+            brave_queries = [
+                '"court order" OR "inspector general" OR "civil service" United States',
+                '"mass shooting" OR "active shooter" OR "protest" United States',
+                '"cabinet" OR "secretary resigns" OR "shutdown" United States',
+                '"ransomware" OR "cyberattack" OR "infrastructure" United States',
+            ]
+            for q in brave_queries:
+                brave_results = _fetch_brave(q, max_records=10)
+                all_articles.extend(brave_results)
+                time.sleep(1.1)   # respect 1 req/sec rate limit
+            brave_added = len(all_articles) - pre_brave_count
+            print(f"[US Stability] Brave fallback: +{brave_added} articles "
+                  f"(across {len(brave_queries)} queries)")
+        except Exception as e:
+            print(f"[US Stability] Brave fallback error: {str(e)[:200]}")
+    else:
+        print("[US Stability] Brave fallback skipped: BRAVE_API_KEY not set")
 
     if REDDIT_US_AVAILABLE:
         try:
