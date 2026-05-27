@@ -124,12 +124,24 @@ UPSTASH_REDIS_TOKEN = (os.environ.get('UPSTASH_REDIS_TOKEN') or
                        os.environ.get('UPSTASH_REDIS_REST_TOKEN'))
 NEWSAPI_KEY = os.environ.get('NEWSAPI_KEY')
 BRAVE_API_KEY = os.environ.get('BRAVE_API_KEY')
+ALPHA_VANTAGE_KEY = os.environ.get('ALPHA_VANTAGE_KEY')
 
 # Cache keys
 CACHE_KEY        = 'us:stability:latest'
 HISTORY_KEY      = 'us:stability:history'
 FINGERPRINT_KEY  = 'stability:us:fingerprint'
 SUMMARY_KEY      = 'stability:us:summary'
+
+# NYSE / US Equity Indices (v1.0.0 — May 27 2026)
+# Cache-first architecture: twice-daily fetches (7am + 7pm ET), Alpha Vantage
+# primary + Yahoo fallback. Sparklines update on EOD pull only.
+NYSE_CACHE_KEY   = 'us:nyse:latest'
+NYSE_TTL_SECONDS = 14 * 3600   # 14h (covers gap between 7am/7pm fetches with buffer)
+NYSE_INDICES = [
+    {'key': 'SPX',  'name': 'S&P 500',          'av_symbol': 'SPX',   'yahoo_symbol': '^GSPC'},
+    {'key': 'DJIA', 'name': 'Dow Jones',        'av_symbol': '.DJI',  'yahoo_symbol': '^DJI'},
+    {'key': 'IXIC', 'name': 'NASDAQ Composite', 'av_symbol': 'IXIC',  'yahoo_symbol': '^IXIC'},
+]
 
 CACHE_TTL_SECONDS  = 12 * 3600    # 12h
 HISTORY_DAYS       = 30            # 30 daily snapshots
@@ -747,6 +759,224 @@ def _fetch_newsapi(query, max_records=30):
     except Exception as e:
         print(f"[US Stability NewsAPI] error {str(e)[:100]}")
         return []
+
+
+# ============================================================
+# NYSE / US EQUITY INDICES (v1.0.0 — May 27 2026)
+# ============================================================
+# Cache-first architecture:
+#   - Page loads NEVER trigger Alpha Vantage calls
+#   - Twice-daily scheduled refreshes at 7am + 7pm ET
+#   - 7am call: quotes only (3 AV calls)
+#   - 7pm call: quotes + sparkline series (6 AV calls)
+#   - Daily budget: 9 calls / 500 free-tier limit (1.8% utilization)
+#   - Manual refresh button bypasses cache via ?refresh=true&nyse=true
+# ============================================================
+
+def _is_us_market_open():
+    """Return market status: 'open', 'closed', 'pre-market', or 'after-hours'.
+
+    Uses naive ET time approximation (no DST math — close enough for status display).
+    Markets: Mon-Fri, 9:30 AM - 4:00 PM ET regular hours.
+    """
+    now_utc = datetime.now(timezone.utc)
+    # ET is UTC-5 (EST) or UTC-4 (EDT) — approximate as UTC-4 since US is on DST most of year
+    et_hour = (now_utc.hour - 4) % 24
+    weekday = now_utc.weekday()    # Mon=0 ... Sun=6
+    if weekday >= 5:
+        return 'closed'
+    if 9 <= et_hour < 16:
+        # Approximate — doesn't strictly check 9:30, but close enough for display
+        return 'open'
+    if 4 <= et_hour < 9:
+        return 'pre-market'
+    if 16 <= et_hour < 20:
+        return 'after-hours'
+    return 'closed'
+
+
+def _fetch_av_quote(av_symbol):
+    """Fetch a single index quote from Alpha Vantage GLOBAL_QUOTE endpoint.
+
+    Returns dict with {value, change_pct_24h, source} or None on failure.
+    """
+    if not ALPHA_VANTAGE_KEY:
+        return None
+    try:
+        url = "https://www.alphavantage.co/query"
+        params = {
+            'function': 'GLOBAL_QUOTE',
+            'symbol':   av_symbol,
+            'apikey':   ALPHA_VANTAGE_KEY,
+        }
+        resp = requests.get(url, params=params, timeout=DEFAULT_TIMEOUT,
+                            headers={'User-Agent': 'AsifahAnalytics/1.0'})
+        if resp.status_code != 200:
+            print(f"[NYSE/AV] {av_symbol}: HTTP {resp.status_code}")
+            return None
+        data = resp.json()
+        quote = data.get('Global Quote', {}) or data.get('GlobalQuote', {})
+        if not quote or '05. price' not in quote:
+            # Could be a rate-limit message — log it
+            note = data.get('Note') or data.get('Information') or 'no quote field'
+            print(f"[NYSE/AV] {av_symbol}: empty response — {str(note)[:120]}")
+            return None
+        price = float(quote.get('05. price', 0))
+        change_pct_str = quote.get('10. change percent', '0%').replace('%', '').strip()
+        change_pct = float(change_pct_str)
+        return {
+            'value':          price,
+            'change_pct_24h': change_pct,
+            'source':         'Alpha Vantage',
+        }
+    except Exception as e:
+        print(f"[NYSE/AV] {av_symbol}: error {str(e)[:120]}")
+        return None
+
+
+def _fetch_yahoo_quote(yahoo_symbol):
+    """Fetch a single index quote from Yahoo Finance (free, no key required).
+
+    Uses the v8 chart endpoint which is the most reliable unauthenticated path.
+    Returns dict with {value, change_pct_24h, source} or None on failure.
+    """
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}"
+        params = {'range': '5d', 'interval': '1d'}
+        resp = requests.get(url, params=params, timeout=DEFAULT_TIMEOUT,
+                            headers={'User-Agent': 'Mozilla/5.0 (AsifahAnalytics/1.0)'})
+        if resp.status_code != 200:
+            print(f"[NYSE/Yahoo] {yahoo_symbol}: HTTP {resp.status_code}")
+            return None
+        data = resp.json()
+        result = (data.get('chart', {}).get('result') or [{}])[0]
+        meta = result.get('meta', {})
+        price = meta.get('regularMarketPrice')
+        prev_close = meta.get('chartPreviousClose') or meta.get('previousClose')
+        if price is None or prev_close in (None, 0):
+            return None
+        change_pct = ((price - prev_close) / prev_close) * 100
+        return {
+            'value':          float(price),
+            'change_pct_24h': round(change_pct, 2),
+            'source':         'Yahoo Finance',
+        }
+    except Exception as e:
+        print(f"[NYSE/Yahoo] {yahoo_symbol}: error {str(e)[:120]}")
+        return None
+
+
+def _fetch_yahoo_sparkline(yahoo_symbol):
+    """Fetch 30-day daily closes for sparkline. Yahoo only (Alpha Vantage time-series
+    burns extra calls). Returns list of {time, value} or empty list on failure.
+    """
+    try:
+        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}"
+        params = {'range': '1mo', 'interval': '1d'}
+        resp = requests.get(url, params=params, timeout=DEFAULT_TIMEOUT,
+                            headers={'User-Agent': 'Mozilla/5.0 (AsifahAnalytics/1.0)'})
+        if resp.status_code != 200:
+            return []
+        data = resp.json()
+        result = (data.get('chart', {}).get('result') or [{}])[0]
+        timestamps = result.get('timestamp', []) or []
+        closes = (result.get('indicators', {}).get('quote') or [{}])[0].get('close', []) or []
+        spark = []
+        for i, ts in enumerate(timestamps):
+            if i < len(closes) and closes[i] is not None:
+                spark.append({
+                    'time':  datetime.fromtimestamp(ts, tz=timezone.utc).date().isoformat(),
+                    'value': round(float(closes[i]), 2),
+                })
+        return spark
+    except Exception as e:
+        print(f"[NYSE/Yahoo sparkline] {yahoo_symbol}: error {str(e)[:120]}")
+        return []
+
+
+def _refresh_nyse_data(refresh_sparklines=False):
+    """Run a full NYSE refresh: fetch quotes for all 3 indices, optionally sparklines.
+
+    Args:
+        refresh_sparklines: True for the 7pm EOD pull; False for the 7am quote-only pull.
+
+    Returns the full NYSE payload (also writes to Redis).
+    """
+    print(f"[NYSE] Refreshing — sparklines={'YES' if refresh_sparklines else 'no'}")
+    market_status = _is_us_market_open()
+    indices_data = {}
+
+    # Read existing cache so we preserve sparklines on 7am pulls
+    existing = _redis_get(NYSE_CACHE_KEY) or {}
+    existing_indices = existing.get('indices', {})
+
+    for idx in NYSE_INDICES:
+        key = idx['key']
+        # Try Alpha Vantage first
+        quote = _fetch_av_quote(idx['av_symbol'])
+        if not quote:
+            # Fallback to Yahoo
+            quote = _fetch_yahoo_quote(idx['yahoo_symbol'])
+        if not quote:
+            # Both failed — preserve last known
+            print(f"[NYSE] {key}: both AV and Yahoo failed, preserving last-known")
+            if key in existing_indices:
+                indices_data[key] = existing_indices[key]
+                indices_data[key]['source'] = (existing_indices[key].get('source', 'unknown')
+                                                + ' (stale)')
+            continue
+
+        # Derive trend from change_pct_24h
+        chg = quote['change_pct_24h']
+        trend = 'rising' if chg > 0.05 else 'falling' if chg < -0.05 else 'flat'
+
+        indices_data[key] = {
+            'index':          key,
+            'name':           idx['name'],
+            'value':          quote['value'],
+            'change_pct_24h': chg,
+            'trend':          trend,
+            'source':         quote['source'],
+            'market_status':  market_status,
+            'timestamp':      datetime.now(timezone.utc).isoformat(),
+        }
+
+        # Sparkline: only refresh on EOD pull (Yahoo always — sparklines from AV are expensive)
+        if refresh_sparklines:
+            spark = _fetch_yahoo_sparkline(idx['yahoo_symbol'])
+            if spark:
+                indices_data[key]['sparkline'] = spark
+            elif key in existing_indices and 'sparkline' in existing_indices[key]:
+                # Preserve old sparkline if Yahoo failed
+                indices_data[key]['sparkline'] = existing_indices[key]['sparkline']
+        else:
+            # 7am pull — preserve existing sparkline
+            if key in existing_indices and 'sparkline' in existing_indices[key]:
+                indices_data[key]['sparkline'] = existing_indices[key]['sparkline']
+
+        time.sleep(0.3)    # gentle pacing between AV calls
+
+    payload = {
+        'indices':          indices_data,
+        'market_status':    market_status,
+        'last_refreshed':   datetime.now(timezone.utc).isoformat(),
+        'sparklines_age':   'eod' if refresh_sparklines else 'previous_eod',
+    }
+    _redis_set(NYSE_CACHE_KEY, payload, ttl_seconds=NYSE_TTL_SECONDS)
+    print(f"[NYSE] ✅ Refresh complete — {len(indices_data)} indices, market={market_status}")
+    return payload
+
+
+def get_nyse_data(force_refresh=False, refresh_sparklines=False):
+    """Read NYSE data — cache-first by default. Page loads should NEVER force.
+
+    Only the manual refresh button + scheduled scanner should pass force_refresh=True.
+    """
+    if not force_refresh:
+        cached = _redis_get(NYSE_CACHE_KEY)
+        if cached:
+            return cached
+    return _refresh_nyse_data(refresh_sparklines=refresh_sparklines)
 
 
 # ============================================================
@@ -1454,6 +1684,14 @@ def run_stability_scan():
     # ── Build scan result ──
     # Wire #5: include rhetoric fingerprint snapshot in the response so the
     # frontend can display the live coupling.
+    # NYSE (v1.0.0 May 27 2026): cache-first — page loads NEVER trigger AV calls.
+    # Scheduler fires at 7am + 7pm ET; manual refresh button can force via ?nyse=true.
+    nyse_payload = _redis_get(NYSE_CACHE_KEY) or {
+        'indices': {},
+        'market_status': _is_us_market_open(),
+        'last_refreshed': None,
+        'note': 'NYSE cache not yet populated — first scheduled fetch pending',
+    }
     elapsed = round(time.time() - scan_start, 1)
     scan_result = {
         'success':              True,
@@ -1467,9 +1705,10 @@ def run_stability_scan():
         'government_data_freshness': govt.get('data_freshness'),
         'staleness_warning':    govt.get('staleness_warning'),
         'articles_scanned':     len(all_articles),
+        'nyse':                 nyse_payload,
         'scan_time_seconds':    elapsed,
         'last_updated':         datetime.now(timezone.utc).isoformat(),
-        'version':              '1.0.0',
+        'version':              '1.1.0',
     }
 
     # ── Update 30-day history ──
@@ -1546,6 +1785,57 @@ def start_periodic_scanner():
           f"(interval: {SCAN_INTERVAL_HOURS}h)")
 
 
+def _nyse_scheduler():
+    """Background thread that refreshes NYSE indices twice daily.
+
+    Schedule (ET, approximate via UTC-4):
+      - 7:00 AM ET  → quotes only (3 AV calls)
+      - 7:00 PM ET  → quotes + sparklines (3 AV + 3 Yahoo calls)
+
+    On boot, runs an initial fetch so the cache isn't empty for first-time visitors.
+    """
+    # Initial 120-second boot delay (stagger after main scanner)
+    time.sleep(120)
+    # Initial seed fetch so cache is warm on first deploy
+    try:
+        print("[NYSE Scheduler] Initial seed fetch (quotes + sparklines)")
+        _refresh_nyse_data(refresh_sparklines=True)
+    except Exception as e:
+        print(f"[NYSE Scheduler] Initial seed error: {str(e)[:200]}")
+
+    # Loop: check every 15 minutes if we're within the 7am or 7pm window
+    last_morning_run = None
+    last_evening_run = None
+    while True:
+        try:
+            now_utc = datetime.now(timezone.utc)
+            et_hour = (now_utc.hour - 4) % 24    # UTC-4 approximation (DST most of year)
+            today_str = now_utc.date().isoformat()
+
+            # 7 AM ET window (any 15-min check between 7:00-7:14 ET)
+            if et_hour == 7 and last_morning_run != today_str:
+                print("[NYSE Scheduler] 7am ET — refreshing quotes (no sparklines)")
+                _refresh_nyse_data(refresh_sparklines=False)
+                last_morning_run = today_str
+
+            # 7 PM ET window (any 15-min check between 19:00-19:14 ET)
+            elif et_hour == 19 and last_evening_run != today_str:
+                print("[NYSE Scheduler] 7pm ET — refreshing quotes + sparklines (EOD)")
+                _refresh_nyse_data(refresh_sparklines=True)
+                last_evening_run = today_str
+
+        except Exception as e:
+            print(f"[NYSE Scheduler] Loop error: {str(e)[:200]}")
+        time.sleep(15 * 60)    # check every 15 minutes
+
+
+def start_nyse_scheduler():
+    """Start the NYSE twice-daily scheduler thread."""
+    t = threading.Thread(target=_nyse_scheduler, daemon=True, name='us-nyse-scheduler')
+    t.start()
+    print(f"[NYSE Scheduler] ✅ Started — twice-daily refresh (7am + 7pm ET)")
+
+
 # ============================================================
 # FLASK ENDPOINT REGISTRATION
 # ============================================================
@@ -1560,8 +1850,22 @@ def register_us_stability_endpoints(app):
             return '', 200
         try:
             force = request.args.get('refresh', 'false').lower() == 'true'
+            force_nyse = request.args.get('nyse', 'false').lower() == 'true'
             if force:
                 _trigger_background_scan()
+            if force_nyse:
+                # Manual NYSE refresh — fire async so we don't block the response
+                # Sparklines refresh only if it's after 4pm ET (avoid burning AV budget
+                # on intraday sparkline pulls)
+                now_utc = datetime.now(timezone.utc)
+                et_hour = (now_utc.hour - 4) % 24
+                refresh_spark = et_hour >= 16    # only after market close
+                threading.Thread(
+                    target=_refresh_nyse_data,
+                    kwargs={'refresh_sparklines': refresh_spark},
+                    daemon=True,
+                    name='nyse-manual-refresh'
+                ).start()
             data = get_stability_data(force_refresh=False)
             if not data:
                 return jsonify({'success': False,
@@ -1570,6 +1874,25 @@ def register_us_stability_endpoints(app):
         except Exception as e:
             import traceback
             traceback.print_exc()
+            return jsonify({'success': False, 'error': str(e)[:200]}), 500
+
+    @app.route('/api/us-stability/nyse', methods=['GET'])
+    def api_us_stability_nyse():
+        """Dedicated NYSE endpoint — cache-first, no AV calls on page loads.
+
+        Pass ?force=true to manually trigger a refresh (sparklines only after 4pm ET).
+        """
+        try:
+            force = request.args.get('force', 'false').lower() == 'true'
+            if force:
+                now_utc = datetime.now(timezone.utc)
+                et_hour = (now_utc.hour - 4) % 24
+                refresh_spark = et_hour >= 16
+                data = _refresh_nyse_data(refresh_sparklines=refresh_spark)
+            else:
+                data = get_nyse_data(force_refresh=False)
+            return jsonify(data or {'indices': {}, 'error': 'no data'})
+        except Exception as e:
             return jsonify({'success': False, 'error': str(e)[:200]}), 500
 
     @app.route('/api/us-stability/dimension/<dim_id>', methods=['GET'])
