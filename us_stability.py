@@ -721,6 +721,88 @@ def _fetch_rss(name, url, max_items=15):
 
 
 def _fetch_gdelt(query, max_records=30):
+    """Fetch GDELT articles for a query. Returns list of articles.
+
+    v1.3.0 (May 27 2026): bumped read timeout from 10s to 20s — GDELT regularly
+    latencies past 10s under load. Connect timeout still tight at 5s to fail
+    fast if the host itself is unreachable.
+    """
+    try:
+        url = "https://api.gdeltproject.org/api/v2/doc/doc"
+        params = {
+            'query':       f'{query} sourcecountry:US',
+            'mode':        'artlist',
+            'maxrecords':  max_records,
+            'format':      'json',
+            'timespan':    '7d',
+        }
+        resp = requests.get(url, params=params,
+                            timeout=(5, 20),    # connect, read — bumped from 10s
+                            headers={'User-Agent': 'AsifahAnalytics/1.0'})
+        if resp.status_code == 429:
+            print(f"[US Stability GDELT] rate-limited")
+            return []
+        if resp.status_code != 200:
+            return []
+        data = resp.json()
+        articles = data.get('articles', [])
+        return [{
+            'title':       a.get('title', ''),
+            'description': '',
+            'link':        a.get('url', ''),
+            'published':   a.get('seendate', ''),
+            'source':      f"GDELT/{a.get('domain', 'unknown')}",
+            'source_type': 'gdelt',
+        } for a in articles]
+    except Exception as e:
+        print(f"[US Stability GDELT] error {str(e)[:100]}")
+        return []
+
+
+def _fetch_brave(query, max_records=20):
+    """Fetch articles from Brave Search API (tertiary fallback when GDELT + NewsAPI
+    fall short). Free tier: 2000 queries/month, 1 req/sec.
+
+    v1.0.0 (May 27 2026): wired into WHA backend per backlog item #21.
+    Returns same article shape as RSS/GDELT/NewsAPI.
+    """
+    if not BRAVE_API_KEY:
+        return []
+    try:
+        url = "https://api.search.brave.com/res/v1/news/search"
+        params = {
+            'q':           query,
+            'count':       max_records,
+            'country':     'us',
+            'search_lang': 'en',
+            'spellcheck':  0,
+            'freshness':   'pw',   # past week
+        }
+        resp = requests.get(url, params=params, timeout=DEFAULT_TIMEOUT,
+                            headers={
+                                'Accept': 'application/json',
+                                'X-Subscription-Token': BRAVE_API_KEY,
+                                'User-Agent': 'AsifahAnalytics/1.0',
+                            })
+        if resp.status_code == 429:
+            print(f"[US Stability Brave] rate-limited")
+            return []
+        if resp.status_code != 200:
+            print(f"[US Stability Brave] HTTP {resp.status_code}")
+            return []
+        data = resp.json()
+        results = data.get('results', []) or []
+        return [{
+            'title':       a.get('title', '') or '',
+            'description': a.get('description', '') or '',
+            'link':        a.get('url', ''),
+            'published':   a.get('age', '') or '',
+            'source':      f"Brave/{(a.get('meta_url') or {}).get('hostname', 'unknown')}",
+            'source_type': 'brave',
+        } for a in results if a.get('title')]
+    except Exception as e:
+        print(f"[US Stability Brave] error {str(e)[:120]}")
+        return []
 
 
 def _fetch_newsapi(query, max_records=30):
