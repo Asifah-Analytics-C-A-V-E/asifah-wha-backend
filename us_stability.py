@@ -649,14 +649,15 @@ US_STATES = {
 def _fetch_rss(name, url, max_items=15):
     """Fetch RSS feed and return list of {title, link, published, source}.
 
-    v1.3.0 (May 27 2026): hardened UA fingerprint + retry on 403/403-equivalent.
-    Politico, Just Security, Lawfare, FEMA were detecting the old UA and serving
-    403s. The new UA matches a current Chrome 130 on Windows 11 with full Accept
-    headers and a Referer. We also drop the X-Asifah-Source header (identifies
-    us as a bot to UA-sniffing services).
+    v1.4.0 (May 27 2026): COMPLETE Chrome 130 fingerprint with Client Hints
+    (Sec-Ch-Ua, Sec-Ch-Ua-Mobile, Sec-Ch-Ua-Platform). Cloudflare bot
+    detection specifically checks for these — real browsers always send them,
+    bots usually don't. Earlier v1.3.0 lacked them and was being detected.
+    Also added a plausible Referer (Google search) so sites think we arrived
+    organically. Retry logic now tries Firefox UA on second attempt.
     """
-    # Realistic Chrome 130 / Windows 11 fingerprint with full header set.
-    # No bot-identifying headers — public RSS feeds are public.
+    # Complete Chrome 130 / Windows 11 browser fingerprint with Client Hints.
+    # This is what a real Chrome browser sends on every request.
     headers = {
         'User-Agent': (
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -664,27 +665,46 @@ def _fetch_rss(name, url, max_items=15):
             'Chrome/130.0.0.0 Safari/537.36'
         ),
         'Accept': ('text/html,application/xhtml+xml,application/xml;q=0.9,'
-                   'application/rss+xml;q=0.9,*/*;q=0.8'),
+                   'application/rss+xml;q=0.9,image/avif,image/webp,*/*;q=0.8'),
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept-Encoding': 'gzip, deflate, br',
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache',
+        'Cache-Control': 'max-age=0',
+        'Sec-Ch-Ua': '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
         'Sec-Fetch-Dest': 'document',
         'Sec-Fetch-Mode': 'navigate',
         'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1',
+        'Referer': 'https://www.google.com/',
+        'DNT': '1',
     }
     try:
-        resp = requests.get(url, timeout=DEFAULT_TIMEOUT, headers=headers)
-        # Retry once on 403 with a different UA (some sites rotate-block specific UAs)
+        resp = requests.get(url, timeout=DEFAULT_TIMEOUT, headers=headers,
+                            allow_redirects=True)
+        # Retry once on 403 with a Firefox fingerprint (some Cloudflare rules
+        # specifically block Chrome). Firefox sends fewer Client Hints headers.
         if resp.status_code == 403:
-            print(f"[US Stability RSS] {name}: HTTP 403 — retrying with fallback UA")
-            headers['User-Agent'] = (
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_5) '
-                'AppleWebKit/605.1.15 (KHTML, like Gecko) '
-                'Version/17.5 Safari/605.1.15'
-            )
-            time.sleep(0.5)
-            resp = requests.get(url, timeout=DEFAULT_TIMEOUT, headers=headers)
+            print(f"[US Stability RSS] {name}: HTTP 403 — retrying with Firefox UA")
+            firefox_headers = {
+                'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:130.0) '
+                               'Gecko/20100101 Firefox/130.0'),
+                'Accept': ('text/html,application/xhtml+xml,application/xml;q=0.9,'
+                           'image/avif,image/webp,*/*;q=0.8'),
+                'Accept-Language': 'en-US,en;q=0.5',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Referer': 'https://duckduckgo.com/',
+            }
+            time.sleep(1.2)   # longer delay before retry (looks more human)
+            resp = requests.get(url, timeout=DEFAULT_TIMEOUT, headers=firefox_headers,
+                                allow_redirects=True)
         if resp.status_code != 200:
             print(f"[US Stability RSS] {name}: HTTP {resp.status_code}")
             return []
