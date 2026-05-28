@@ -295,10 +295,9 @@ US_CHANNELS = [
     # ── US Government (very limited TG presence) ──
     'CISACyber',             # CISA cyber alerts [CONFIRMED resolves -- 0 msgs typical]
 
-    # ── UK / international (broadly available; widely subscribed) ──
-    # 'BBCBreaking' is the gold standard but flood-banned in last attempt;
-    # leave for next session. Cross-theater channels via _build_channel_list
-    # already provide IntelSlava, PressTV, tasnimnews_en, AJEnglish substitute.
+    # ── ROUND 1 (added May 27 2026) — UK / international high-volume channels ──
+    'BBCBreaking',           # BBC Breaking News [Round 1 — high US relevance, may flood-ban first scan]
+    'AJEnglish',             # Al Jazeera English [Round 1 — strong US politics coverage]
 
     # ── DEFERRED to future scans (avoid flood-ban) ──
     # Each of these is a strategically-valuable channel but ADDING TOO MANY
@@ -309,13 +308,12 @@ US_CHANNELS = [
     # ONCE in a session, subsequent resolutions are FREE (cached locally).
     # The flood-ban triggers ONLY on first-time bulk resolution.
     #
-    # Round 1 (after May 11 deploy): add 'BBCBreaking', 'AJEnglish'
+    # Round 1 (May 27 2026 deploy): BBCBreaking, AJEnglish ✅ ADDED
     # Round 2 (after Round 1 stabilizes): add 'TimesofIsrael', 'haaretzcom'
     # Round 3: add 'reuters_breaking', 'apnews_en', 'PunchbowlNews'
     # Round 4: add UK 'guardian', 'thetimesuk'
     # Round 5: add 'AxiosNews' (Barak Ravid's outlet — high US political value)
 ]
-
 # US-relevant content also flows through CROSS_THEATER_GLOBAL channels
 # (already in _build_channel_list output): IntelSlava, tasnimnews_en,
 # PressTV, FarsNewsAgency, ManarNewsEN, CentcomOfficial, OSINTdefender,
