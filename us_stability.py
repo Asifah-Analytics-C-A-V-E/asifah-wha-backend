@@ -759,15 +759,23 @@ def _fetch_rss(name, url, max_items=15):
             return []
         root = ET.fromstring(resp.text)
         items = []
-        # Handle both RSS and Atom
-        for item in (root.findall('.//item') or root.findall('.//{http://www.w3.org/2005/Atom}entry')):
-            title_el = item.find('title') or item.find('{http://www.w3.org/2005/Atom}title')
-            link_el = item.find('link') or item.find('{http://www.w3.org/2005/Atom}link')
-            pub_el = (item.find('pubDate') or
-                      item.find('{http://www.w3.org/2005/Atom}published') or
-                      item.find('{http://www.w3.org/2005/Atom}updated'))
-            desc_el = (item.find('description') or
-                       item.find('{http://www.w3.org/2005/Atom}summary'))
+        # v1.5.2 (May 29 2026): namespace-agnostic parsing. Many feeds (Atom,
+        # RSS 1.0/RDF, namespaced RSS 2.0) declare default xmlns on their root,
+        # which forces ElementTree to require explicit namespace lookups. The
+        # `{*}` wildcard matches any namespace, including the empty one.
+        # This single change rescues feeds platform-wide: NPR, NYT, BBC,
+        # Guardian, Substack (Lawfare/Punchbowl/Tooze), PBS, ProPublica,
+        # Atlantic, ABC, etc. all use namespaced default elements.
+        all_items = (root.findall('.//{*}item') or
+                     root.findall('.//{*}entry'))
+        for item in all_items:
+            title_el = (item.find('{*}title'))
+            link_el = (item.find('{*}link'))
+            pub_el = (item.find('{*}pubDate') or
+                      item.find('{*}published') or
+                      item.find('{*}updated'))
+            desc_el = (item.find('{*}description') or
+                       item.find('{*}summary'))
             if title_el is None or title_el.text is None:
                 continue
             link_text = ''
