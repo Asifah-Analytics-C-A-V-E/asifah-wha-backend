@@ -689,7 +689,12 @@ def _fetch_rss(name, url, max_items=15):
         'Accept': ('text/html,application/xhtml+xml,application/xml;q=0.9,'
                    'application/rss+xml;q=0.9,image/avif,image/webp,*/*;q=0.8'),
         'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
+        # CRITICAL: removed 'br' (Brotli) from Accept-Encoding. The requests
+        # library handles gzip and deflate natively but NOT brotli unless the
+        # brotli package is installed. Substack feeds return Brotli-compressed
+        # content when asked for it, and requests then returns raw binary
+        # bytes that the XML parser silently fails on. v1.5.1 May 29 2026.
+        'Accept-Encoding': 'gzip, deflate',
         'Cache-Control': 'max-age=0',
         'Sec-Ch-Ua': '"Chromium";v="130", "Google Chrome";v="130", "Not?A_Brand";v="99"',
         'Sec-Ch-Ua-Mobile': '?0',
@@ -778,6 +783,12 @@ def _fetch_rss(name, url, max_items=15):
             })
             if len(items) >= max_items:
                 break
+        # Diagnostic (May 29 2026 debug cycle): log successful fetches with item count
+        # so we can verify Substack feeds and others are actually populating.
+        if items:
+            print(f"[US Stability RSS] {name}: ✅ {len(items)} items")
+        else:
+            print(f"[US Stability RSS] {name}: ⚠️ 200 OK but 0 items parsed (check feed format)")
         return items
     except Exception as e:
         print(f"[US Stability RSS] {name}: error {str(e)[:100]}")
