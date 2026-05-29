@@ -75,6 +75,16 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
 
+# curl_cffi: TLS/JA3 fingerprint impersonation for sites that detect requests-library
+# at the network layer (Cloudflare bot detection). v1.5.0 (May 29 2026).
+# Falls back gracefully if not installed — we capture the import error.
+try:
+    from curl_cffi import requests as curl_requests
+    CURL_CFFI_AVAILABLE = True
+except ImportError:
+    curl_requests = None
+    CURL_CFFI_AVAILABLE = False
+    print("[US Stability] WARNING: curl_cffi not installed — TLS impersonation unavailable")
 
 # ════════════════════════════════════════════════════════════
 # SOCIAL SIGNAL COLLECTORS (v1.1.0 — May 2026)
@@ -592,7 +602,10 @@ US_STABILITY_RSS = [
     # ── Tier 2: Worked in audit when given browser UA (need UA fix in _fetch_rss) ──
     ('Politico',         'https://www.politico.com/rss/politicopicks.xml'),
     ('Just Security',    'https://www.justsecurity.org/feed/'),
-    ('Lawfare',          'https://www.lawfaremedia.org/feed.xml'),
+    # Lawfare: swapped to Substack mirror May 29 2026 — main site
+    # lawfaremedia.org/feed.xml was 403-blocking even with curl_cffi TLS impersonation.
+    # Substack feed is publicly designed for syndication and has different network path.
+    ('Lawfare',          'https://lawfare.substack.com/feed'),
     ('FEMA News',        'https://www.fema.gov/about/news-multimedia/rss'),
     ('Axios',            'https://api.axios.com/feed/'),
     # AP US removed May 27 2026 — feeds.apnews.com host no longer resolving.
@@ -611,6 +624,13 @@ US_STABILITY_RSS = [
     ('Reuters Top News (rss.app proxy)','https://rss.app/feeds/V8FCFmJyjQX4FmCx.xml'),
     ('Guardian US',      'https://www.theguardian.com/us-news/rss'),
     ('BBC US & Canada',  'https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml'),
+
+    # ── Tier 5: Substack feeds (May 29 2026) — bot-detection-resistant by design ──
+    # Substack RSS endpoints are designed for syndication and don't share the same
+    # Cloudflare bot detection profile as main news sites. High-quality analytical
+    # voices for U.S. economic/political stability tracking.
+    ('Punchbowl News',   'https://punchbowl.news/feed/'),
+    ('Adam Tooze Chartbook','https://adamtooze.substack.com/feed'),
 
     # ── Cybersecurity / infrastructure ──
     ('CISA Alerts',      'https://www.cisa.gov/news.xml'),
@@ -649,12 +669,14 @@ US_STATES = {
 def _fetch_rss(name, url, max_items=15):
     """Fetch RSS feed and return list of {title, link, published, source}.
 
-    v1.4.0 (May 27 2026): COMPLETE Chrome 130 fingerprint with Client Hints
-    (Sec-Ch-Ua, Sec-Ch-Ua-Mobile, Sec-Ch-Ua-Platform). Cloudflare bot
-    detection specifically checks for these — real browsers always send them,
-    bots usually don't. Earlier v1.3.0 lacked them and was being detected.
-    Also added a plausible Referer (Google search) so sites think we arrived
-    organically. Retry logic now tries Firefox UA on second attempt.
+    v1.5.0 (May 29 2026): THREE retry tiers for escalating bot detection:
+      1. requests + Chrome 130 + Client Hints (fast, works for most)
+      2. requests + Firefox UA fallback (defeats Chrome-specific rules)
+      3. curl_cffi + TLS/JA3 fingerprint impersonation (defeats Cloudflare
+         at network layer — catches sites that detect requests-library
+         regardless of headers).
+    Tier 3 added because Cloudflare escalated to TLS-fingerprint-based
+    detection ~May 2026, defeating header-only approaches.
     """
     # Complete Chrome 130 / Windows 11 browser fingerprint with Client Hints.
     # This is what a real Chrome browser sends on every request.
@@ -683,8 +705,7 @@ def _fetch_rss(name, url, max_items=15):
     try:
         resp = requests.get(url, timeout=DEFAULT_TIMEOUT, headers=headers,
                             allow_redirects=True)
-        # Retry once on 403 with a Firefox fingerprint (some Cloudflare rules
-        # specifically block Chrome). Firefox sends fewer Client Hints headers.
+        # ── Tier 2: Firefox UA fallback on 403 ──
         if resp.status_code == 403:
             print(f"[US Stability RSS] {name}: HTTP 403 — retrying with Firefox UA")
             firefox_headers = {
@@ -702,9 +723,32 @@ def _fetch_rss(name, url, max_items=15):
                 'Sec-Fetch-User': '?1',
                 'Referer': 'https://duckduckgo.com/',
             }
-            time.sleep(1.2)   # longer delay before retry (looks more human)
+            time.sleep(1.2)
             resp = requests.get(url, timeout=DEFAULT_TIMEOUT, headers=firefox_headers,
                                 allow_redirects=True)
+        # ── Tier 3: curl_cffi with TLS fingerprint impersonation ──
+        # Triggers on persistent 403 (both tiers failed) OR on the "not well-formed"
+        # XML parse failures that mean Cloudflare returned an HTML challenge page.
+        if resp.status_code == 403 and CURL_CFFI_AVAILABLE:
+            print(f"[US Stability RSS] {name}: HTTP 403 — retrying with curl_cffi TLS impersonation")
+            try:
+                time.sleep(0.8)
+                cc_resp = curl_requests.get(url, impersonate='chrome',
+                                            timeout=DEFAULT_TIMEOUT,
+                                            allow_redirects=True)
+                if cc_resp.status_code == 200:
+                    # Repackage curl_cffi response for downstream XML parser
+                    class _CCWrapper:
+                        def __init__(self, cc):
+                            self.status_code = cc.status_code
+                            self.content = cc.content
+                            self.text = cc.text
+                    resp = _CCWrapper(cc_resp)
+                    print(f"[US Stability RSS] {name}: ✅ curl_cffi rescued (TLS impersonation)")
+                else:
+                    print(f"[US Stability RSS] {name}: curl_cffi also got HTTP {cc_resp.status_code}")
+            except Exception as cc_err:
+                print(f"[US Stability RSS] {name}: curl_cffi error {str(cc_err)[:100]}")
         if resp.status_code != 200:
             print(f"[US Stability RSS] {name}: HTTP {resp.status_code}")
             return []
