@@ -2082,6 +2082,13 @@ def register_us_stability_endpoints(app):
             if not data:
                 return jsonify({'success': False,
                                 'error': 'No data — first scan in progress.'}), 503
+            # NYSE has its own refresh lifecycle (dedicated 14h cache + 7am/7pm
+            # scheduler), independent of the 12h main-scan cycle. Overlay the live
+            # NYSE cache so the equity card reflects the latest quotes even when the
+            # cached main scan is older (and baked in an empty/stale NYSE block).
+            fresh_nyse = _redis_get(NYSE_CACHE_KEY)
+            if fresh_nyse and fresh_nyse.get('indices'):
+                data['nyse'] = fresh_nyse
             return jsonify(data)
         except Exception as e:
             import traceback
