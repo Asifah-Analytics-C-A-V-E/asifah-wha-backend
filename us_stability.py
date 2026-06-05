@@ -998,33 +998,43 @@ def _fetch_av_quote(av_symbol):
 def _fetch_yahoo_quote(yahoo_symbol):
     """Fetch a single index quote from Yahoo Finance (free, no key required).
 
-    Uses the v8 chart endpoint which is the most reliable unauthenticated path.
+    Uses the v8 chart endpoint. Tries query1 then query2 (Yahoo load-balances
+    between the two hosts and rate-limits per-host, so when one 429s the other
+    often answers) and sends a real browser User-Agent, because Yahoo now 429s
+    datacenter requests that carry a non-browser UA.
     Returns dict with {value, change_pct_24h, source} or None on failure.
     """
-    try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}"
-        params = {'range': '5d', 'interval': '1d'}
-        resp = requests.get(url, params=params, timeout=DEFAULT_TIMEOUT,
-                            headers={'User-Agent': 'Mozilla/5.0 (AsifahAnalytics/1.0)'})
-        if resp.status_code != 200:
-            print(f"[NYSE/Yahoo] {yahoo_symbol}: HTTP {resp.status_code}")
-            return None
-        data = resp.json()
-        result = (data.get('chart', {}).get('result') or [{}])[0]
-        meta = result.get('meta', {})
-        price = meta.get('regularMarketPrice')
-        prev_close = meta.get('chartPreviousClose') or meta.get('previousClose')
-        if price is None or prev_close in (None, 0):
-            return None
-        change_pct = ((price - prev_close) / prev_close) * 100
-        return {
-            'value':          float(price),
-            'change_pct_24h': round(change_pct, 2),
-            'source':         'Yahoo Finance',
-        }
-    except Exception as e:
-        print(f"[NYSE/Yahoo] {yahoo_symbol}: error {str(e)[:120]}")
-        return None
+    params = {'range': '5d', 'interval': '1d'}
+    headers = {
+        'User-Agent': ('Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                       'AppleWebKit/537.36 (KHTML, like Gecko) '
+                       'Chrome/124.0.0.0 Safari/537.36'),
+        'Accept': 'application/json',
+    }
+    for host in ('query1', 'query2'):
+        try:
+            url = f"https://{host}.finance.yahoo.com/v8/finance/chart/{yahoo_symbol}"
+            resp = requests.get(url, params=params, timeout=DEFAULT_TIMEOUT, headers=headers)
+            if resp.status_code != 200:
+                print(f"[NYSE/Yahoo] {yahoo_symbol} via {host}: HTTP {resp.status_code}")
+                continue
+            data = resp.json()
+            result = (data.get('chart', {}).get('result') or [{}])[0]
+            meta = result.get('meta', {})
+            price = meta.get('regularMarketPrice')
+            prev_close = meta.get('chartPreviousClose') or meta.get('previousClose')
+            if price is None or prev_close in (None, 0):
+                continue
+            change_pct = ((price - prev_close) / prev_close) * 100
+            return {
+                'value':          float(price),
+                'change_pct_24h': round(change_pct, 2),
+                'source':         'Yahoo Finance',
+            }
+        except Exception as e:
+            print(f"[NYSE/Yahoo] {yahoo_symbol} via {host}: error {str(e)[:120]}")
+            continue
+    return None
 
 
 def _fetch_yahoo_sparkline(yahoo_symbol):
