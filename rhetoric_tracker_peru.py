@@ -85,6 +85,7 @@ try:
         build_top_signals,
         build_executive_summary,
         build_so_what_factor,
+        build_election_watch,
     )
     PERU_INTERPRETER_AVAILABLE = True
     print("[Peru Rhetoric] ✅ Signal interpreter loaded")
@@ -1363,12 +1364,15 @@ def scan_peru_rhetoric(force=False, days=7):
                                                        vector_levels, tripwires_global)
             so_what = build_so_what_factor(actor_summaries, vector_scores, vector_levels,
                                            tripwires_global, commodity_pressure)
+            election_watch = build_election_watch(actor_summaries)
         except Exception as e:
             print(f"[Peru Rhetoric] Interpreter error: {str(e)[:200]}")
             traceback.print_exc()
             top_signals, executive_summary, so_what = [], '', []
+            election_watch = None
     else:
         top_signals, executive_summary, so_what = [], '', []
+        election_watch = None
 
     # ── Compute composite Peru pressure score ──
     composite_score = round(sum(vector_scores.values()), 2)
@@ -1439,6 +1443,7 @@ def scan_peru_rhetoric(force=False, days=7):
         'top_signals':           top_signals,
         'executive_summary':     executive_summary,
         'so_what':               so_what,
+        'election_watch':        election_watch,
         'source_breakdown': {
             'rss':     len(rss_articles),
             'gdelt':   len(gdelt_articles),
