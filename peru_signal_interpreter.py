@@ -110,6 +110,31 @@ def _format_source_pill(source_name, feed_type=''):
 # ============================================
 # TOP SIGNALS BUILDER
 # ============================================
+def _election_top_signal(actor_summaries):
+    e = build_election_watch(actor_summaries)
+    if not e:
+        return None
+    cf, cs = e['candidates']['fujimori'], e['candidates']['sanchez']
+    phase_label = {'count_in_progress': 'count in progress',
+                   'count_disputed': 'COUNT DISPUTED',
+                   'decided': 'decision signals active'}.get(e['phase'], e['phase'])
+    mom = e['momentum_signals']
+    mom_txt = ('lead-language balanced' if mom == 'balanced'
+               else 'lead-language clustering around ' + e['candidates'][mom]['display'])
+    return {
+        'category':   'election',
+        'level':      'high' if e['phase'] == 'count_disputed' else 'elevated',
+        'icon':       '\U0001f5f3\ufe0f',
+        'short_text': ('Runoff watch: ' + phase_label + ' -- ' + mom_txt),
+        'long_text':  (cf['display'] + ' = market-stabilizing read (mining continuity); '
+                       + cs['display'] + ' = market-volatility read (mining-policy '
+                       'uncertainty). ' + cs['display'] + ' strength: rural domestic '
+                       'late count; ' + cf['display'] + ' strength: diaspora ballots. '
+                       + e['disclaimer']),
+        'source_link': '/rhetoric-peru.html#election',
+    }
+
+
 def build_top_signals(actor_summaries, tripwires_global, commodity_pressure, crosstheater_amplifiers):
     """
     Build the canonical top_signals[] array for the Peru rhetoric tracker.
@@ -210,6 +235,10 @@ def build_top_signals(actor_summaries, tripwires_global, commodity_pressure, cro
     signals.sort(
         key=lambda s: (-_level_rank(s['level']), -len(s.get('sources', [])))
     )
+    # Election runoff signal rides at the front while the cycle is live (Jun 2026)
+    _es = _election_top_signal(actor_summaries)
+    if _es:
+        signals.insert(0, _es)
     return signals[:12]   # cap at 12 — UI shows ~8 by default
 
 
@@ -539,6 +568,188 @@ def build_executive_summary(actor_summaries, vector_scores, vector_levels, tripw
 # ============================================
 # SO WHAT FACTOR BUILDER
 # ============================================
+# ============================================================
+# ELECTION RUNOFF WATCH (Jun 2026 cycle)
+# ============================================================
+# Convergence module for the Fujimori-Sanchez runoff. Reports WHICH counting
+# and candidate signals are present in the current scan -- it NEVER predicts
+# a winner. Market polarity per candidate is an analytical READ of policy
+# posture (mining/fiscal), not an endorsement or forecast.
+
+ELECTION_CANDIDATES = {
+    'fujimori': {
+        'display':     'Keiko Fujimori',
+        'party':       'Fuerza Popular (conservative)',
+        'keywords':    ['keiko fujimori', 'fujimori', 'fuerza popular'],
+        'lead_phrases': ['fujimori leads', 'fujimori ahead', 'fujimori edges',
+                         'fujimori takes lead', 'fujimori widens', 'lead for fujimori'],
+        'market_read': 'stabilizing',
+        'market_prose': ('read by markets as mining-continuity / fiscal-orthodoxy '
+                         'posture -- the stabilizing scenario for copper and '
+                         'silver supply expectations'),
+        'count_base':  'international / diaspora ballots (typically counted late)',
+    },
+    'sanchez': {
+        'display':     'Roberto Sanchez',
+        'party':       'Juntos por el Peru (left-nationalist, Castillo ally)',
+        'keywords':    ['roberto sanchez', 'sanchez palomino', 'juntos por el peru'],
+        'lead_phrases': ['sanchez leads', 'sanchez ahead', 'sanchez edges',
+                         'sanchez takes lead', 'sanchez widens', 'lead for sanchez',
+                         'sanchez edged ahead'],
+        'market_read': 'volatile',
+        'market_prose': ('read by markets as mining-policy-uncertainty posture '
+                         '(contract review / royalty revision risk) -- the '
+                         'volatility scenario; silver and copper risk premium '
+                         'is partly this political risk premium'),
+        'count_base':  'rural domestic ballots (late-count strength)',
+    },
+}
+
+ELECTION_PHASE_KEYWORDS = {
+    'decided':  ['president-elect', 'presidente electo', 'wins peru presidency',
+                 'declared the winner', 'proclamacion', 'proclama', 'concedes',
+                 'concede defeat'],
+    'disputed': ['fraud', 'fraude', 'annul', 'nulidad', 'impugna', 'recount',
+                 'irregularities', 'irregularidades', 'audit the vote'],
+    'counting': ['runoff', 'segunda vuelta', 'balotaje', 'votes counted',
+                 'ballots tallied', 'conteo', 'actas', 'onpe', 'virtually tied',
+                 'razor-thin', 'too close to call', 'diaspora', 'voto extranjero',
+                 'international polling'],
+}
+
+
+def _election_corpus(actor_summaries):
+    """Concatenated lowercase corpus from every actor's top articles --
+    title + description + slugified URL (slugs encode full headlines)."""
+    parts = []
+    for actor in (actor_summaries or {}).values():
+        for art in (actor.get('top_articles') or []):
+            parts.append((art.get('title') or '').lower())
+            parts.append((art.get('description') or '').lower())
+            url = (art.get('url') or art.get('link') or '').lower()
+            if url:
+                parts.append(url.replace('-', ' ').replace('_', ' ').replace('/', ' '))
+    return ' '.join(parts)
+
+
+def build_election_watch(actor_summaries):
+    """Returns the election_watch block, or None when the cycle is quiet
+    (auto-quiesces once runoff coverage leaves the corpus)."""
+    corpus = _election_corpus(actor_summaries)
+    if not corpus.strip():
+        return None
+
+    cands = {}
+    for cid, c in ELECTION_CANDIDATES.items():
+        mentions = sum(corpus.count(k) for k in c['keywords'])
+        leads = sum(corpus.count(p) for p in c['lead_phrases'])
+        cands[cid] = {
+            'display':      c['display'],
+            'party':        c['party'],
+            'market_read':  c['market_read'],
+            'count_base':   c['count_base'],
+            'mention_count': mentions,
+            'lead_signal_count': leads,
+        }
+
+    phase_hits = {ph: sum(corpus.count(k) for k in kws)
+                  for ph, kws in ELECTION_PHASE_KEYWORDS.items()}
+
+    total_mentions = sum(c['mention_count'] for c in cands.values())
+    if total_mentions == 0 and phase_hits['counting'] == 0:
+        return None
+
+    # Phase precedence: decided > disputed > counting
+    if phase_hits['decided'] >= 2:
+        phase = 'decided'
+    elif phase_hits['disputed'] >= 2:
+        phase = 'count_disputed'
+    else:
+        phase = 'count_in_progress'
+
+    # Which candidate's lead-language dominates THIS scan (signals, not a call)
+    f, s = cands['fujimori']['lead_signal_count'], cands['sanchez']['lead_signal_count']
+    if f == s:
+        momentum = 'balanced'
+    else:
+        momentum = 'fujimori' if f > s else 'sanchez'
+
+    return {
+        'active':      True,
+        'phase':       phase,
+        'phase_hits':  phase_hits,
+        'momentum_signals': momentum,
+        'candidates':  cands,
+        'disclaimer':  ('CONVERGENCE indicator: reports which counting and '
+                        'candidate signals are present in the current scan. '
+                        'NOT a prediction of the electoral outcome.'),
+    }
+
+
+def _election_bullets(election, commodity_pressure):
+    """So-What bullets for an active election watch."""
+    if not election:
+        return []
+    bullets = []
+    cf = election['candidates']['fujimori']
+    cs = election['candidates']['sanchez']
+
+    # Market-polarity bullet -- the core analytical read
+    bullets.append({
+        'bullet': ("ELECTION WATCH -- runoff count signals active. The two "
+                   "outcomes carry opposite market reads: "
+                   + cf['display'] + " (" + cf['party'] + ") is " + ELECTION_CANDIDATES['fujimori']['market_prose']
+                   + "; " + cs['display'] + " (" + cs['party'] + ") is " + ELECTION_CANDIDATES['sanchez']['market_prose']
+                   + ". Counting structure cuts both ways: " + cs['display']
+                   + "'s strength sits in " + cs['count_base'] + ", while "
+                   + cf['display'] + "'s sits in " + cf['count_base'] + "."),
+        'weight': 5.5,
+    })
+
+    # Momentum-signal bullet (dynamic, per-scan)
+    mom = election['momentum_signals']
+    if mom != 'balanced':
+        lead = election['candidates'][mom]
+        other = 'sanchez' if mom == 'fujimori' else 'fujimori'
+        bullets.append({
+            'bullet': ("Current-scan lead language clusters around " + lead['display']
+                       + " (" + str(lead['lead_signal_count']) + " lead-phrase signals vs "
+                       + str(election['candidates'][other]['lead_signal_count'])
+                       + ") -- a snapshot of coverage, not a result. Implied market posture if "
+                       "that trajectory holds: " + lead['market_read'] + "."),
+            'weight': 5.2,
+        })
+
+    # Phase bullets
+    if election['phase'] == 'count_disputed':
+        bullets.append({
+            'bullet': ("Dispute-language signals active (fraud / recount / annulment "
+                       "vocabulary in coverage). 2021 precedent: a near-tie plus fraud "
+                       "claims extended uncertainty for weeks -- itself a market-volatility "
+                       "vector independent of who wins."),
+            'weight': 5.4,
+        })
+    if election['phase'] == 'decided':
+        bullets.append({
+            'bullet': ("Decision-language signals active (president-elect / proclamation "
+                       "vocabulary). Watch the transition window: cabinet signals and "
+                       "mining-policy first statements will set the commodity tone."),
+            'weight': 5.3,
+        })
+
+    # Commodity cross-read
+    alert = (commodity_pressure or {}).get('composite_level') or (commodity_pressure or {}).get('alert')
+    if alert and str(alert).lower() in ('elevated', 'high', 'surge', 'critical'):
+        bullets.append({
+            'bullet': ("Convergence note: commodity news-signal pressure is already at "
+                       + str(alert).upper() + " while the runoff count is unresolved -- "
+                       "political uncertainty and supply-side signal pressure are stacking "
+                       "on the same window."),
+            'weight': 5.1,
+        })
+    return bullets
+
+
 def build_so_what_factor(actor_summaries, vector_scores, vector_levels, tripwires_global, commodity_pressure):
     """
     Build the bulleted 'So What' factor — strategic implications calibrated to
@@ -549,6 +760,10 @@ def build_so_what_factor(actor_summaries, vector_scores, vector_levels, tripwire
     Weight is used to sort (highest first); ~3-7 bullets returned typically.
     """
     bullets = []
+
+    # ── Election runoff watch (Jun 2026 cycle; auto-quiesces when corpus goes quiet) ──
+    _election = build_election_watch(actor_summaries)
+    bullets.extend(_election_bullets(_election, commodity_pressure))
 
     # ── Vector-driven implications ──
     if vector_levels.get('domestic_stability') in ('high', 'surge'):
@@ -694,6 +909,7 @@ def interpret_peru_signals(scan_data):
                                                      vector_levels, tripwires_global),
         'so_what':           build_so_what_factor(actor_summaries, vector_scores, vector_levels,
                                                    tripwires_global, commodity_pressure),
+        'election_watch':    build_election_watch(actor_summaries),
     }
 
 
