@@ -169,6 +169,15 @@ ACTORS = {
             # Castillo aftermath references (still active rhetoric anchor)
             'castillo trial', 'pedro castillo', 'castillo arrest',
             'castillo juicio', 'castillo prisión', 'castillo cárcel',
+            # 2026 runoff cycle (Jun 2026): candidates + counting machinery
+            'keiko fujimori', 'fujimori', 'fuerza popular',
+            'roberto sanchez', 'sanchez palomino', 'juntos por el peru',
+            'peru runoff', 'presidential runoff', 'segunda vuelta',
+            'balotaje', 'onpe', 'jne peru', 'voto extranjero',
+            'diaspora vote', 'votes counted', 'ballots tallied',
+            'conteo de votos', 'actas procesadas', 'recount peru',
+            'electoral fraud peru', 'fraude electoral', 'president-elect peru',
+            'presidente electo', 'proclamacion jne',
         ],
         'baseline_statements_per_week': 12,
     },
