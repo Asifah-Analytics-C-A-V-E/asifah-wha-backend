@@ -1071,6 +1071,39 @@ def _read_commodity_pressure_for_peru():
         return {}
 
 
+def _read_commodity_pressure_story_for_peru():
+    """
+    Read the composite pressure STORY from the WHA-local commodity proxy
+    (/api/wha/commodity/peru -- 12hr-cached pass-through of the ME backend's
+    /api/commodity-pressure/peru). This is the SAME payload the Peru stability
+    page renders (composite points, alert band, per-commodity global alerts),
+    so the rhetoric tracker and stability page tell ONE story.
+
+    Returns compact dict or {} on any failure (graceful degradation):
+      {alert, points, profile_count, commodities: {commodity_id: global_alert_level}}
+    """
+    try:
+        url = f"{WHA_BACKEND_SELF_URL}/api/wha/commodity/peru"
+        resp = requests.get(url, timeout=8)
+        if resp.status_code != 200:
+            return {}
+        data = resp.json()
+        commodities = {}
+        for tile in (data.get('commodity_summaries') or []):
+            cid = tile.get('commodity')
+            if cid:
+                commodities[cid] = tile.get('global_alert_level') or 'normal'
+        return {
+            'alert':         (data.get('alert_level') or 'normal').lower(),
+            'points':        round(float(data.get('commodity_pressure') or 0), 1),
+            'profile_count': data.get('profile_count') or len(commodities),
+            'commodities':   commodities,
+        }
+    except Exception as e:
+        print(f"[Peru Rhetoric] commodity story read error: {str(e)[:120]}")
+        return {}
+
+
 def _read_crosstheater_amplifiers():
     """
     Read fingerprints from sibling trackers that affect Peru's analytical context:
@@ -1350,6 +1383,11 @@ def scan_peru_rhetoric(force=False, days=7):
 
     # ── Read cross-tracker context ──
     commodity_pressure = _read_commodity_pressure_for_peru()
+    # Attach the composite pressure story under a reserved key -- consumers
+    # iterating per-commodity fingerprints skip underscore-prefixed keys.
+    _story = _read_commodity_pressure_story_for_peru()
+    if _story:
+        commodity_pressure['_pressure_story'] = _story
     crosstheater_amplifiers = _read_crosstheater_amplifiers()
 
     # ── Write Peru fingerprints for downstream consumers ──
