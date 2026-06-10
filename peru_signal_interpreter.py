@@ -153,6 +153,7 @@ def _election_top_signal(actor_summaries):
                else 'lead-language clustering around ' + e['candidates'][mom]['display'])
     return {
         'category':   'election',
+        'type':       'election',
         'level':      'high' if e['phase'] == 'count_disputed' else 'elevated',
         'icon':       '\U0001f5f3\ufe0f',
         'short_text': ('Runoff watch: ' + phase_label + ' -- ' + mom_txt),
