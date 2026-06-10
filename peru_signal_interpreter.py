@@ -110,6 +110,36 @@ def _format_source_pill(source_name, feed_type=''):
 # ============================================
 # TOP SIGNALS BUILDER
 # ============================================
+def _commodity_story_signal(commodity_pressure):
+    """Composite pressure story signal -- mirrors the stability page's
+    commodity alert banner so both pages tell one story. None when calm."""
+    story = (commodity_pressure or {}).get('_pressure_story') or {}
+    alert = (story.get('alert') or 'normal').lower()
+    if alert == 'normal':
+        return None
+    LEVEL_MAP = {'elevated': 'elevated', 'high': 'high',
+                 'critical': 'surge', 'surge': 'surge'}
+    escalated = [c for c, a in (story.get('commodities') or {}).items()
+                 if a and a != 'normal']
+    esc_txt = (', '.join(sorted(escalated)) if escalated
+               else 'tracked commodities')
+    return {
+        'category':   'commodity_coupling',
+        'type':       'commodity_coupling',
+        'level':      LEVEL_MAP.get(alert, 'elevated'),
+        'icon':       '\u26cf\ufe0f',
+        'short_text': ('Composite commodity pressure: ' + alert.upper() + ' -- '
+                       + str(story.get('points', 0)) + ' pts \u00b7 '
+                       + str(story.get('profile_count', 0)) + ' commodities tracked'),
+        'long_text':  ('Composite news-signal pressure (weighted volume/severity '
+                       'of matched reporting, NOT price) is at ' + alert.upper()
+                       + ' across ' + esc_txt + '. Peru supply-risk premium is '
+                       'partly a political risk premium -- this composite and the '
+                       'runoff count are stacking on the same window.'),
+        'source_link': '/peru-stability.html#commodities',
+    }
+
+
 def _election_top_signal(actor_summaries):
     e = build_election_watch(actor_summaries)
     if not e:
@@ -216,6 +246,8 @@ def build_top_signals(actor_summaries, tripwires_global, commodity_pressure, cro
 
     # ── 4. Commodity coupling signals ──
     for commodity_id, risk in (commodity_pressure or {}).items():
+        if commodity_id.startswith('_'):
+            continue  # reserved keys (e.g. _pressure_story) are not commodities
         if risk.get('alert_level') in ESCALATORY_LEVELS:
             sig = _commodity_coupling_signal(commodity_id, risk, actor_summaries)
             if sig:
@@ -235,6 +267,10 @@ def build_top_signals(actor_summaries, tripwires_global, commodity_pressure, cro
     signals.sort(
         key=lambda s: (-_level_rank(s['level']), -len(s.get('sources', [])))
     )
+    # Composite commodity story rides high when escalated (mirrors stability page)
+    _cs = _commodity_story_signal(commodity_pressure)
+    if _cs:
+        signals.insert(0, _cs)
     # Election runoff signal rides at the front while the cycle is live (Jun 2026)
     _es = _election_top_signal(actor_summaries)
     if _es:
@@ -738,7 +774,10 @@ def _election_bullets(election, commodity_pressure):
         })
 
     # Commodity cross-read
-    alert = (commodity_pressure or {}).get('composite_level') or (commodity_pressure or {}).get('alert')
+    _story = (commodity_pressure or {}).get('_pressure_story') or {}
+    alert = (_story.get('alert')
+             or (commodity_pressure or {}).get('composite_level')
+             or (commodity_pressure or {}).get('alert'))
     if alert and str(alert).lower() in ('elevated', 'high', 'surge', 'critical'):
         bullets.append({
             'bullet': ("Convergence note: commodity news-signal pressure is already at "
@@ -764,6 +803,19 @@ def build_so_what_factor(actor_summaries, vector_scores, vector_levels, tripwire
     # ── Election runoff watch (Jun 2026 cycle; auto-quiesces when corpus goes quiet) ──
     _election = build_election_watch(actor_summaries)
     bullets.extend(_election_bullets(_election, commodity_pressure))
+
+    # ── Composite commodity story (standalone only when no election stacking bullet) ──
+    _story = (commodity_pressure or {}).get('_pressure_story') or {}
+    if not _election and (_story.get('alert') or 'normal') not in ('normal',):
+        bullets.append({
+            'bullet': ("Composite commodity news-signal pressure is at "
+                       + _story['alert'].upper() + " ("
+                       + str(_story.get('points', 0)) + " pts across "
+                       + str(_story.get('profile_count', 0)) + " tracked commodities). "
+                       "Signal volume/severity, not price -- watch mining-region "
+                       "rhetoric for the political component of the premium."),
+            'weight': 4.9,
+        })
 
     # ── Vector-driven implications ──
     if vector_levels.get('domestic_stability') in ('high', 'surge'):
@@ -857,6 +909,8 @@ def build_so_what_factor(actor_summaries, vector_scores, vector_levels, tripwire
 
     # ── Commodity coupling implications ──
     for commodity_id, risk in (commodity_pressure or {}).items():
+        if commodity_id.startswith('_'):
+            continue  # reserved keys (e.g. _pressure_story) are not commodities
         if risk.get('alert_level') in ('high', 'surge'):
             bullets.append({
                 'bullet': f"Commodity-coupling: {commodity_id} supply pressure on Peru is at " +
