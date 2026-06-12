@@ -138,8 +138,11 @@ def _fetch_yahoo_chart(ticker):
                 price = closes[-1]
 
             if len(closes) >= 2:
-                if abs(price - closes[-1]) < 1e-9:
-                    prev = closes[-2]   # market closed; last bar IS price
+                # 0.05% relative tolerance: Yahoo's live price and close
+                # array differ by float noise, so exact equality never
+                # matched and every tile reported +0.00%.
+                if abs(price - closes[-1]) <= abs(price) * 0.0005:
+                    prev = closes[-2]   # same bar; compare prior session
                 else:
                     prev = closes[-1]   # intraday; compare vs last close
             else:
