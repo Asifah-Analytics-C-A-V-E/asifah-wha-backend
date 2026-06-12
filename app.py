@@ -195,6 +195,16 @@ except ImportError as e:
     WHA_COMMODITY_PROXY_AVAILABLE = False
     print(f'[WHA Backend] WARNING: WHA commodity proxy unavailable ({e})')
 
+# Mexico Financial Pulse (v1.0.0 Jun 2026) -- IPC / USD-MXN / WTI via Yahoo.
+# Powers the Financial Pulse card on mexico-stability.html.
+try:
+    from mexico_stability import register_mexico_stability_endpoints
+    MEXICO_STABILITY_AVAILABLE = True
+    print('[WHA Backend] Mexico stability module loaded')
+except ImportError as e:
+    MEXICO_STABILITY_AVAILABLE = False
+    print(f'[WHA Backend] WARNING: Mexico stability module unavailable ({e})')
+
 # ========================================
 # FLASK APP INIT
 # ========================================
@@ -1641,6 +1651,11 @@ if US_GOV_COMP_AVAILABLE:
 # Writes stability:us:fingerprint + stability:us:summary for GPI.
 if US_STABILITY_AVAILABLE:
     register_us_stability_endpoints(app)
+
+# Register Mexico Financial Pulse endpoints
+# (/api/mexico/stability, /api/mexico/stability/debug)
+if MEXICO_STABILITY_AVAILABLE:
+    register_mexico_stability_endpoints(app)
 
 # Register WHA Regional BLUF endpoints
 # (/api/rhetoric/wha/bluf, /api/rhetoric/wha/bluf/debug)
