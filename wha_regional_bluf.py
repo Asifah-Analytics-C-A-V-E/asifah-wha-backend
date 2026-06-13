@@ -98,6 +98,12 @@ MAX_PER_THEATRE   = 3       # v2.4.0 May 21 2026 — per-tracker quota during se
 # Our synthesis cache
 BLUF_CACHE_KEY    = 'rhetoric:wha:regional_bluf'
 BLUF_CACHE_TTL    = 14 * 3600    # 14h -- outlasts any individual tracker TTL
+BLUF_LASTGOOD_TTL   = 7 * 24 * 3600   # 7d ceiling for held last-known-good tracker snapshots (C)
+BLUF_INCOMPLETE_TTL = 30 * 60         # 30min cache when the picture is incomplete (A: don't freeze gaps)
+
+def _lastgood_key(theatre):
+    """Durable last-known-good snapshot key for a tracker (C)."""
+    return 'rhetoric:' + str(theatre) + ':lastgood'
 
 
 # ============================================================
@@ -587,25 +593,43 @@ def _synthesize_top_signals_legacy(theatre, raw_data, threat_int, score, so_what
 # TRACKER READERS
 # ============================================================
 def _read_all_trackers():
-    """
-    Read all WHA tracker caches and normalize via shim.
-    Returns dict of theatre -> NORMALIZED data.
-    Missing caches are silently skipped.
+    """Read all WHA tracker caches and normalize via shim.
+
+    Cold-start resilience (Jun 13 2026 -- A/B/C):
+      C: when a tracker's live cache is missing, fall back to a durable
+         last-known-good snapshot (rhetoric:<x>:lastgood, 7d ceiling) so the
+         country is HELD in the rollup rather than silently dropped.
+      B: report which trackers are live / stale-fallback / fully absent.
+    Returns (trackers, missing, stale).
     """
     trackers = {}
+    missing  = []   # no live AND no last-known-good -> truly absent (honest)
+    stale    = []   # served from last-known-good fallback
     for theatre, redis_key in TRACKER_KEYS.items():
         raw = _redis_get(redis_key)
         if raw:
             normalized = _normalize_tracker_data(theatre, raw)
             if normalized:
+                normalized['freshness'] = 'live'
                 trackers[theatre] = normalized
+                _redis_set(_lastgood_key(theatre), raw, ttl=BLUF_LASTGOOD_TTL)
                 lvls = normalized['levels']
                 axis_str = (f"T{lvls['threat']}" +
                             (f"/I{lvls['influence']}" if lvls['influence'] is not None else ''))
                 print(f'[WHA BLUF] {theatre}: loaded ({axis_str}, score={normalized["score"]})')
-        else:
-            print(f'[WHA BLUF] {theatre}: no cache available')
-    return trackers
+                continue
+        lg = _redis_get(_lastgood_key(theatre))
+        if lg:
+            normalized = _normalize_tracker_data(theatre, lg)
+            if normalized:
+                normalized['freshness'] = 'stale'
+                trackers[theatre] = normalized
+                stale.append(theatre)
+                print(f'[WHA BLUF] {theatre}: STALE fallback (last-known-good held)')
+                continue
+        missing.append(theatre)
+        print(f'[WHA BLUF] {theatre}: no cache available (absent from rollup)')
+    return trackers, missing, stale
 
 
 # ============================================================
@@ -1369,7 +1393,7 @@ def build_regional_bluf(force=False):
     print('[WHA BLUF v1.0] Building regional BLUF from all WHA tracker caches...')
 
     try:
-        trackers = _read_all_trackers()
+        trackers, trackers_missing, trackers_stale = _read_all_trackers()
 
         if not trackers:
             return {
@@ -1444,6 +1468,9 @@ def build_regional_bluf(force=False):
             'theatres_live':      trackers_live,              # canonical alias
             'theatres_at_l3plus': posture['theatres_at_l3plus'],
             'trackers_total':     len(TRACKER_KEYS),
+            'trackers_stale':     trackers_stale,    # B: served from last-known-good
+            'trackers_missing':   trackers_missing,  # B: no live AND no last-known-good
+            'picture_complete':   (len(trackers_missing) == 0),
             'theatre_summary':    theatre_summary,
             'generated_at':       datetime.now(timezone.utc).isoformat(),
             'version':            '1.0.0',
@@ -1451,7 +1478,8 @@ def build_regional_bluf(force=False):
             'top_signals_count':  len(top_signals),
         }
 
-        _redis_set(BLUF_CACHE_KEY, result)
+        _bluf_ttl = BLUF_INCOMPLETE_TTL if (trackers_missing or trackers_stale) else BLUF_CACHE_TTL
+        _redis_set(BLUF_CACHE_KEY, result, ttl=_bluf_ttl)
         print(f"[WHA BLUF v1.0] Built: posture={posture['label']}, "
               f"max_level=L{posture['peak_level']}, "
               f"breached={posture['breached_count']}, "
