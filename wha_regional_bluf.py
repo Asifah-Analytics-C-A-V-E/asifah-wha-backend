@@ -1264,6 +1264,90 @@ def _build_signals(posture, trackers):
 # ============================================================
 # MAIN BUILD FUNCTION
 # ============================================================
+# ── Approach B: structured blocks + multi-axis tagging (Jun 13 2026) ──
+_WHA_REGIONAL_AXIS_SETS = {
+    'kinetic_pressure': ['kinetic'], 'red_line_breached': ['kinetic'],
+    'theatre_high': ['kinetic'], 'theatre_active': ['kinetic'],
+    'wha_cascade': ['humanitarian', 'economic'], 'kinetic_threshold': ['kinetic'],
+    'coalition_threat': ['kinetic', 'diplomatic'],
+    'commodity': ['economic'], 'commodity_coupling': ['economic'],
+    'economic_stress': ['economic'], 'sovereign_default': ['economic'],
+    'election': ['diplomatic'], 'election_watch': ['diplomatic'],
+    'green_line_active': ['diplomatic'], 'diplomatic_track_active': ['diplomatic'],
+    'diplomatic_active': ['diplomatic'], 'mediation': ['diplomatic'],
+    'humanitarian': ['humanitarian'], 'displacement': ['humanitarian'],
+    'migration': ['humanitarian'], 'health_emergency': ['humanitarian'],
+}
+_WHA_AXIS_KEYWORD_HINTS = [
+    ('economic', ['economic', 'commodity', 'copper', 'silver', 'oil', 'default', 'reserves', 'sanction', 'mining']),
+    ('humanitarian', ['humanitarian', 'displace', 'refugee', 'migration', 'famine']),
+    ('diplomatic', ['diplomatic', 'election', 'runoff', 'mediation', 'negotiat', 'coalition', 'sanction']),
+]
+
+def _wha_axes_for_signal(sig):
+    sig = sig if isinstance(sig, dict) else {}
+    pt = sig.get('pressure_type')
+    cat = str(sig.get('category') or '').lower()
+    if cat in _WHA_REGIONAL_AXIS_SETS:
+        axes = list(_WHA_REGIONAL_AXIS_SETS[cat])
+        if pt and pt in ('kinetic','economic','diplomatic','humanitarian') and pt not in axes:
+            axes.insert(0, pt)
+        return axes
+    if pt and pt in ('kinetic','economic','diplomatic','humanitarian'):
+        return [pt]
+    blob = (cat + ' ' + str(sig.get('short_text') or '') + ' ' + str(sig.get('long_text') or '')).lower()
+    for axis, kws in _WHA_AXIS_KEYWORD_HINTS:
+        if any(k in blob for k in kws):
+            return [axis]
+    return ['kinetic']
+
+def _wha_tag_signal_axes(signals):
+    out = []
+    for s in (signals or []):
+        s2 = dict(s)
+        axes = _wha_axes_for_signal(s2)
+        s2['axes'] = axes
+        s2.setdefault('pressure_type', axes[0])
+        out.append(s2)
+    return out
+
+def _wha_prose_v2_to_blocks(md):
+    """Parse markdown prose_v2 into {label,text} blocks. Header is
+    '**Western Hemisphere -- date**'; posture 'Regional posture at ...';
+    closer '**Why this matters:**'. Mirrors the ME converter."""
+    if not md or not isinstance(md, str):
+        return []
+    import re as _re
+    paras = [p.strip() for p in md.split('\n\n') if p.strip()]
+    blocks = []
+    for i, para in enumerate(paras):
+        hm = _re.match(r'^\*\*([^*]+)\*\*\s*(.*)$', para, _re.S)
+        if i == 0 and hm:
+            blocks.append({'label': hm.group(1).strip(), 'text': ''})
+            rest = hm.group(2).strip()
+            if rest:
+                pm = _re.match(r'^(Regional posture[^.]*\.(?:\s+\d+\s+red line[^.]*\.)?)\s*([\s\S]*)$', rest)
+                if pm:
+                    posture_txt = pm.group(1).strip()
+                    dive_txt = pm.group(2).strip()
+                    if posture_txt.lower().startswith('regional posture'):
+                        posture_txt = posture_txt[len('Regional posture'):].lstrip(' at').strip()
+                        posture_txt = posture_txt[0].upper() + posture_txt[1:] if posture_txt else posture_txt
+                    blocks.append({'label': 'Regional Posture', 'text': posture_txt})
+                    if dive_txt:
+                        blocks.append({'label': 'Theatre Reads', 'text': dive_txt})
+                else:
+                    blocks.append({'label': 'Regional Posture', 'text': rest})
+            continue
+        wm = _re.match(r'^\*\*Why this matters:\*\*\s*([\s\S]*)$', para)
+        if wm:
+            blocks.append({'label': 'Why This Matters', 'text': wm.group(1).strip()})
+            continue
+        clean = _re.sub(r'\*\*', '', para)
+        blocks.append({'label': 'Theatre Reads', 'text': clean})
+    return blocks
+
+
 def build_regional_bluf(force=False):
     """
     Build the WHA regional BLUF. Reads all WHA caches, synthesizes,
@@ -1304,11 +1388,14 @@ def build_regional_bluf(force=False):
         # Hybrid rollout: emit both 'bluf' (legacy) and 'bluf_v2' (new).
         # Frontend prefers bluf_v2 if present, falls back to bluf.
         try:
-            bluf_v2 = _build_bluf_prose_v2(posture, trackers)
+            bluf_v2_md = _build_bluf_prose_v2(posture, trackers)
+            bluf_v2 = _wha_prose_v2_to_blocks(bluf_v2_md)   # approach B blocks
         except Exception as e:
             print(f"[WHA BLUF v2] prose_v2 build failed (falling back to legacy): {e}")
-            bluf_v2 = None
+            bluf_v2_md = None
+            bluf_v2 = []
         all_signals = _build_signals(posture, trackers)            # v2.3.0: full pool — for GPI axis aggregation
+        all_signals = _wha_tag_signal_axes(all_signals)            # Jun 13 2026: multi-axis pills
         top_signals = all_signals[:TOP_SIGNALS_COUNT]                # v2.3.0: capped for display
 
         trackers_live = len(trackers)
@@ -1343,7 +1430,8 @@ def build_regional_bluf(force=False):
             'success':            True,
             'from_cache':         False,
             'bluf':               bluf,
-            'bluf_v2':            bluf_v2,  # May 22 2026 — richer human-language prose (None if build failed)
+            'bluf_v2':            bluf_v2,  # Jun 13 2026 — {label,text} block array (approach B)
+            'bluf_v2_md':         bluf_v2_md,  # original markdown prose (preserved)
             'signals':            all_signals,                # v2.3.0: FULL signal pool — for GPI axis aggregation
             'top_signals':        top_signals,                # v2.3.0: capped — for display + prose synthesis
             'posture_label':      posture['label'],
