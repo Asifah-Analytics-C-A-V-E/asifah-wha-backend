@@ -56,13 +56,13 @@ TRACKER_KEYS = {
     'peru':      'rhetoric:peru:latest',
     'chile':     'rhetoric:chile:latest',
     'venezuela': 'rhetoric:venezuela:latest',  # v2.5 May 21 2026 — first contract-native tracker
+    'us':        'rhetoric:us:latest',          # Jun 13 2026 — command-node anchor (writes rhetoric:us:latest, no TTL)
     # Future WHA trackers slot in here:
     # 'haiti':      'rhetoric:haiti:latest',
     # 'mexico':     'rhetoric:mexico:latest',
     # 'panama':     'rhetoric:panama:latest',
     # 'colombia':   'rhetoric:colombia:latest',
     # 'brazil':     'rhetoric:brazil:latest',
-    # 'us':         'rhetoric:us:latest',
 }
 
 THEATRE_FLAGS = {
