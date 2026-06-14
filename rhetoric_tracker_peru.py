@@ -86,6 +86,8 @@ try:
         build_executive_summary,
         build_so_what_factor,
         build_election_watch,
+        score_alignment_drift,
+        build_alignment_drift_top_signal,
     )
     PERU_INTERPRETER_AVAILABLE = True
     print("[Peru Rhetoric] ✅ Signal interpreter loaded")
@@ -1418,17 +1420,29 @@ def scan_peru_rhetoric(force=False, days=7):
                                              commodity_pressure, crosstheater_amplifiers)
             executive_summary = build_executive_summary(actor_summaries, vector_scores,
                                                        vector_levels, tripwires_global)
+            alignment_drift = score_alignment_drift(actor_summaries, tripwires_global,
+                                                    commodity_pressure, crosstheater_amplifiers,
+                                                    country='peru')
             so_what = build_so_what_factor(actor_summaries, vector_scores, vector_levels,
-                                           tripwires_global, commodity_pressure)
+                                           tripwires_global, commodity_pressure,
+                                           alignment_drift=alignment_drift)
             election_watch = build_election_watch(actor_summaries)
         except Exception as e:
             print(f"[Peru Rhetoric] Interpreter error: {str(e)[:200]}")
             traceback.print_exc()
             top_signals, executive_summary, so_what = [], '', []
             election_watch = None
+            alignment_drift = None
     else:
         top_signals, executive_summary, so_what = [], '', []
         election_watch = None
+        alignment_drift = None
+
+    # ── Alignment-drift convergence signal (BRI inroad read) -> WHA BLUF / GPI ──
+    if PERU_INTERPRETER_AVAILABLE and alignment_drift:
+        _drift_sig = build_alignment_drift_top_signal(alignment_drift)
+        if _drift_sig and not any(s.get('category') == 'alignment_drift' for s in top_signals):
+            top_signals = [_drift_sig] + list(top_signals)
 
     # ── Compute composite Peru pressure score ──
     composite_score = round(sum(vector_scores.values()), 2)
@@ -1499,6 +1513,7 @@ def scan_peru_rhetoric(force=False, days=7):
         'top_signals':           top_signals,
         'executive_summary':     executive_summary,
         'so_what':               so_what,
+        'alignment_drift':       alignment_drift,
         'election_watch':        election_watch,
         'source_breakdown': {
             'rss':     len(rss_articles),
