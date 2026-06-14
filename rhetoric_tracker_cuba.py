@@ -93,6 +93,7 @@ try:
         build_so_what,
         build_historical_matches,
         build_top_signals,
+        _score_rumint,
     )
     _INTERPRETER_AVAILABLE = True
 except ImportError as e:
@@ -2156,6 +2157,17 @@ def run_cuba_rhetoric_scan(force=False):
             _civ_press_label_local, _migration_net_label_local, l5_capped,
         )
 
+        # RUMINT read -- rides ALONGSIDE the threat level; never moves the score.
+        # The unified `articles` pool already folds in Bluesky (Trump Truth Social
+        # mirrors) + Telegram, which is exactly the jawboning corpus we want.
+        cuba_rumint = {'active': False, 'band': 'off', 'label': '', 'driver': '',
+                       'framing': 0, 'specificity': 0, 'reception': 0, 'corroboration': 0}
+        if _INTERPRETER_AVAILABLE:
+            try:
+                cuba_rumint = _score_rumint({'rumint_articles': articles, 'rumint_reddit': []})
+            except Exception as _re:
+                print(f"[Cuba Rhetoric] RUMINT error: {str(_re)[:100]}")
+
         result = {
             'success':               True,
             'theatre':               'Cuba',
@@ -2214,6 +2226,7 @@ def run_cuba_rhetoric_scan(force=False):
             # Interpreter output
             'red_lines':             red_lines_triggered,
             'so_what':               so_what,
+            'rumint':                cuba_rumint,
 
             # Metadata
             'total_articles':        len(articles),
