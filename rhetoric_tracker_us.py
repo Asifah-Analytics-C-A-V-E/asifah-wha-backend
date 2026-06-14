@@ -215,6 +215,11 @@ ACTORS = {
             'trump iran encouraging progress', 'trump iran 14-clause',
             'trump iran mou', 'trump iran memorandum',
             'truth social iran deal', 'truth social iran',
+            # ── v1.6.0 Jun 14 2026 — Islamabad MOU signing cycle (Trump framing) ──
+            'open to all', 'hormuz strait open', 'strait is open',
+            'reopen the strait', 'deal signed tomorrow', 'deal is scheduled',
+            'trump hormuz open', 'trump iran deal signed', 'no nuclear weapon',
+            'truth social hormuz', 'trump iran cessation', 'trump lifts blockade',
             # Spanish (for ES tab)
             'declaración trump', 'casa blanca declara', 'comunicado casa blanca',
         ],
@@ -274,6 +279,18 @@ ACTORS = {
             'us welcomes pakistan iran', 'us pakistan iran mediation',
             'us munir iran', 'us field marshal munir',
             'us back-channel iran', 'us backchannel iran',
+            # ── v1.6.0 Jun 14 2026 — Islamabad MOU signing cycle (instrument/mediation) ──
+            'islamabad memorandum', 'islamabad mou', 'mou signing', 'mou draft',
+            'memorandum of understanding', 'cessation of hostilities',
+            'qatari negotiators', 'qatar negotiators', 'qatari mediation',
+            'qatari delegation', 'qatar mediates iran',
+            'dilute highly enriched', 'dilute heu', 'uranium dilution',
+            'no new enrichment', 'enrich no new uranium', 'enrichment freeze',
+            'frozen assets', 'iran frozen assets', 'release frozen assets',
+            'assets unfrozen', 'waive oil sanctions', 'oil sanctions waived',
+            'lifts naval blockade', 'naval blockade lifted', 'lift the blockade',
+            'blockade lifted', '60-day framework', '60-day period',
+            'war ending agreement', 'war-ending agreement', 'ending the iran war',
             # Spanish
             'departamento de estado', 'secretario de estado',
         ],
@@ -285,6 +302,9 @@ ACTORS = {
             'iran us deal announced', 'iran us peace deal signed',
             'iran us framework signed', 'iran nuclear deal signed',
             'iran ceasefire deal signed', 'iran hormuz reopening agreement',
+            # ── v1.6.0 Jun 14 2026 — Islamabad MOU milestones ──
+            'mou signed', 'memorandum signed', 'cessation of hostilities signed',
+            'hormuz open to all', 'naval blockade lifted', 'iran war ends',
         ],
         'baseline_statements_per_week': 30,
     },
