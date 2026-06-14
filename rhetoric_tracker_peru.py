@@ -387,6 +387,13 @@ ACTORS = {
             # Listed as keywords to detect rhetoric ABOUT the dissolution / legacy programs,
             # NOT to imply current activity
             'usaid peru historical', 'usaid peru legacy', 'former usaid peru',
+            # NEW (Jun 2026) -- US counter-pressure / China-displacement contest layer
+            'monroe doctrine', 'doctrina monroe', 'updated monroe doctrine',
+            'better partner', 'better trade partner',
+            'limit china', 'select committee', 'house select committee',
+            'us pressure peru', 'eeuu presiona perú', 'us warns peru',
+            'eeuu advierte perú', 'pushes back against chinese',
+            'china dual use concern', 'chancay concern', 'pulling latin america',
         ],
         'baseline_statements_per_week': 5,
     },
@@ -427,6 +434,17 @@ ACTORS = {
             'iniciativa franja y ruta perú', 'cooperación china perú',
             'chinalco perú', 'shougang perú', 'jinzhao mineria perú',
             'huawei perú declaración',
+            # NEW (Jun 2026) -- Diplomatic anti-US alignment layer
+            'sovereign right', 'derecho soberano', 'elegir socios',
+            'multipolar', 'injerencia estadounidense', 'china lashes out',
+            'china better partner', 'mejor socio china',
+            # NEW -- Security-cooperation / dual-use (Chancay naval concern) rung
+            'chancay naval', 'pla navy chancay', 'chancay military',
+            'chancay dual use', 'china police peru', 'cooperación policial china',
+            'ciudad segura china', 'safe city peru',
+            # NEW -- Economic-capture depth (structural lock-in)
+            'largest trading partner', 'mayor socio comercial',
+            'copper offtake china', 'silver offtake china',
         ],
         'baseline_statements_per_week': 6,
     },
