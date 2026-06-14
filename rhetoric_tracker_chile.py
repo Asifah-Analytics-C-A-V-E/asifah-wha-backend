@@ -101,6 +101,8 @@ try:
         build_top_signals as _interp_top_signals,
         build_executive_summary as _interp_exec_summary,
         build_so_what_factor as _interp_so_what,
+        score_alignment_drift as _interp_alignment_drift,
+        build_alignment_drift_top_signal as _interp_drift_signal,
     )
     INTERPRETER_AVAILABLE = True
     print("[Chile Rhetoric] ✅ Signal interpreter loaded")
@@ -1067,15 +1069,22 @@ def scan_chile_rhetoric(force=False, days=7):
             executive_summary = _interp_exec_summary(
                 actor_summaries, vector_scores, vector_levels, tripwires_global
             )
+            alignment_drift = _interp_alignment_drift(
+                actor_summaries, tripwires_global,
+                commodity_pressure, crosstheater_amplifiers
+            )
             so_what = _interp_so_what(
                 actor_summaries, vector_scores, vector_levels,
-                tripwires_global, commodity_pressure
+                tripwires_global, commodity_pressure,
+                alignment_drift=alignment_drift
             )
         except Exception as e:
             print(f"[Chile Rhetoric] Interpreter error: {str(e)[:200]}")
             top_signals, executive_summary, so_what = [], '', []
+            alignment_drift = None
     else:
         top_signals, executive_summary, so_what = [], '', []
+        alignment_drift = None
 
     # ── L5 Reservation Contract: emit theatre_high signal in top_signals ──
     # This signal carries the composite Chile posture in the canonical schema
@@ -1097,6 +1106,11 @@ def scan_chile_rhetoric(force=False, days=7):
     # Prepend so it ranks high in priority sort
     if not any(s.get('category') == 'theatre_high' and s.get('theatre') == 'chile' for s in top_signals):
         top_signals = [theatre_high_signal] + list(top_signals)
+
+    # ── Alignment-drift convergence signal (BRI inroad read) -> WHA BLUF / GPI ──
+    drift_sig = _interp_drift_signal(alignment_drift) if (INTERPRETER_AVAILABLE and alignment_drift) else None
+    if drift_sig and not any(s.get('category') == 'alignment_drift' for s in top_signals):
+        top_signals = [drift_sig] + list(top_signals)
 
     # ── Write Chile fingerprints for downstream consumers ──
     actor_levels = {a: s['level'] for a, s in actor_summaries.items()}
@@ -1127,6 +1141,7 @@ def scan_chile_rhetoric(force=False, days=7):
         'top_signals':              top_signals,
         'executive_summary':        executive_summary,
         'so_what':                  so_what,
+        'alignment_drift':          alignment_drift,
         'total_articles_scanned':   len(all_articles),
         'rss_count':                len(rss_articles),
         'gdelt_count':              len(gdelt_articles),
