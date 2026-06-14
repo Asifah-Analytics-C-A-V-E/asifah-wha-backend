@@ -919,6 +919,189 @@ def build_so_what(scan_data, red_lines_triggered, historical_matches):
 
 
 # ============================================================
+# RUMINT -- concept-seeding / posture-probing detection
+# ------------------------------------------------------------
+# A lightweight read that rides ALONGSIDE the threat level and never inflates
+# it. Detects trial-balloon behavior: US Cuba regime-change / military-takeover
+# signaling floated as a possible precursor to a move -- the Venezuela-precedent
+# analog (a Maduro-style leadership-change operation, applied to Havana). Bands
+# on an escalating-OBSERVABLE ladder --
+#   Watch -> Active -> Corroborated
+# -- where each rung is gated by a NEW present-tense signal, not a forecast.
+# 'off' = no pill (absence stays honest).
+#
+# PORTABILITY: cloned from greenland_signal_interpreter.py. Like Greenland,
+# Cuba is the INVERTED case (US is the primary inbound threat-language source).
+# "specificity" is repurposed to "names a concrete MOVE-RUMOR" (invasion /
+# blockade / troop / snatch-operation language); "Corroborated" gates on the
+# announcement layer alone. Cuba's Pituffik-equivalent false-positive trap is
+# GUANTANAMO -- a STANDING US base -- so Active additionally requires at least
+# some regime-change framing, so routine Gitmo coverage does not trigger.
+# ============================================================
+
+# --- COUNTRY-SPECIFIC (Cuba: US regime-change / takeover signaling) ---
+RUMINT_SUBJECT = 'US Cuba regime-change signaling'
+
+# WATCH layer -- US INTEREST / intent framing (the VZ-precedent jawboning)
+RUMINT_EXPANSION_KEYWORDS = [
+    'regime change cuba', 'cuba regime change', 'cuban regime change',
+    'remove the cuban regime', 'remove the regime in havana',
+    'topple havana', 'topple the cuban regime', 'topple diaz-canel',
+    'oust diaz-canel', 'remove diaz-canel', 'remove the cuban government',
+    'leadership change cuba', 'change of leadership cuba',
+    'new government in cuba', 'install a new government in cuba',
+    'transition government cuba', 'end the cuban dictatorship',
+    'end communism in cuba', 'cuba is next', 'cuba will be next',
+    'after maduro cuba', 'maduro then cuba', 'venezuela then cuba',
+    'do to cuba what', 'venezuela model cuba', 'venezuela playbook cuba',
+    'same playbook as venezuela', 'cuba like venezuela',
+    'maximum pressure cuba', 'us military option cuba', 'military option for cuba',
+    'rubio cuba', 'marco rubio cuba', 'trump cuba regime', 'white house cuba regime',
+    'liberate cuba', 'free cuba operation',
+]
+
+# ACTIVE layer -- concrete MOVE-RUMORS of a military takeover (still pre-fact)
+RUMINT_TARGETS = [
+    'invade cuba', 'invasion of cuba', 'us invasion cuba', 'military invasion cuba',
+    'blockade cuba', 'naval blockade cuba', 'blockade of cuba', 'quarantine cuba',
+    'us military operation cuba', 'military operation against cuba',
+    'operation against cuba', 'strike cuba', 'us strike cuba', 'airstrikes cuba',
+    'bomb cuba', 'troops to cuba', 'marines to cuba', 'deploy to cuba',
+    'warships toward cuba', 'warships near cuba', 'carrier toward cuba',
+    'carrier strike group cuba', 'navy toward cuba', 'fleet toward cuba',
+    'guantanamo buildup', 'guantanamo reinforcement', 'gitmo buildup',
+    'leaked cuba plan', 'leaked plan cuba', 'secret cuba operation',
+    'secret plan cuba', 'contingency plan cuba',
+    'snatch diaz-canel', 'capture diaz-canel', 'kidnap diaz-canel',
+    'extract diaz-canel', 'detain diaz-canel', 'special operations cuba',
+    'special forces cuba', 'covert operation cuba', 'no-fly zone cuba',
+    'maritime exclusion cuba',
+]
+
+# CORROBORATED layer -- announcement-grade fact-claims (ships/blockade in place,
+# operation underway, government changed)
+RUMINT_CORROBORATION_KEYWORDS = [
+    'naval blockade of cuba declared', 'us declares blockade cuba',
+    'blockade of cuba in place', 'cuba blockade begins', 'blockade imposed cuba',
+    'us invades cuba', 'invasion of cuba begins', 'us forces land cuba',
+    'us troops land in cuba', 'marines land cuba',
+    'us military operation in cuba underway', 'operation against cuba underway',
+    'us launches operation cuba', 'warships off cuba', 'us warships off cuba',
+    'fleet off cuba', 'carrier off cuba', 'navy off cuba', 'ships off cuba',
+    'us strikes cuba', 'airstrikes on cuba', 'us bombs cuba',
+    'diaz-canel removed', 'diaz-canel captured', 'diaz-canel detained',
+    'diaz-canel ousted', 'regime toppled cuba', 'cuban government falls',
+    'new government installed cuba', 'us installs government cuba',
+    'transitional government cuba announced', 'us seizes havana', 'havana falls',
+]
+
+RUMINT_RECEPTION_VENUES = ['r/cuba', 'r/geopolitics', 'r/venezuela', 'r/LatinAmerica']
+RUMINT_FRAMING_FLOOR = 2   # distinct interest-framing terms below which we stay silent
+
+
+# --- GENERIC (portable across RUMINT-enabled countries; gate tuned for inverted model) ---
+def _check_keywords(scan_data, keywords):
+    """Match keywords against the RUMINT corpus (the unified Cuba article pool,
+    which already folds in Bluesky/Telegram). URL slugs are de-hyphenated so
+    multi-word keywords match headline slugs."""
+    if not keywords:
+        return 0
+    corpus_parts = []
+    for art in (scan_data.get('rumint_articles') or []):
+        corpus_parts.append((art.get('title') or '').lower())
+        corpus_parts.append((art.get('description') or '').lower())
+        corpus_parts.append((art.get('content') or '').lower())
+        corpus_parts.append((art.get('text') or '').lower())
+        corpus_parts.append((art.get('body') or '').lower())
+        corpus_parts.append((art.get('summary') or '').lower())
+        _url = (art.get('url') or art.get('link') or '').lower()
+        if _url:
+            corpus_parts.append(_url.replace('-', ' ').replace('_', ' ').replace('/', ' '))
+    for sig in (scan_data.get('rumint_reddit') or []):
+        corpus_parts.append((sig.get('text') or sig.get('title') or '').lower())
+    corpus = ' | '.join(corpus_parts)
+    if not corpus:
+        return 0
+    return sum(1 for kw in keywords if kw.lower() in corpus)
+
+
+def _count_terms_in_reception(scan_data, keywords, venues):
+    """Distinct keyword count restricted to reddit signals whose source is a
+    reception venue -- the 'is the public reacting?' read. (Cuba's reddit layer
+    is graceful: returns 0 until reddit is wired into the RUMINT corpus.)"""
+    if not keywords:
+        return 0
+    parts = []
+    for sig in (scan_data.get('rumint_reddit') or []):
+        src = (sig.get('source') or sig.get('subreddit') or '')
+        if isinstance(src, dict):
+            src = src.get('name', '')
+        if src in venues:
+            parts.append((sig.get('text') or sig.get('title') or '').lower())
+    corpus = ' | '.join(parts)
+    if not corpus:
+        return 0
+    return sum(1 for kw in keywords if kw.lower() in corpus)
+
+
+def _band_rumint(framing, specificity, reception, corroboration, subject):
+    """Band the RUMINT read on the escalating-observable ladder. Each rung is
+    gated by a NEW present-tense signal, never a forecast. Announcement-grade
+    language is self-justifying -- Corroborated fires even when interest-framing
+    is below the floor. 'off' shows no pill (absence stays honest)."""
+    if corroboration >= 1:
+        band, label = 'corroborated', 'Corroborated'
+        driver = (subject + ' has reached announcement-grade language in the corpus '
+                  '(blockade in place, warships off Cuba, operation underway, or a '
+                  'leadership-removal claim) -- the rumor layer has hardened into '
+                  'reported fact-claims. Consistent with a takeover in motion; verify '
+                  'against primary sources, and the reader completes the inference.')
+        return {'active': True, 'band': band, 'label': label, 'driver': driver,
+                'framing': framing, 'specificity': specificity,
+                'reception': reception, 'corroboration': corroboration}
+    # Active: a concrete move-rumor (or public echo), read as RUMINT only when at
+    # least some regime-change framing is also present -- so the STANDING US base
+    # at Guantanamo does not false-positive on its own.
+    if framing >= 1 and (specificity >= 1 or reception >= 1):
+        band, label = 'active', 'Active'
+        echo = ' and echoing in public forums' if reception >= 1 else ''
+        driver = (subject + ' has moved past interest to concrete move-rumors '
+                  '(leaked operation plans, naval movement toward Cuba, or blockade / '
+                  'troop / snatch-operation signaling)' + echo + ' -- a trial balloon '
+                  'in flight. Consistent with the cadence that preceded the Venezuela '
+                  'leadership-change operation; reader completes the inference.')
+        return {'active': True, 'band': band, 'label': label, 'driver': driver,
+                'framing': framing, 'specificity': specificity,
+                'reception': reception, 'corroboration': corroboration}
+    # Watch: interest-framing density, no concrete move yet.
+    if framing >= RUMINT_FRAMING_FLOOR:
+        band, label = 'watch', 'Watch'
+        driver = (subject + ' is present as interest / intent rhetoric (the Venezuela-'
+                  'precedent framing) but no concrete move-rumor yet. Baseline concept-'
+                  'seeding; watching for escalation to leaked plans, naval movement, or '
+                  'troop / operation signaling.')
+        return {'active': True, 'band': band, 'label': label, 'driver': driver,
+                'framing': framing, 'specificity': specificity,
+                'reception': reception, 'corroboration': corroboration}
+    return {'active': False, 'band': 'off', 'label': '', 'driver': '',
+            'framing': framing, 'specificity': specificity,
+            'reception': reception, 'corroboration': corroboration}
+
+
+def _score_rumint(scan_data):
+    """Compute the RUMINT read from the captured corpus. Framing / specificity /
+    corroboration use the full corpus; reception is venue-filtered. Counts are
+    distinct-term counts -- a volume proxy, never a probability."""
+    framing       = _check_keywords(scan_data, RUMINT_EXPANSION_KEYWORDS)
+    corroboration = _check_keywords(scan_data, RUMINT_CORROBORATION_KEYWORDS)
+    specificity   = _check_keywords(scan_data, RUMINT_TARGETS)
+    reception     = _count_terms_in_reception(
+        scan_data, RUMINT_EXPANSION_KEYWORDS + RUMINT_TARGETS,
+        RUMINT_RECEPTION_VENUES)
+    return _band_rumint(framing, specificity, reception, corroboration, RUMINT_SUBJECT)
+
+
+# ============================================================
 # TOP-LEVEL INTERPRETER
 # ============================================================
 def interpret_signals(scan_data):
@@ -938,9 +1121,12 @@ def interpret_signals(scan_data):
     }
     historical_matches = build_historical_matches(actor_results, vectors)
     so_what = build_so_what(scan_data, red_lines_triggered, historical_matches)
+    rumint = _score_rumint({'rumint_articles': articles,
+                            'rumint_reddit': scan_data.get('rumint_reddit', [])})
 
     return {
         'red_lines':          red_lines_triggered,
         'so_what':            so_what,
         'historical_matches': historical_matches,
+        'rumint':             rumint,
     }
