@@ -790,7 +790,171 @@ def _election_bullets(election, commodity_pressure):
     return bullets
 
 
-def build_so_what_factor(actor_summaries, vector_scores, vector_levels, tripwires_global, commodity_pressure):
+# ════════════════════════════════════════════════════════════════════
+# GREAT-POWER ALIGNMENT-DRIFT — portable "BRI writ large" convergence
+# ════════════════════════════════════════════════════════════════════
+# Country-agnostic engine (clone of the Chile core) + per-country DRIFT_PROFILES.
+# Peru enhancement: structural_dependency_baseline -- an entrenched, operational
+# inroad (the Chancay megaport) is a standing dependency AND a band floor: such a
+# country reads at minimum 'Drifting', never 'US-anchored', because the inroad has
+# already structurally landed. CONVERGENCE / influence indicator, NOT prediction.
+
+DRIFT_BAND_META = {
+    'US-anchored': {'level': 1, 'color': '#38bdf8', 'priority': 8},
+    'Contested':   {'level': 3, 'color': '#f59e0b', 'priority': 12},
+    'Drifting':    {'level': 4, 'color': '#f97316', 'priority': 13},
+    'Realigning':  {'level': 5, 'color': '#dc2626', 'priority': 14},
+}
+
+DRIFT_PROFILES = {
+    'peru': {
+        'flag':            '\U0001F1F5\U0001F1EA',   # PE
+        'inroad_power':    'China',
+        'incumbent_power': 'the US',
+        'inroad_actor':    'china_peru',
+        'counter_actor':   'us_peru',
+        'inroad_tripwires':  ('dual_use_facility', 'diplomatic_anti_us',
+                              'security_cooperation', 'major_infra_milestone'),
+        'counter_tripwires': ('project_contestation', 'monroe_doctrine_invoked',
+                              'us_displacement_push', 'strategic_minerals_pact'),
+        'dependency_channel': 'the COSCO-controlled Chancay megaport and copper/silver offtake',
+        'commodity_keys':     ('copper', 'silver'),
+        'crosstheater_amp':   'china_lac_active',
+        'structural_dependency_baseline': True,   # Chancay is operational (opened Nov 2024)
+        'precedents': ('the COSCO-operated Chancay megaport -- the flagship Chinese port in '
+                       'South America, opened November 2024 and not reversed'),
+        'leading_indicators': [
+            'Chancay throughput / expansion and COSCO stake moves',
+            'Mining offtake lock-in -- Las Bambas, Chinalco, Shougang, Jinzhao copper/silver',
+            'China-Peru FTA upgrades and Belt-and-Road project announcements',
+            'Diplomatic alignment markers -- "sovereign right to choose partners" / multipolar framing',
+            'US counter-moves -- ambassador pressure, "better partner" messaging, Select Committee scrutiny',
+            'Regional challenger tempo -- the China-LAC cross-theater amplifier',
+        ],
+    },
+}
+
+_DRIFT_LEVEL_RANK = {'low': 0, 'normal': 1, 'elevated': 2, 'high': 3, 'surge': 4}
+
+
+def score_alignment_drift(actor_summaries, tripwires_global,
+                          commodity_pressure, crosstheater_amplifiers,
+                          country='peru', profile=None):
+    """Portable great-power alignment-drift convergence read ("BRI writ large").
+    Nets challenger (China/BRI) inroad pressure against incumbent (US) counter-
+    pressure: US-anchored -> Contested -> Drifting -> Realigning. Registry-shaped
+    output (id: bri_inroad_<country>). CONVERGENCE, not prediction."""
+    prof = profile or DRIFT_PROFILES.get((country or '').lower())
+    if not prof:
+        return None
+
+    asum = actor_summaries or {}
+    inroad_lvl  = _DRIFT_LEVEL_RANK.get((asum.get(prof['inroad_actor'])  or {}).get('level', 'low'), 0)
+    counter_lvl = _DRIFT_LEVEL_RANK.get((asum.get(prof['counter_actor']) or {}).get('level', 'low'), 0)
+
+    tw_ids = {tw.get('id') for tw in (tripwires_global or [])}
+    inroad_tw  = [t for t in prof['inroad_tripwires']  if t in tw_ids]
+    counter_tw = [t for t in prof['counter_tripwires'] if t in tw_ids]
+
+    # structural dependency lever: standing baseline (operational megaport) OR a live commodity surge
+    dep_active = bool(prof.get('structural_dependency_baseline', False))
+    if not dep_active:
+        for ck in prof.get('commodity_keys', ()):
+            cp = (commodity_pressure or {}).get(ck) or {}
+            if isinstance(cp, dict) and (cp.get('active') or cp.get('level') in ('elevated', 'high', 'surge')):
+                dep_active = True
+                break
+
+    amp_active = bool((crosstheater_amplifiers or {}).get(prof.get('crosstheater_amp', '')))
+
+    inroad  = inroad_lvl + len(inroad_tw) + (1 if dep_active else 0) + (1 if amp_active else 0)
+    counter = counter_lvl + len(counter_tw)
+
+    # ── band the NET drift ──
+    if inroad <= 1:
+        band = 'US-anchored'
+    elif inroad >= 2 and counter >= 2:
+        band = 'Contested'
+    elif inroad >= 5 and counter <= 1 and dep_active:
+        band = 'Realigning'
+    elif (inroad - counter) >= 2:
+        band = 'Drifting'
+    elif counter >= 2:
+        band = 'Contested'
+    else:
+        band = 'US-anchored'
+
+    # structural-dependency floor: an entrenched, operational inroad means the
+    # alignment has already structurally landed -- at minimum 'Drifting'.
+    if prof.get('structural_dependency_baseline') and band == 'US-anchored':
+        band = 'Drifting'
+
+    ip = prof['inroad_power']; cp_ = prof['incumbent_power']; cc = (country or '').title()
+    if band == 'US-anchored':
+        so_what = (ip + "'s inroads into " + cc + " read as routine commercial presence rather than a "
+                   "converging displacement pattern; " + cp_ + "'s position is uncontested this cycle.")
+    elif band == 'Contested':
+        so_what = (ip + " inroads and " + cp_ + " counter-pressure are both active -- a contested "
+                   "tug-of-war consistent with " + prof['precedents'] + ". The alignment is being "
+                   "fought over, not conceded.")
+    elif band == 'Drifting':
+        so_what = (ip + " inroads are outpacing " + cp_ + " counter-pressure; with " +
+                   prof['dependency_channel'] + " already entrenched, the pattern is consistent with "
+                   "alignment drift toward " + ip + "'s pole, advancing faster than it is being contested.")
+    else:  # Realigning
+        so_what = ("Sustained " + ip + " inroads, structural dependency (" + prof['dependency_channel'] +
+                   "), and limited " + cp_ + " counter are consistent with the alignment entrenching "
+                   "toward " + ip + "'s pole.")
+
+    disclaimer = ("This is a CONVERGENCE / influence indicator, NOT a prediction of realignment. It "
+                  "measures whether " + ip + "-displacement signals are outpacing " + cp_ +
+                  " counter-pressure; " + cc + " retains full agency over its partners.")
+
+    meta = DRIFT_BAND_META[band]
+    return {
+        'id':                'bri_inroad_' + (country or '').lower(),
+        'country':           (country or '').lower(),
+        'flag':              prof.get('flag', ''),
+        'band':              band,
+        'inroad_power':      ip,
+        'incumbent_power':   cp_,
+        'inroad_score':      inroad,
+        'counter_score':     counter,
+        'net':               inroad - counter,
+        'active_inroad_tripwires':  inroad_tw,
+        'active_counter_tripwires': counter_tw,
+        'dependency_active': dep_active,
+        'regional_amp_active': amp_active,
+        'so_what_factor':    so_what,
+        'leading_indicators': list(prof['leading_indicators']),
+        'precedent':         prof['precedents'],
+        'disclaimer':        disclaimer,
+        'level':             meta['level'],
+        'priority':          meta['priority'],
+        'color':             meta['color'],
+        'icon':              '\U0001F9ED',       # compass
+    }
+
+
+def build_alignment_drift_top_signal(drift):
+    """Canonical-schema top_signal for the alignment-drift read -> regional BLUF / GPI.
+    Returns None for US-anchored (calm baseline)."""
+    if not drift or drift.get('band') in (None, 'US-anchored'):
+        return None
+    return {
+        'priority':   drift['priority'],
+        'category':   'alignment_drift',
+        'theatre':    drift['country'],
+        'level':      drift['level'],
+        'icon':       drift['icon'],
+        'color':      drift['color'],
+        'short_text': (drift['flag'] + ' ' + drift['country'].upper() + ': ' +
+                       drift['inroad_power'] + ' alignment drift -- ' + drift['band']),
+        'long_text':  ((drift['so_what_factor'] + ' ' + drift['disclaimer'])[:480]),
+    }
+
+
+def build_so_what_factor(actor_summaries, vector_scores, vector_levels, tripwires_global, commodity_pressure, alignment_drift=None):
     """
     Build the bulleted 'So What' factor — strategic implications calibrated to
     Peru's 4-vector frame. Returns a list of dicts:
@@ -798,8 +962,22 @@ def build_so_what_factor(actor_summaries, vector_scores, vector_levels, tripwire
 
     The bullets are intended for the rhetoric-peru.html So What card.
     Weight is used to sort (highest first); ~3-7 bullets returned typically.
+
+    v1.1 (Jun 2026): leads with the great-power alignment-drift "So What Factor"
+    when an alignment_drift read is supplied (BRI writ large).
     """
     bullets = []
+
+    # ── Lead: great-power alignment-drift "So What Factor" (BRI writ large) ──
+    if alignment_drift and alignment_drift.get('band'):
+        _ad_band = alignment_drift['band']
+        _ad_w = {'US-anchored': 3.0, 'Contested': 9.0,
+                 'Drifting': 9.5, 'Realigning': 10.0}.get(_ad_band, 5.0)
+        bullets.append({
+            'bullet': ('ALIGNMENT DRIFT -- ' + _ad_band + ': ' +
+                       alignment_drift.get('so_what_factor', '')),
+            'weight': _ad_w,
+        })
 
     # ── Election runoff watch (Jun 2026 cycle; auto-quiesces when corpus goes quiet) ──
     _election = build_election_watch(actor_summaries)
@@ -957,13 +1135,18 @@ def interpret_peru_signals(scan_data):
     commodity_pressure     = scan_data.get('commodity_pressure', {}) or {}
     crosstheater_amplifiers = scan_data.get('crosstheater_amplifiers', {}) or {}
 
+    drift = score_alignment_drift(actor_summaries, tripwires_global,
+                                  commodity_pressure, crosstheater_amplifiers,
+                                  country='peru')
     return {
         'top_signals':       build_top_signals(actor_summaries, tripwires_global,
                                                 commodity_pressure, crosstheater_amplifiers),
         'executive_summary': build_executive_summary(actor_summaries, vector_scores,
                                                      vector_levels, tripwires_global),
         'so_what':           build_so_what_factor(actor_summaries, vector_scores, vector_levels,
-                                                   tripwires_global, commodity_pressure),
+                                                   tripwires_global, commodity_pressure,
+                                                   alignment_drift=drift),
+        'alignment_drift':   drift,
         'election_watch':    build_election_watch(actor_summaries),
     }
 
