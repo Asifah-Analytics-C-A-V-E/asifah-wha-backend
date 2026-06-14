@@ -310,11 +310,23 @@ ACTORS = {
             'cooperación bilateral chile estados unidos',
             # USAID — historical context only (dissolved 2025)
             'usaid chile historical', 'former usaid chile',
+            # NEW (Jun 2026) -- US counter-pressure / China-displacement contest layer
+            'monroe doctrine', 'doctrina monroe', 'updated monroe doctrine',
+            'better partner', 'better trade partner',
+            'limit china', 'select committee', 'house select committee',
+            'brandon judd', 'us pressure chile', 'eeuu presiona chile',
+            'us warns chile', 'eeuu advierte chile',
+            'pushes back against chinese', 'us target',
+            'suspending the project', 'suspende proyecto', 'observatory suspended',
+            'china dual use concern', 'pulling latin america',
         ],
         'tripwires': [
             ('strategic_minerals_pact', 3, ['us chile critical minerals agreement', 'pacto minerales críticos chile estados unidos']),
             ('ambassador_recall',       4, ['embajador retirado', 'ambassador recalled chile']),
             ('joint_exercise_friction', 2, ['ejercicio conjunto cancelado', 'joint exercise canceled chile']),
+            ('project_contestation',    3, ['suspending the project', 'suspende proyecto', 'blocked the observatory', 'stopped a chinese', 'observatory suspended', 'pushes back against chinese', 'us target']),
+            ('monroe_doctrine_invoked', 2, ['monroe doctrine', 'doctrina monroe']),
+            ('us_displacement_push',    2, ['better partner', 'limit china', 'select committee']),
         ],
     },
     'china_chile': {
@@ -346,11 +358,32 @@ ACTORS = {
             # Lithium specifically
             'tianqi sqm 24%', 'china lithium chile',
             'ganfeng codelco', 'byd salar maricunga',
+            # NEW (Jun 2026) -- Scientific / space dual-use inroad layer
+            'observatorio atacama', 'telescopio chino', 'observatorio chino',
+            'radio telescope china', 'chinese radio telescope',
+            'astronomical observatory china', 'national astronomical observatory',
+            'universidad católica del norte', 'catholic university of the north',
+            'near-earth', 'objetos cercanos a la tierra',
+            'deep space station', 'espacio lejano', 'neuquén', 'cesco',
+            'dual-use observatory', 'satellite tracking china',
+            # NEW -- Diplomatic anti-US alignment layer
+            'sovereign right', 'derecho soberano', 'elegir socios',
+            'multipolar', 'injerencia estadounidense', 'niu qingbao',
+            'desinformación china', 'china lashes out',
+            # NEW -- Security-cooperation / presence-by-invitation rung
+            'china police training', 'cooperación policial china',
+            'safe city china', 'ciudad segura china', 'china surveillance chile',
+            # NEW -- Economic-capture depth (structural dependency)
+            'largest trading partner', 'mayor socio comercial',
+            'lithium offtake', 'codelco china',
         ],
         'tripwires': [
             ('chinese_naval_visit',     3, ['china naval chile', 'pla navy chile', 'buque chino chile']),
             ('major_infra_milestone',   3, ['china port chile groundbreaking', 'cable transpacífico inauguración']),
             ('fta_renegotiation',       2, ['fta china chile renegotiation', 'tlc china chile renegociación']),
+            ('dual_use_facility',       3, ['telescopio chino', 'radio telescope', 'observatorio atacama', 'deep space station', 'chinese observatory']),
+            ('diplomatic_anti_us',      2, ['sovereign right', 'derecho soberano', 'injerencia estadounidense', 'lashes out at us']),
+            ('security_cooperation',    3, ['china police training', 'cooperación policial china', 'ciudad segura china']),
         ],
     },
 }
