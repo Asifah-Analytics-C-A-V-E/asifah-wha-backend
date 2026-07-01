@@ -1771,7 +1771,7 @@ def _compute_coalition(hub_presence):
     }
 
 
-def _emit_vz_multihub(actor_results, vectors, theatre_level):
+def _emit_vz_multihub(actor_results, vectors, theatre_level, hub_presence=None, coalition=None):
     """
     STEP 1 -- Multi-hub emit. Write Venezuela's slice into the SHARED
     cross-theater fingerprint dict (rhetoric:crosstheater:fingerprints) -- the
@@ -1780,14 +1780,18 @@ def _emit_vz_multihub(actor_results, vectors, theatre_level):
     VZ is an EXPEDITIONARY node (node_class), NOT a regional proxy: any hub's
     wheel reads hub_presence[<hub>]; the GPI synthesizes each hub's worldwide
     footprint. Read-merge-write so ME slices are never clobbered.
+
+    hub_presence/coalition may be passed in precomputed (single source of truth
+    shared with the interpreter); computed here only if not supplied.
     """
     try:
         existing = _redis_get(CROSSTHEATER_KEY) or {}
-        prior = existing.get('venezuela') if isinstance(existing.get('venezuela'), dict) else {}
-        prior_hubs = prior.get('hub_presence', {}) if isinstance(prior, dict) else {}
-
-        hub_presence = _build_hub_presence(actor_results, prior_hubs)
-        coalition    = _compute_coalition(hub_presence)
+        if hub_presence is None:
+            prior = existing.get('venezuela') if isinstance(existing.get('venezuela'), dict) else {}
+            prior_hubs = prior.get('hub_presence', {}) if isinstance(prior, dict) else {}
+            hub_presence = _build_hub_presence(actor_results, prior_hubs)
+        if coalition is None:
+            coalition = _compute_coalition(hub_presence)
 
         # Generic spoke fields (any wheel's generic read works off these)
         top_phrases = []
@@ -2207,6 +2211,15 @@ def run_venezuela_rhetoric_scan(force=False):
                                          vectors, civ_press_lvl, oil_lvl,
                                          essequibo_lvl, l5_gate)
 
+        # Phase 9.4: multi-hub compute (ONCE) -- single source of truth feeding
+        # BOTH the interpreter (local coalition surfacing) and the crosstheater
+        # emit below. Computed here so it's always defined even if the
+        # interpreter is unavailable.
+        _ct_prior = _redis_get(CROSSTHEATER_KEY) or {}
+        _vz_prior = _ct_prior.get('venezuela') if isinstance(_ct_prior.get('venezuela'), dict) else {}
+        hub_presence = _build_hub_presence(actor_results, (_vz_prior or {}).get('hub_presence', {}))
+        coalition    = _compute_coalition(hub_presence)
+
         # Phase 9.5: signal interpreter (red lines + executive summary + so-what)
         # Mid-scan call so we can include outputs in the result dict.
         # We pass a PRELIM scan_data snapshot containing what's been computed.
@@ -2232,6 +2245,8 @@ def run_venezuela_rhetoric_scan(force=False):
                                                  for k, v in actor_results.items()},
                     'commodity_pressure':       commodity_pressure,
                     'commodity_fingerprints':   commodity_fingerprints,
+                    'hub_presence':             hub_presence,
+                    'coalition':                coalition,
                 }
                 interpreter_output = interpret_venezuela_signals(prelim_scan_data)
                 print(f"[VZ Rhetoric] Interpreter: {interpreter_output.get('red_lines_count', 0)} red lines, "
@@ -2242,6 +2257,12 @@ def run_venezuela_rhetoric_scan(force=False):
                 if commodity_top_signals:
                     top_signals.extend(commodity_top_signals)
                     # Resort by priority
+                    top_signals.sort(key=lambda s: -s.get('priority', 0))
+
+                # Merge coalition top_signals from interpreter (fires only at >=2 sponsor hubs)
+                coalition_top_signals = interpreter_output.get('coalition_top_signals', [])
+                if coalition_top_signals:
+                    top_signals.extend(coalition_top_signals)
                     top_signals.sort(key=lambda s: -s.get('priority', 0))
             except Exception as e:
                 print(f'[VZ Rhetoric] Interpreter failed: {type(e).__name__}: {e}')
@@ -2255,7 +2276,8 @@ def run_venezuela_rhetoric_scan(force=False):
         # Phase 10b: multi-hub emit -- VZ writes its slice into the SHARED
         # cross-theater dict so the Iran / Russia / China wheels (and the GPI)
         # can read hub_presence. Expeditionary node, not a regional proxy.
-        vz_multihub_slice = _emit_vz_multihub(actor_results, vectors, theatre_level)
+        vz_multihub_slice = _emit_vz_multihub(actor_results, vectors, theatre_level,
+                                              hub_presence=hub_presence, coalition=coalition)
 
         # Phase 11: build full result
         elapsed = round(time.time() - start_time, 1)
