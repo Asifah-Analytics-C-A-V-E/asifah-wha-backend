@@ -2504,6 +2504,12 @@ def run_venezuela_rhetoric_scan(force=False):
             'executive_summary':        interpreter_output.get('executive_summary', {}) if interpreter_output else {},
             'so_what':                  interpreter_output.get('so_what', {}) if interpreter_output else {},
 
+            # ── Coalition Threat Framework (multi-hub node) ──
+            'hub_presence':             hub_presence,
+            'coalition':                coalition,
+            'earthquake_political_level':   eq_political_lvl,
+            'earthquake_political_signals': eq_political_signals[:6],
+
             # ── Fingerprint ──
             'fingerprint':              fingerprint,
 
