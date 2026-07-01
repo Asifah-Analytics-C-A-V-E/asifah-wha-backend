@@ -94,6 +94,7 @@ RHETORIC_CACHE_KEY  = 'rhetoric:venezuela:latest'
 SUMMARY_CACHE_KEY   = 'rhetoric:venezuela:summary'
 HISTORY_KEY         = 'rhetoric:venezuela:history'
 FINGERPRINT_KEY     = 'fingerprint:venezuela:current'
+CROSSTHEATER_KEY    = 'rhetoric:crosstheater:fingerprints'  # shared wheel-readable dict (mirrors ME theaters)
 
 # 12-hour refresh cadence (matches Cuba + other WHA trackers)
 SCAN_INTERVAL_HOURS = 12
@@ -1671,6 +1672,151 @@ def _write_vz_fingerprint(actor_results, vectors, civ_press_lvl,
     return fingerprint
 
 
+# --------------------------------------------------------------------
+# MULTI-HUB NODE EMIT (canonical, reusable)
+# Venezuela is a spoke on THREE wheels at once (Iran / Russia / China) --
+# an EXPEDITIONARY node, not a regional proxy. It emits a hub_presence slice
+# into the shared cross-theater dict; each hub's wheel reads its own slice and
+# the GPI synthesizes each hub's worldwide footprint. REUSABLE CONTRACT: any
+# multi-wheel node (Azerbaijan, Cuba, ...) clones this exact shape.
+# --------------------------------------------------------------------
+
+HUB_AXIS_MAP = {
+    'iran':   {'actor': 'iran_vz_axis',   'role': 'IRGC / gasoline / gold-for-fuel'},
+    'russia': {'actor': 'russia_vz_axis', 'role': 'Rosneft / debt / military advisors'},
+    'china':  {'actor': 'china_vz_axis',  'role': 'BRI / CNPC / CITIC'},
+}
+
+
+def _build_hub_presence(actor_results, prior_hubs):
+    """
+    Re-project the existing sponsor-axis scores into the canonical multi-hub
+    presence schema -- NO new scanning, a new SHAPE over data already computed.
+    Each hub: {level, role, trajectory, signals}. Trajectory compares against
+    the prior fingerprint slice (absence-honest: no prior -> 'steady').
+    """
+    hub_presence = {}
+    for hub, spec in HUB_AXIS_MAP.items():
+        ar = actor_results.get(spec['actor'], {}) or {}
+        lvl = ar.get('actor_score', 0)
+        signals = []
+        for art in ar.get('top_articles', [])[:3]:
+            title = (art.get('title') or art.get('trigger_phrase') or '').strip()
+            if title:
+                signals.append(title[:80])
+        prior_lvl = (prior_hubs.get(hub, {}) or {}).get('level')
+        if prior_lvl is None:
+            trajectory = 'steady'
+        elif lvl > prior_lvl:
+            trajectory = 'rising'
+        elif lvl < prior_lvl:
+            trajectory = 'receding'
+        else:
+            trajectory = 'steady'
+        hub_presence[hub] = {
+            'level':      lvl,
+            'role':       spec['role'],
+            'trajectory': trajectory,
+            'signals':    signals,
+        }
+    return hub_presence
+
+
+def _compute_coalition(hub_presence):
+    """
+    Local Coalition convergence read -- the INVERSE of Iran Unity-of-Fronts:
+    many external sponsors converging on ONE foothold (not one hub coordinating
+    many spokes). Non-linear ladder:
+      0 hubs -> 0 (no coalition)   1 hub -> 1 (single-patron access)
+      2 hubs -> 3 (hedging coalition -- non-linear jump)
+      3 hubs -> 4 (full multipolar Caribbean foothold)
+      + shared anti-US frame across >=2 hubs -> +1 (max 5)
+    Absence-honest: under US-VZ detente the sponsors recede -> low/no coalition.
+    """
+    ACTIVE = 2
+    elevated = {h: d for h, d in hub_presence.items() if d.get('level', 0) >= ACTIVE}
+    n = len(elevated)
+    if n <= 1:
+        level = n
+    elif n == 2:
+        level = 3
+    else:
+        level = 4
+    frame_hits = {}
+    for h, d in elevated.items():
+        for s in d.get('signals', []):
+            frame_hits.setdefault(s[:30].lower(), []).append(h)
+    shared_frame = {k: v for k, v in frame_hits.items() if len(v) >= 2}
+    boosted = bool(shared_frame and n >= 2)
+    if boosted and level < 5:
+        level = min(level + 1, 5)
+    # Reading is keyed to the ACTUAL sponsor count (n), NOT the boosted level --
+    # a boosted 2-hub read is still "two sponsors," just with synchronized framing.
+    reading = {
+        0: 'no sponsor coalition -- single-patron access at most',
+        1: 'single-patron access',
+        2: 'hedging coalition -- two sponsors converging on the foothold',
+        3: 'full multipolar Caribbean foothold -- three sponsors converging',
+    }.get(n, 'sponsor access')
+    if boosted:
+        reading += ' with synchronized anti-US framing'
+    return {
+        'level': level,
+        'detail': {
+            'elevated_hubs': {h: d.get('level', 0) for h, d in elevated.items()},
+            'hub_count':     n,
+            'shared_frame':  list(shared_frame.keys())[:5],
+            'reading':       reading,
+        },
+    }
+
+
+def _emit_vz_multihub(actor_results, vectors, theatre_level):
+    """
+    STEP 1 -- Multi-hub emit. Write Venezuela's slice into the SHARED
+    cross-theater fingerprint dict (rhetoric:crosstheater:fingerprints) -- the
+    wheel-readable location that Yemen/Lebanon/Iraq/Syria already use.
+
+    VZ is an EXPEDITIONARY node (node_class), NOT a regional proxy: any hub's
+    wheel reads hub_presence[<hub>]; the GPI synthesizes each hub's worldwide
+    footprint. Read-merge-write so ME slices are never clobbered.
+    """
+    try:
+        existing = _redis_get(CROSSTHEATER_KEY) or {}
+        prior = existing.get('venezuela') if isinstance(existing.get('venezuela'), dict) else {}
+        prior_hubs = prior.get('hub_presence', {}) if isinstance(prior, dict) else {}
+
+        hub_presence = _build_hub_presence(actor_results, prior_hubs)
+        coalition    = _compute_coalition(hub_presence)
+
+        # Generic spoke fields (any wheel's generic read works off these)
+        top_phrases = []
+        for hub, d in hub_presence.items():
+            for s in d.get('signals', [])[:2]:
+                if s and s not in top_phrases:
+                    top_phrases.append(s)
+        named_targets = list(hub_presence.keys())
+
+        existing['venezuela'] = {
+            'ts':               datetime.now(timezone.utc).isoformat(),
+            'theatre':          'Venezuela',
+            'node_class':       'expeditionary',   # far node -- wheels must NOT fold into regional proxy counts
+            'level':            theatre_level,
+            'top_phrases':      top_phrases[:5],
+            'named_targets':    named_targets[:8],
+            'hub_presence':     hub_presence,        # {iran,russia,china}: {level, role, trajectory, signals}
+            'coalition_level':  coalition['level'],
+            'coalition_detail': coalition['detail'],
+        }
+        _redis_set(CROSSTHEATER_KEY, existing, ttl=8 * 3600)
+        print(f"[VZ Rhetoric] Multi-hub slice written: coalition L{coalition['level']} "
+              f"({coalition['detail']['hub_count']} hubs elevated)")
+        return existing['venezuela']
+    except Exception as e:
+        print(f"[VZ Rhetoric] Multi-hub emit failed: {type(e).__name__}: {e}")
+        return {}
+
+
 # ════════════════════════════════════════════════════════════════════
 # L5 RESERVATION CONTRACT — GATE LOGIC
 # Real triggers for kinetic / humanitarian / economic.
@@ -2105,6 +2251,11 @@ def run_venezuela_rhetoric_scan(force=False):
         fingerprint = _write_vz_fingerprint(actor_results, vectors, civ_press_lvl,
                                             mig_net_mod, diplomatic_lvl,
                                             diplomatic_mod, essequibo_lvl)
+
+        # Phase 10b: multi-hub emit -- VZ writes its slice into the SHARED
+        # cross-theater dict so the Iran / Russia / China wheels (and the GPI)
+        # can read hub_presence. Expeditionary node, not a regional proxy.
+        vz_multihub_slice = _emit_vz_multihub(actor_results, vectors, theatre_level)
 
         # Phase 11: build full result
         elapsed = round(time.time() - start_time, 1)
