@@ -899,6 +899,20 @@ def interpret_venezuela_signals(scan_data):
               f" -- multiple external patrons activating at once erode US leverage over Caracas."
         )
 
+    # Earthquake legitimacy-strain surfaces in the So-What when the disaster is
+    # straining the transitional government's response (>=L2 political). Ties the
+    # legitimacy risk to the relief-as-access opening (the Coalition vector).
+    _eq_lvl = scan_data.get('earthquake_political_level', 0)
+    if _eq_lvl >= 2 and 'watch_for' in so_what:
+        so_what['watch_for'].insert(0,
+            f"🏚️ Post-quake legitimacy strain L{_eq_lvl} — transitional govt response capacity")
+        so_what['description'] = (
+            so_what.get('description', '').rstrip()
+            + f" Post-earthquake strain (L{_eq_lvl}): the disaster is testing the transitional"
+              f" government's response capacity -- a legitimacy risk for a nascent government, and"
+              f" an opening sponsors can exploit via relief-as-access."
+        )
+
     return {
         'red_lines':              red_lines_triggered,
         'red_lines_count':        len(red_lines_triggered),
