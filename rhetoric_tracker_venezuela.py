@@ -841,6 +841,58 @@ CIVILIAN_PRESSURE_TRIGGERS = {
 }
 
 # ════════════════════════════════════════════════════════════════════
+# EARTHQUAKE POLITICAL TRIGGERS  (Step 3 -- Jun 2026)
+# LEGITIMACY-UNDER-STRAIN from the disaster. POLITICAL signals ONLY --
+# government response capacity, aid bottlenecks, relief-failure unrest.
+# Raw counts (magnitude / casualties / displaced / shelter) are SENSOR data
+# and live in venezuela_humanitarian.py + the stability page, NOT here.
+# A major disaster can erode a nascent transitional government's legitimacy.
+# ════════════════════════════════════════════════════════════════════
+EARTHQUAKE_POLITICAL_TRIGGERS = {
+    1: ['venezuela earthquake', 'venezuela terremoto', 'venezuela sismo',
+        'venezuela seismic', 'venezuela quake', 'venezuela temblor'],
+    2: ['venezuela earthquake response', 'venezuela respuesta terremoto',
+        'venezuela earthquake aid', 'venezuela ayuda terremoto',
+        'venezuela disaster government', 'venezuela emergency declaration',
+        'venezuela estado de emergencia', 'venezuela relief effort',
+        'venezuela damnificados'],
+    3: ['venezuela earthquake aid bottleneck', 'venezuela relief delay',
+        'venezuela ayuda retrasada', 'venezuela government overwhelmed',
+        'venezuela gobierno desbordado', 'venezuela relief shortfall',
+        'venezuela earthquake protest', 'venezuela protesta terremoto',
+        'venezuela transitional government earthquake', 'venezuela crisis terremoto'],
+    4: ['venezuela earthquake anger', 'venezuela relief failure',
+        'venezuela fracaso ayuda', 'venezuela earthquake mismanagement',
+        'venezuela disaster unrest', 'venezuela relief protests',
+        'venezuela government blamed earthquake', 'venezuela indignación terremoto'],
+    5: ['venezuela earthquake legitimacy crisis', 'venezuela relief collapse',
+        'venezuela disaster government collapse', 'venezuela earthquake uprising',
+        'venezuela transitional government crisis', 'venezuela colapso respuesta'],
+}
+
+# ════════════════════════════════════════════════════════════════════
+# RELIEF-AS-FOOTHOLD KEYWORDS  (Step 3 -- Jun 2026)
+# External sponsors (Iran / Russia / China) offering "disaster relief" as a
+# Coalition ACCESS pretext into a weak transitional government. Each hit feeds
+# that hub's presence read -- the earthquake becomes a Coalition VECTOR, not
+# just a humanitarian fact. Keyed by hub so it slots into hub_presence.
+# ════════════════════════════════════════════════════════════════════
+RELIEF_FOOTHOLD_KEYWORDS = {
+    'iran':   ['iran earthquake venezuela', 'iran relief venezuela',
+               'iran aid venezuela earthquake', 'iranian relief caracas',
+               'iran disaster aid venezuela', 'irgc relief venezuela',
+               'iran rescue venezuela', 'iran ayuda terremoto venezuela'],
+    'russia': ['russia earthquake venezuela', 'russia relief venezuela',
+               'russia aid venezuela earthquake', 'russian relief caracas',
+               'russia disaster aid venezuela', 'russia rescue venezuela',
+               'russian rescuers venezuela', 'rusia ayuda terremoto venezuela'],
+    'china':  ['china earthquake venezuela', 'china relief venezuela',
+               'china aid venezuela earthquake', 'chinese relief caracas',
+               'china disaster aid venezuela', 'china rescue team venezuela',
+               'chinese rescuers venezuela', 'china ayuda terremoto venezuela'],
+}
+
+# ════════════════════════════════════════════════════════════════════
 # OIL EXTRACTION TRIGGERS
 # PDVSA production, sanctions, Chevron license, dark fleet
 # ════════════════════════════════════════════════════════════════════
@@ -1459,6 +1511,62 @@ def _detect_civilian_pressure(articles):
     return max_level, signals
 
 
+def _detect_earthquake_political(articles):
+    """
+    Legitimacy-under-strain from the disaster -- POLITICAL signals ONLY
+    (government response capacity, aid bottlenecks, relief-failure unrest).
+    Raw counts (magnitude / casualties / displaced) are SENSOR data and live
+    in venezuela_humanitarian.py, NOT here. Mirrors _detect_civilian_pressure.
+    """
+    max_level = 0
+    signals = []
+    for lvl in [5, 4, 3, 2, 1]:
+        for phrase in EARTHQUAKE_POLITICAL_TRIGGERS[lvl]:
+            for art in articles:
+                text = ((art.get('title', '') or '') + ' ' +
+                        (art.get('description', '') or '')).lower()
+                if phrase.lower() in text:
+                    if lvl > max_level:
+                        max_level = lvl
+                    signals.append({
+                        'article':   art.get('title', ''),
+                        'level':     lvl,
+                        'phrase':    phrase,
+                        'published': art.get('publishedAt', ''),
+                    })
+                    if len(signals) >= 10:
+                        break
+            if len(signals) >= 10:
+                break
+        if max_level >= lvl and signals:
+            break
+    return max_level, signals
+
+
+def _detect_relief_foothold(articles):
+    """
+    Relief-as-foothold: external sponsors (Iran / Russia / China) offering
+    "disaster relief" as a Coalition ACCESS pretext into a weak transitional
+    government. Each hit feeds that hub's presence read -- the earthquake
+    becomes a Coalition VECTOR, not just a humanitarian fact.
+    Returns {hub: [signal dicts]} (only hubs with hits appear).
+    """
+    foothold = {}
+    for hub, phrases in RELIEF_FOOTHOLD_KEYWORDS.items():
+        for phrase in phrases:
+            for art in articles:
+                text = ((art.get('title', '') or '') + ' ' +
+                        (art.get('description', '') or '')).lower()
+                if phrase.lower() in text:
+                    foothold.setdefault(hub, []).append({
+                        'article':   art.get('title', ''),
+                        'phrase':    phrase,
+                        'published': art.get('publishedAt', ''),
+                    })
+                    break  # one hit per phrase is enough
+    return foothold
+
+
 def _detect_migration(articles):
     """Bidirectional migration: out + return. Returns net modifier."""
     out_max = 0
@@ -1688,13 +1796,22 @@ HUB_AXIS_MAP = {
 }
 
 
-def _build_hub_presence(actor_results, prior_hubs):
+def _build_hub_presence(actor_results, prior_hubs, relief_foothold=None):
     """
     Re-project the existing sponsor-axis scores into the canonical multi-hub
     presence schema -- NO new scanning, a new SHAPE over data already computed.
-    Each hub: {level, role, trajectory, signals}. Trajectory compares against
-    the prior fingerprint slice (absence-honest: no prior -> 'steady').
+    Each hub: {level, role, trajectory, signals, relief_foothold}. Trajectory
+    compares against the prior fingerprint slice (absence-honest: no prior ->
+    'steady').
+
+    relief_foothold (from _detect_relief_foothold) makes the earthquake a
+    Coalition VECTOR: a sponsor delivering disaster relief into a weak
+    transitional government IS establishing access -- it annotates the hub's
+    signals and floors presence at L2 (foothold present). Modest by design:
+    relief alone does not push a hub above L2; combined with axis signals it
+    contributes to the coalition read.
     """
+    relief_foothold = relief_foothold or {}
     hub_presence = {}
     for hub, spec in HUB_AXIS_MAP.items():
         ar = actor_results.get(spec['actor'], {}) or {}
@@ -1704,6 +1821,15 @@ def _build_hub_presence(actor_results, prior_hubs):
             title = (art.get('title') or art.get('trigger_phrase') or '').strip()
             if title:
                 signals.append(title[:80])
+        # Relief-as-foothold: annotate the hub + floor presence at L2 (access present)
+        rf = relief_foothold.get(hub, [])
+        if rf:
+            for r in rf[:2]:
+                tag = 'relief-as-access: ' + (r.get('article') or r.get('phrase') or '')[:64]
+                if tag not in signals:
+                    signals.append(tag)
+            if lvl < 2:
+                lvl = 2
         prior_lvl = (prior_hubs.get(hub, {}) or {}).get('level')
         if prior_lvl is None:
             trajectory = 'steady'
@@ -1714,10 +1840,11 @@ def _build_hub_presence(actor_results, prior_hubs):
         else:
             trajectory = 'steady'
         hub_presence[hub] = {
-            'level':      lvl,
-            'role':       spec['role'],
-            'trajectory': trajectory,
-            'signals':    signals,
+            'level':           lvl,
+            'role':            spec['role'],
+            'trajectory':      trajectory,
+            'signals':         signals,
+            'relief_foothold': bool(rf),
         }
     return hub_presence
 
@@ -2038,7 +2165,8 @@ def _composite_to_theatre_level(composite):
 # ════════════════════════════════════════════════════════════════════
 
 def _build_top_signals(theatre_level, theatre_score, signal_text, vectors,
-                       civ_press_lvl, oil_lvl, essequibo_lvl, l5_gate):
+                       civ_press_lvl, oil_lvl, essequibo_lvl, l5_gate,
+                       eq_political_lvl=0):
     """Build top_signals[] list for BLUF consumption."""
     signals = []
 
@@ -2096,6 +2224,23 @@ def _build_top_signals(theatre_level, theatre_score, signal_text, vectors,
             'priority':    7,
         })
 
+    # Earthquake legitimacy-strain signal (POLITICAL, not raw counts)
+    if eq_political_lvl >= 2:
+        signals.append({
+            'category':    'earthquake_legitimacy_strain',
+            'theatre':     'venezuela',
+            'level':       eq_political_lvl,
+            'short_text':  f'🏚️ VZ post-quake legitimacy strain L{eq_political_lvl} — transitional govt response under pressure',
+            'long_text':   ('Post-earthquake POLITICAL strain at L%d: the disaster is straining the '
+                            'transitional government\'s response capacity (aid bottlenecks, relief-failure '
+                            'friction). A major disaster can erode a nascent government\'s legitimacy. Raw '
+                            'humanitarian counts (magnitude/casualties/displaced) are tracked separately on '
+                            'the stability page, not here.' % eq_political_lvl),
+            'icon':        '🏚️',
+            'color':       '#dc2626',
+            'priority':    8,
+        })
+
     return signals
 
 
@@ -2150,6 +2295,8 @@ def run_venezuela_rhetoric_scan(force=False):
         oil_lvl, oil_signals = _detect_oil_extraction(articles)
         essequibo_lvl, essequibo_signals = _detect_essequibo(articles)
         diplomatic_lvl, diplomatic_signals, diplomatic_mod = _detect_diplomatic_track(articles)
+        eq_political_lvl, eq_political_signals = _detect_earthquake_political(articles)
+        relief_foothold = _detect_relief_foothold(articles)
 
         # Phase 4: cross-theater reads
         print('[VZ Rhetoric] Phase 4: reading cross-theater fingerprints...')
@@ -2209,7 +2356,7 @@ def run_venezuela_rhetoric_scan(force=False):
         # Phase 9: top_signals
         top_signals = _build_top_signals(theatre_level, composite, signal_text,
                                          vectors, civ_press_lvl, oil_lvl,
-                                         essequibo_lvl, l5_gate)
+                                         essequibo_lvl, l5_gate, eq_political_lvl)
 
         # Phase 9.4: multi-hub compute (ONCE) -- single source of truth feeding
         # BOTH the interpreter (local coalition surfacing) and the crosstheater
@@ -2217,7 +2364,8 @@ def run_venezuela_rhetoric_scan(force=False):
         # interpreter is unavailable.
         _ct_prior = _redis_get(CROSSTHEATER_KEY) or {}
         _vz_prior = _ct_prior.get('venezuela') if isinstance(_ct_prior.get('venezuela'), dict) else {}
-        hub_presence = _build_hub_presence(actor_results, (_vz_prior or {}).get('hub_presence', {}))
+        hub_presence = _build_hub_presence(actor_results, (_vz_prior or {}).get('hub_presence', {}),
+                                           relief_foothold=relief_foothold)
         coalition    = _compute_coalition(hub_presence)
 
         # Phase 9.5: signal interpreter (red lines + executive summary + so-what)
@@ -2247,6 +2395,8 @@ def run_venezuela_rhetoric_scan(force=False):
                     'commodity_fingerprints':   commodity_fingerprints,
                     'hub_presence':             hub_presence,
                     'coalition':                coalition,
+                    'earthquake_political_level':   eq_political_lvl,
+                    'earthquake_political_signals': eq_political_signals,
                 }
                 interpreter_output = interpret_venezuela_signals(prelim_scan_data)
                 print(f"[VZ Rhetoric] Interpreter: {interpreter_output.get('red_lines_count', 0)} red lines, "
