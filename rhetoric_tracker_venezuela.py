@@ -87,8 +87,8 @@ except ImportError:
 # ════════════════════════════════════════════════════════════════════
 # REDIS CONFIG
 # ════════════════════════════════════════════════════════════════════
-UPSTASH_URL    = os.environ.get('UPSTASH_REDIS_REST_URL', '')
-UPSTASH_TOKEN  = os.environ.get('UPSTASH_REDIS_REST_TOKEN', '')
+UPSTASH_URL    = os.environ.get('UPSTASH_REDIS_REST_URL') or os.environ.get('UPSTASH_REDIS_URL', '')
+UPSTASH_TOKEN  = os.environ.get('UPSTASH_REDIS_REST_TOKEN') or os.environ.get('UPSTASH_REDIS_TOKEN', '')
 
 RHETORIC_CACHE_KEY  = 'rhetoric:venezuela:latest'
 SUMMARY_CACHE_KEY   = 'rhetoric:venezuela:summary'
