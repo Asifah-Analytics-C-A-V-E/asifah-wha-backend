@@ -814,6 +814,54 @@ def build_commodity_coupling_signals(scan_data):
     return signals
 
 
+def build_coalition_signals(scan_data):
+    """
+    Local Coalition convergence signal -- fires ONLY when >=2 external sponsor
+    hubs (Iran/Russia/China) are simultaneously elevated on Venezuela. A lone
+    patron is NOT a local signal (it surfaces at the GPI as that hub's global
+    spread, per the three-altitude rule); a coalition IS -- multiple external
+    pressures converging can bend Venezuela's internal and regional dynamics.
+    Absence-honest: below the 2-hub gate, returns [] (no manufactured signal).
+    """
+    coalition    = scan_data.get('coalition', {}) or {}
+    hub_presence = scan_data.get('hub_presence', {}) or {}
+    level  = coalition.get('level', 0)
+    detail = coalition.get('detail', {}) or {}
+    hub_count = detail.get('hub_count', 0)
+
+    # Gate: >=2 hubs elevated (coalition level >= 3 on the non-linear ladder)
+    if hub_count < 2 or level < 3:
+        return []
+
+    elevated = detail.get('elevated_hubs', {}) or {}
+    hubs_str = ', '.join(f"{h.title()} L{lv}"
+                         for h, lv in sorted(elevated.items(), key=lambda x: -x[1]))
+    reading  = detail.get('reading', 'sponsor coalition converging')
+    roles = []
+    for h in elevated:
+        role = (hub_presence.get(h, {}) or {}).get('role')
+        if role:
+            roles.append(f"{h.title()} ({role})")
+
+    return [{
+        'category':   'coalition_convergence',
+        'theatre':    'venezuela',
+        'level':      level,
+        'short_text': f"🕸️ VZ sponsor coalition L{level} — {hub_count} hubs converging ({hubs_str})",
+        'long_text':  (
+            f"Coalition convergence: {reading}. Elevated sponsor hubs on Venezuela: "
+            f"{'; '.join(roles) if roles else hubs_str}. Multiple external patrons "
+            f"activating at once erodes US leverage over Caracas and can bend Venezuela's "
+            f"internal and regional dynamics. This is a CONVERGENCE indicator, NOT a "
+            f"probability of action; each hub is independently sourced and the reader "
+            f"completes the inference."
+        ),
+        'icon':       '🕸️',
+        'color':      '#be185d',
+        'priority':   9 + level,
+    }]
+
+
 # ════════════════════════════════════════════════════════════════════
 # MAIN INTERPRETER WRAPPER
 # ════════════════════════════════════════════════════════════════════
@@ -830,6 +878,7 @@ def interpret_venezuela_signals(scan_data):
     red_lines_triggered    = check_red_lines(scan_data)
     executive_summary      = build_executive_summary(scan_data)
     commodity_top_signals  = build_commodity_coupling_signals(scan_data)
+    coalition_top_signals  = build_coalition_signals(scan_data)
     so_what                = build_so_what_factor(scan_data, red_lines_triggered)
 
     # Augment so-what watch_for with commodity-coupling alerts
@@ -838,11 +887,25 @@ def interpret_venezuela_signals(scan_data):
         for sig in commodity_top_signals[:2]:
             so_what['watch_for'].insert(0, sig['short_text'])
 
+    # Coalition convergence surfaces in the So-What (watch_for + narrative) at >=2 hubs
+    if coalition_top_signals:
+        cs = coalition_top_signals[0]
+        if 'watch_for' in so_what:
+            so_what['watch_for'].insert(0, cs['short_text'])
+        _cdetail = (scan_data.get('coalition', {}) or {}).get('detail', {}) or {}
+        so_what['description'] = (
+            so_what.get('description', '').rstrip()
+            + f" Sponsor-coalition read: {_cdetail.get('reading', 'multiple sponsors converging')}"
+              f" -- multiple external patrons activating at once erode US leverage over Caracas."
+        )
+
     return {
         'red_lines':              red_lines_triggered,
         'red_lines_count':        len(red_lines_triggered),
         'executive_summary':      executive_summary,
         'commodity_top_signals':  commodity_top_signals,
+        'coalition_top_signals':  coalition_top_signals,
+        'coalition':              scan_data.get('coalition', {}),
         'so_what':                so_what,
     }
 
