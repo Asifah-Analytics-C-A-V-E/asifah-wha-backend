@@ -98,7 +98,7 @@ CROSSTHEATER_KEY    = 'rhetoric:crosstheater:fingerprints'  # shared wheel-reada
 
 # 12-hour refresh cadence (matches Cuba + other WHA trackers)
 SCAN_INTERVAL_HOURS = 12
-CACHE_TTL           = SCAN_INTERVAL_HOURS * 3600  # 43200 = 12 hours
+CACHE_TTL           = 14 * 3600  # 14h -- outlasts the 12h scan interval (cold-gap lesson, Jul 2026)
 
 # ════════════════════════════════════════════════════════════════════
 # API KEYS
@@ -1949,6 +1949,29 @@ def _emit_vz_multihub(actor_results, vectors, theatre_level, hub_presence=None, 
 
 
 # ════════════════════════════════════════════════════════════════════
+# DISASTER SENSOR CROSS-READ (venezuela_humanitarian.py -- Jul 2026)
+# Sensor below, analyst above: the sensor publishes raw seismic facts to
+# humanitarian:venezuela:latest; this tracker READS them and assigns meaning
+# (gate + capped composite strain + top_signal). Absence-honest: missing or
+# stale sensor -> empty dict -> every consumer no-ops.
+# ════════════════════════════════════════════════════════════════════
+
+DISASTER_SENSOR_KEY = 'humanitarian:venezuela:latest'
+
+def _read_disaster_sensor():
+    """Read the VZ humanitarian sensor's disaster_state. {} when absent."""
+    try:
+        payload = _redis_get(DISASTER_SENSOR_KEY)
+        if isinstance(payload, dict):
+            state = payload.get('disaster_state')
+            if isinstance(state, dict):
+                return state
+    except Exception as e:
+        print(f'[VZ Rhetoric] Disaster sensor read error: {str(e)[:100]}')
+    return {}
+
+
+# ════════════════════════════════════════════════════════════════════
 # L5 RESERVATION CONTRACT — GATE LOGIC
 # Real triggers for kinetic / humanitarian / economic.
 # Diplomatic = scaffold (audit weekend).
@@ -1957,7 +1980,7 @@ def _emit_vz_multihub(actor_results, vectors, theatre_level, hub_presence=None, 
 
 def _compute_vz_l5_gate(actor_results, vectors, civ_press_lvl, oil_lvl,
                         migration_out_max, diplomatic_lvl, essequibo_lvl,
-                        cross_theater_fps):
+                        cross_theater_fps, disaster_state=None):
     """
     Per L5 Reservation Contract: VZ L5 "Active Crisis" requires
     explicit axis trigger.
@@ -2018,6 +2041,18 @@ def _compute_vz_l5_gate(actor_results, vectors, civ_press_lvl, oil_lvl,
     elif migration_out_max >= 5:
         gate['humanitarian'] = True
         reasons.append(f'Humanitarian: migration outflow L5 (mass exodus crisis)')
+    elif (isinstance(disaster_state, dict)
+          and disaster_state.get('severity_band') == 'catastrophic'
+          and float(disaster_state.get('recency_weight', 0) or 0) > 0
+          and (disaster_state.get('days_since_peak_event') or 999) <= 14):
+        # Sensor-armed: a catastrophic natural disaster within 14 days IS a
+        # humanitarian crisis regardless of rhetoric vocabulary (Jul 2026).
+        gate['humanitarian'] = True
+        reasons.append(
+            f"Humanitarian: catastrophic natural disaster "
+            f"(M{disaster_state.get('peak_magnitude_30d')}, "
+            f"{disaster_state.get('days_since_peak_event')}d ago) -- "
+            f"state-capacity strain (sensor: venezuela_humanitarian)")
 
     # ── ECONOMIC L5 (REAL) ──
     if oil_lvl >= 5:
@@ -2103,7 +2138,8 @@ def _build_vz_signal_text(theatre_level, theatre_score, vectors, civ_press_lvl,
 
 def _compute_composite_score(actor_results, vectors, civ_press_lvl,
                              oil_lvl, essequibo_lvl, diplomatic_mod,
-                             migration_net_mod, commodity_pressure=None):
+                             migration_net_mod, commodity_pressure=None,
+                             disaster_state=None):
     """
     Weighted composite for theatre_score (0-100).
     Includes diplomatic_mod as DOWNWARD pressure (canonical pattern).
@@ -2141,8 +2177,20 @@ def _compute_composite_score(actor_results, vectors, civ_press_lvl,
             commodity_component = 4
         # 'normal' and 'low' contribute 0
 
+    # ── Disaster strain component (Jul 2026 -- sensor cross-read) ──
+    # Mirrors the commodity precedent: capped, recency-decayed, sensor-fed.
+    # A catastrophic disaster degrades state capacity in a state already under
+    # pressure. catastrophic caps at +12; major at +6; decays to 0 over 30 days.
+    disaster_component = 0
+    if disaster_state and isinstance(disaster_state, dict):
+        _band = (disaster_state.get('severity_band') or 'none').lower()
+        _rw   = float(disaster_state.get('recency_weight', 0) or 0)
+        _cap  = 12 if _band == 'catastrophic' else (6 if _band == 'major' else 0)
+        disaster_component = int(round(_cap * _rw))
+
     raw = (actor_component + vector_component + civ_component +
-           oil_component + essequibo_component + commodity_component)
+           oil_component + essequibo_component + commodity_component +
+           disaster_component)
     raw += migration_net_mod  # +8 to -8 range
     raw += diplomatic_mod      # 0 to -15 (de-escalator)
 
@@ -2166,9 +2214,38 @@ def _composite_to_theatre_level(composite):
 
 def _build_top_signals(theatre_level, theatre_score, signal_text, vectors,
                        civ_press_lvl, oil_lvl, essequibo_lvl, l5_gate,
-                       eq_political_lvl=0):
+                       eq_political_lvl=0, disaster_state=None):
     """Build top_signals[] list for BLUF consumption."""
     signals = []
+
+    # ── Natural-disaster strain (sensor cross-read -- Jul 2026) ──
+    # Flows tracker -> WHA BLUF -> GPI humanitarian axis (emit once, consume many).
+    if disaster_state and isinstance(disaster_state, dict):
+        _band = (disaster_state.get('severity_band') or 'none').lower()
+        _rw   = float(disaster_state.get('recency_weight', 0) or 0)
+        if _band in ('catastrophic', 'major') and _rw > 0:
+            _peak = disaster_state.get('peak_magnitude_30d')
+            _n    = disaster_state.get('event_count_30d', 0)
+            _days = disaster_state.get('days_since_peak_event')
+            _cat  = (_band == 'catastrophic')
+            signals.append({
+                'priority':      11 if _cat else 8,
+                'category':      'natural_disaster_strain',
+                'theatre':       'venezuela',
+                'level':         5 if (_cat and l5_gate.get('humanitarian')) else (4 if _cat else 3),
+                'icon':          '\U0001f30b',
+                'color':         '#dc2626' if _cat else '#f97316',
+                'pressure_type': 'humanitarian',
+                'short_text':    (f'\U0001f1fb\U0001f1ea VENEZUELA: Earthquake disaster strain -- '
+                                  f'M{_peak}, {_n} events in 30d'),
+                'long_text':     (f'VENEZUELA natural-disaster strain: peak M{_peak} seismic event '
+                                  f'{_days} day(s) ago ({_n} qualifying events in 30 days; sensor: '
+                                  f'venezuela_humanitarian, USGS bounding-box). A disaster of this scale '
+                                  f'is consistent with degraded state capacity and compounds existing '
+                                  f'legitimacy and service-delivery pressure -- the pattern that has '
+                                  f'historically preceded acute-need surges and relief-politics '
+                                  f'contestation. Convergence read, not a prediction of outcome.'),
+            })
 
     # theatre_high signal (always emitted)
     if theatre_level >= 2:
@@ -2327,16 +2404,24 @@ def run_venezuela_rhetoric_scan(force=False):
 
         # Phase 6: composite + theatre_level
         # (May 22 2026: commodity_pressure now feeds composite for VZ baseline calibration)
+        # Phase 6.9: disaster sensor cross-read (venezuela_humanitarian.py)
+        disaster_state = _read_disaster_sensor()
+        if disaster_state.get('active_disaster'):
+            print(f"[VZ Rhetoric] Disaster sensor: band={disaster_state.get('severity_band')}, "
+                  f"peak=M{disaster_state.get('peak_magnitude_30d')}, "
+                  f"recency={disaster_state.get('recency_weight')}")
+
         composite = _compute_composite_score(actor_results, vectors, civ_press_lvl,
                                              oil_lvl, essequibo_lvl, diplomatic_mod,
-                                             mig_net_mod, commodity_pressure=commodity_pressure)
+                                             mig_net_mod, commodity_pressure=commodity_pressure,
+                                             disaster_state=disaster_state)
         raw_theatre_level = _composite_to_theatre_level(composite)
         print(f'[VZ Rhetoric] Composite: {composite}, raw_theatre_level: L{raw_theatre_level}')
 
         # Phase 7: L5 Reservation Contract gate
         l5_gate = _compute_vz_l5_gate(actor_results, vectors, civ_press_lvl, oil_lvl,
                                       mig_out_max, diplomatic_lvl, essequibo_lvl,
-                                      cross_theater_fps)
+                                      cross_theater_fps, disaster_state=disaster_state)
         if raw_theatre_level >= 5 and not l5_gate['any']:
             theatre_level = 4
             l5_capped = True
@@ -2356,7 +2441,8 @@ def run_venezuela_rhetoric_scan(force=False):
         # Phase 9: top_signals
         top_signals = _build_top_signals(theatre_level, composite, signal_text,
                                          vectors, civ_press_lvl, oil_lvl,
-                                         essequibo_lvl, l5_gate, eq_political_lvl)
+                                         essequibo_lvl, l5_gate, eq_political_lvl,
+                                         disaster_state=disaster_state)
 
         # Phase 9.4: multi-hub compute (ONCE) -- single source of truth feeding
         # BOTH the interpreter (local coalition surfacing) and the crosstheater
@@ -2507,6 +2593,7 @@ def run_venezuela_rhetoric_scan(force=False):
             # ── Coalition Threat Framework (multi-hub node) ──
             'hub_presence':             hub_presence,
             'coalition':                coalition,
+            'disaster_state':           disaster_state,
             'earthquake_political_level':   eq_political_lvl,
             'earthquake_political_signals': eq_political_signals[:6],
 
