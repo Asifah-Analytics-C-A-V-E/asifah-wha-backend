@@ -1637,6 +1637,14 @@ if VENEZUELA_RHETORIC_AVAILABLE:
 if VENEZUELA_HUMANITARIAN_AVAILABLE:
     register_venezuela_humanitarian_endpoints(app)
 
+# Venezuela financial pulse (IBC / USD-VES / Brent -- Jul 2026)
+try:
+    from venezuela_financial_pulse import register_venezuela_financial_pulse_endpoints
+    register_venezuela_financial_pulse_endpoints(app)
+    print('[WHA Backend] Venezuela financial pulse loaded')
+except Exception as _e:
+    print(f'[WHA Backend] WARNING: venezuela_financial_pulse unavailable ({_e})')
+
 # Butterfly Proxy (May 16, 2026) — fetches cross-theater signal bundle
 # from ME backend's /api/butterfly/read/<consumer> endpoint. Caches 1h
 # locally. US tracker calls this; future Cuba/Mexico/Venezuela trackers
