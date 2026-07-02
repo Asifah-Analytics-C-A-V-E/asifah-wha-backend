@@ -130,6 +130,17 @@ except ImportError as e:
     VENEZUELA_RHETORIC_AVAILABLE = False
     print(f'[WHA Backend] WARNING: Venezuela rhetoric tracker unavailable ({e})')
 
+# Venezuela humanitarian / disaster SENSOR (Jul 2026) -- USGS bounding-box
+# seismic record + GDACS + ReliefWeb. Publishes humanitarian:venezuela:latest;
+# the rhetoric tracker reads it for the L5 gate + disaster-strain composite.
+try:
+    from venezuela_humanitarian import register_venezuela_humanitarian_endpoints
+    VENEZUELA_HUMANITARIAN_AVAILABLE = True
+    print('[WHA Backend] Venezuela humanitarian sensor module loaded')
+except ImportError as e:
+    VENEZUELA_HUMANITARIAN_AVAILABLE = False
+    print(f'[WHA Backend] WARNING: Venezuela humanitarian sensor unavailable ({e})')
+
 # Jawboning proxy — forwards detection requests to ME backend's /api/jawboning/detect.
 # Used by rhetoric_tracker_us.py (and future Cuba/Mexico/Venezuela trackers) to fire
 # jawboning signatures from the shared ME-hosted catalog (jawboning_signatures.py +
@@ -1620,6 +1631,11 @@ if US_RHETORIC_AVAILABLE:
 # (US-VZ détente suppresses kinetic L5 when active). Reads commodity pressure.
 if VENEZUELA_RHETORIC_AVAILABLE:
     register_venezuela_rhetoric_endpoints(app)
+
+# Venezuela humanitarian sensor (/api/venezuela/humanitarian, /health).
+# Registration also starts its own 12h background refresh thread.
+if VENEZUELA_HUMANITARIAN_AVAILABLE:
+    register_venezuela_humanitarian_endpoints(app)
 
 # Butterfly Proxy (May 16, 2026) — fetches cross-theater signal bundle
 # from ME backend's /api/butterfly/read/<consumer> endpoint. Caches 1h
