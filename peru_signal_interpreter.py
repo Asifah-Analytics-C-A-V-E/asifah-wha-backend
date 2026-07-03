@@ -272,10 +272,10 @@ def build_top_signals(actor_summaries, tripwires_global, commodity_pressure, cro
     _cs = _commodity_story_signal(commodity_pressure)
     if _cs:
         signals.insert(0, _cs)
-    # Election runoff signal rides at the front while the cycle is live (Jun 2026)
-    _es = _election_top_signal(actor_summaries)
-    if _es:
-        signals.insert(0, _es)
+    # Election runoff watch RETIRED Jul 2026 -- Fujimori declared winner, no
+    # major upheaval. Leftist-politics + mining/commodity upheaval watches
+    # continue via the actor roster and commodity coupling. (Machinery below
+    # kept dormant for the next electoral cycle.)
     return signals[:12]   # cap at 12 — UI shows ~8 by default
 
 
@@ -606,7 +606,7 @@ def build_executive_summary(actor_summaries, vector_scores, vector_levels, tripw
 # SO WHAT FACTOR BUILDER
 # ============================================
 # ============================================================
-# ELECTION RUNOFF WATCH (Jun 2026 cycle)
+# ELECTION RUNOFF WATCH (Jun 2026 cycle) -- RETIRED Jul 2026, kept dormant
 # ============================================================
 # Convergence module for the Fujimori-Sanchez runoff. Reports WHICH counting
 # and candidate signals are present in the current scan -- it NEVER predicts
