@@ -85,7 +85,6 @@ try:
         build_top_signals,
         build_executive_summary,
         build_so_what_factor,
-        build_election_watch,
         score_alignment_drift,
         build_alignment_drift_top_signal,
     )
@@ -149,7 +148,7 @@ ACTORS = {
         'name': 'Presidency',
         'flag': '🇵🇪', 'icon': '🏛️',
         'color': '#dc2626',
-        'role': 'Executive — Boluarte administration rhetoric / 2026 election context',
+        'role': 'Executive — Fujimori transition (president-elect, Jun 2026) / outgoing Boluarte administration rhetoric',
         'description': 'Statements from Casa de Pizarro, presidential cabinet, official spokesperson, presidential guard incidents, electoral-cycle rhetoric',
         'vector': 'domestic_stability',
         'keywords': [
@@ -158,7 +157,6 @@ ACTORS = {
             'casa de pizarro', 'palacio de gobierno peru', 'peruvian palace',
             'peru cabinet', 'peruvian cabinet', 'peru prime minister',
             'gustavo adrianzen', 'peru pm', 'peruvian pm',
-            'peru election 2026', 'peruvian election 2026', 'peru presidential election',
             'peru impeachment', 'boluarte impeachment', 'vacancia presidencial',
             'peru congress motion', 'peru no confidence',
             # Spanish
@@ -166,20 +164,17 @@ ACTORS = {
             'dina boluarte declaró', 'casa de pizarro declara',
             'consejo de ministros perú', 'consejo de ministros peru',
             'palacio de gobierno declaró', 'gabinete peruano',
-            'elecciones generales 2026 perú', 'elecciones presidenciales perú',
             'vacancia boluarte', 'moción de vacancia', 'impedimento de salida',
             'crisis política perú', 'crisis politica peru',
             # Castillo aftermath references (still active rhetoric anchor)
             'castillo trial', 'pedro castillo', 'castillo arrest',
             'castillo juicio', 'castillo prisión', 'castillo cárcel',
-            # 2026 runoff cycle (Jun 2026): candidates + counting machinery
+            # Post-election (Jul 2026): governing party + leftist opposition rhetoric
+            # (runoff counting machinery retired -- Fujimori declared winner)
             'keiko fujimori', 'fujimori', 'fuerza popular',
             'roberto sanchez', 'sanchez palomino', 'juntos por el peru',
-            'peru runoff', 'presidential runoff', 'segunda vuelta',
-            'balotaje', 'onpe', 'jne peru', 'voto extranjero',
-            'diaspora vote', 'votes counted', 'ballots tallied',
-            'conteo de votos', 'actas procesadas', 'recount peru',
-            'electoral fraud peru', 'fraude electoral', 'president-elect peru',
+            'president-elect peru', 'presidenta electa', 'fujimori cabinet',
+            'gabinete fujimori', 'fujimori inauguration', 'transicion de mando',
             'presidente electo', 'proclamacion jne',
         ],
         'baseline_statements_per_week': 12,
@@ -598,7 +593,7 @@ GDELT_QUERIES_EN = [
     # Presidency / political
     '"Peru" AND ("Boluarte" OR "Castillo" OR "presidential")',
     '"Peru" AND ("impeachment" OR "vacancia" OR "no-confidence")',
-    '"Peru" AND ("election" OR "elections" OR "2026 election")',
+    '"Peru" AND ("mining protest" OR "Fujimori" OR "social conflict")',
     # Cancillería / foreign policy
     '"Peru" AND ("foreign ministry" OR "cancilleria" OR "OAS")',
     # FFAA / military
@@ -1426,7 +1421,7 @@ def scan_peru_rhetoric(force=False, days=7):
             so_what = build_so_what_factor(actor_summaries, vector_scores, vector_levels,
                                            tripwires_global, commodity_pressure,
                                            alignment_drift=alignment_drift)
-            election_watch = build_election_watch(actor_summaries)
+            election_watch = None   # RETIRED Jul 2026 -- runoff concluded (Fujimori declared winner)
         except Exception as e:
             print(f"[Peru Rhetoric] Interpreter error: {str(e)[:200]}")
             traceback.print_exc()
@@ -1514,7 +1509,6 @@ def scan_peru_rhetoric(force=False, days=7):
         'executive_summary':     executive_summary,
         'so_what':               so_what,
         'alignment_drift':       alignment_drift,
-        'election_watch':        election_watch,
         'source_breakdown': {
             'rss':     len(rss_articles),
             'gdelt':   len(gdelt_articles),
