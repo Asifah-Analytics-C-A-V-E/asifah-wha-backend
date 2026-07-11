@@ -1777,6 +1777,38 @@ def _write_vz_fingerprint(actor_results, vectors, civ_press_lvl,
         'updated_at':              datetime.now(timezone.utc).isoformat(),
     }
     _redis_set(FINGERPRINT_KEY, fingerprint, ttl=86400)
+
+    # ── Rim Emission Pass (Jul 2026): canonical hub-agnostic key ──
+    # The Russia wheel's _read_spoke_fingerprints() reads
+    # crosstheater:venezuela:fingerprint -- the legacy
+    # fingerprint:venezuela:current naming predates the canonical schema
+    # (same key-name gremlin as Azerbaijan). node_class = contested_node:
+    # VZ is a spoke on THREE wheels at once (Iran/Russia/China) + US pressure.
+    try:
+        _us = vectors.get('us_pressure', 0)
+        _ru = (actor_results.get('russia_vz_axis', {}) or {}).get('actor_score', 0)
+        _ir = (actor_results.get('iran_vz_axis', {}) or {}).get('actor_score', 0)
+        _cn = (actor_results.get('china_vz_axis', {}) or {}).get('actor_score', 0)
+        _redis_set('crosstheater:venezuela:fingerprint', {
+            'ts':         datetime.now(timezone.utc).isoformat(),
+            'country':    'venezuela',
+            'node_class': 'contested_node',
+            'level':      max(_us, _ru, _ir, _cn),
+            'score':      fingerprint.get('actor_scores', {}).get('us_pressure', 0),
+            'inbound': {
+                'us_level': _us, 'russia_level': _ru,
+                'iran_level': _ir, 'china_level': _cn,
+                'dual_meddle': _us >= 2 and _ru >= 2,
+                'hubs_active': [h for h, l in
+                                [('russia', _ru), ('iran', _ir), ('china', _cn)] if l >= 2],
+            },
+            'civilian_pressure': civ_press_lvl,
+            'essequibo_level':   essequibo_lvl,
+        })
+        print('[Venezuela Rhetoric] Canonical spoke fingerprint written (crosstheater:venezuela:fingerprint)')
+    except Exception as _ce:
+        print(f'[Venezuela Rhetoric] Canonical fingerprint write failed: {_ce}')
+
     return fingerprint
 
 
