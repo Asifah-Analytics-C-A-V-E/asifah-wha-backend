@@ -1812,6 +1812,49 @@ def _write_crosstheater_fingerprint(actor_results, vectors, global_signals=None,
 # ============================================
 # L5 RESERVATION CONTRACT (v1.0.0 — May 21 2026)
 # ============================================
+
+# ============================================================
+# CANONICAL SPOKE FINGERPRINT (Rim Emission Pass -- Jul 2026)
+# node_class = inbound_target: US pressure (govt/sanctions/military posture)
+# vs Russian courtship -- DUAL-MEDDLE convergence on an unstable island.
+# Hub-agnostic: Russia wheel today, future USA wheel, SAME key. China as
+# bonus third axis. Instability slice = Cuba's own state.
+# ============================================================
+
+def _write_canonical_spoke_fingerprint(result):
+    actors = result.get('actors') or {}
+    def _alvl(*aids):
+        return max((actors.get(a, {}).get('escalation_level',
+                    actors.get(a, {}).get('level', 0)) for a in aids), default=0)
+    us = _alvl('us_government', 'us_sanctions_regulatory', 'us_military_posture')
+    ru = _alvl('russia_cuba_axis')
+    cn = _alvl('china_cuba_axis')
+    fingerprint = {
+        'ts':          datetime.now(timezone.utc).isoformat(),
+        'country':     'cuba',
+        'node_class':  'inbound_target',
+        'level':       result.get('theatre_level', 0),
+        'score':       result.get('theatre_score', result.get('rhetoric_score', 0)),
+        'inbound': {
+            'us_level':     us,
+            'russia_level': ru,
+            'china_level':  cn,
+            'dual_meddle':  us >= 2 and ru >= 2,
+        },
+        'instability': {
+            'civilian_pressure': (result.get('civilian_pressure_level')
+                                  or result.get('civ_press_level', 0)),
+            'migration_out':     result.get('migration_out_level', 0),
+            'theatre_score':     result.get('theatre_score', 0),
+        },
+    }
+    try:
+        _redis_set('crosstheater:cuba:fingerprint', fingerprint)
+        print('[Cuba Rhetoric] Canonical spoke fingerprint written (crosstheater:cuba:fingerprint)')
+    except Exception as e:
+        print(f'[Cuba Rhetoric] Canonical fingerprint write failed: {e}')
+
+
 def _compute_cuba_l5_gate(theatre_level, vectors, actor_results, civ_press_lvl, migration_out_lvl, global_signals):
     """
     Per platform L5 Reservation Contract: Cuba L5 "Active Crisis" requires
@@ -2261,6 +2304,7 @@ def run_cuba_rhetoric_scan(force=False):
 
         # Write cache + history + fingerprint
         _redis_set(RHETORIC_CACHE_KEY, result)
+        _write_canonical_spoke_fingerprint(result)   # Rim Emission Pass
         # ── Canonical history snapshot (May 22 2026 reconciled schema) ──
         # Universal fields read by wha_regional_bluf.prose_v2:
         #   theatre_level, theatre_score, scanned_at, red_lines_count
