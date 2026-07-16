@@ -1347,6 +1347,82 @@ def fetch_rss(feed_url, max_items=15):
         return []
 
 
+SOCIAL_SOURCE_HINTS = ('reddit', 'r/', 'bluesky', 'bsky', 'telegram', 'social', 'mirror')
+
+REGIONAL_PRESSURE_TERMS = {
+    'kinetic': {
+        'weight': 2.0,
+        'phrases': [
+            'armed clash', 'shootout', 'ambush', 'massacre', 'airstrike',
+            'drone strike', 'explosion', 'grenade', 'cartel attack',
+            'gang offensive', 'border attack', 'state of siege',
+            'enfrentamiento armado', 'ataque armado', 'masacre', 'emboscada',
+            'explosion', 'ataque con drones', 'tiroteo',
+            'confronto armado', 'ataque armado', 'massacre',
+        ],
+    },
+    'governance': {
+        'weight': 1.4,
+        'phrases': [
+            'state of emergency', 'martial law', 'curfew', 'constitutional crisis',
+            'election annulled', 'military deployment', 'security forces deployed',
+            'opposition leader arrested', 'protest crackdown',
+            'estado de emergencia', 'toque de queda', 'crisis constitucional',
+            'represion', 'lider opositor detenido', 'despliegue militar',
+            'crise constitucional',
+        ],
+    },
+    'economic': {
+        'weight': 0.9,
+        'phrases': [
+            'fuel shortage', 'blackout', 'power outage', 'currency collapse',
+            'port closure', 'canal disruption', 'food shortage',
+            'mining blockade', 'oil production halted', 'sanctions',
+            'apagones', 'escasez de combustible', 'escasez de alimentos',
+            'bloqueo minero', 'sanciones', 'colapso de la moneda',
+            'apagao', 'falta de combustivel', 'sancoes',
+        ],
+    },
+}
+
+
+def _regional_source_name(article):
+    source = article.get('source', 'Unknown')
+    if isinstance(source, dict):
+        return source.get('name', 'Unknown')
+    return str(source or 'Unknown')
+
+
+def _is_social_source(source_name):
+    source_lower = (source_name or '').lower()
+    return any(hint in source_lower for hint in SOCIAL_SOURCE_HINTS)
+
+
+def _regional_pressure_bonus(text):
+    text_lower = (text or '').lower()
+    labels = []
+    bonus = 0.0
+    for label, config in REGIONAL_PRESSURE_TERMS.items():
+        if any(phrase.lower() in text_lower for phrase in config['phrases']):
+            labels.append(label)
+            bonus += config['weight']
+    return min(bonus, 3.5), labels
+
+
+def _article_recency_weight(article, days):
+    raw_date = article.get('published') or article.get('publishedAt') or ''
+    try:
+        if raw_date:
+            parsed = datetime.fromisoformat(str(raw_date).replace('Z', '+00:00'))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            age_hours = (datetime.now(timezone.utc) - parsed).total_seconds() / 3600
+            return max(0.35, 1.0 - min(age_hours / max(days * 24, 1), 1.0) * 0.65)
+    except Exception:
+        pass
+    return 0.65
+
+
 # ========================================
 # OSINT SCAN -- per country
 # ========================================
@@ -1452,42 +1528,77 @@ def scan_country(country_id, days=7):
 
     # ---- Scoring ----
     base = config['base_conflict_pct']
-    score = float(base)
+    score_delta = 0.0
     signals_found = []
     escalation_hits = []
     stability_hits  = []
+    pressure_hits = []
 
     for article in unique_articles:
         text = (
             (article.get('title') or '') + ' ' +
             (article.get('content') or '')
         ).lower()
+        source_name = _regional_source_name(article)
+        source_weight = 0.55 if _is_social_source(source_name) else 1.0
+        recency_weight = _article_recency_weight(article, days)
+        pressure_bonus, pressure_labels = _regional_pressure_bonus(text)
 
         # Escalation keywords
         for kw in config['keywords_escalation']:
             if kw.lower() in text:
+                contribution = (1.5 + pressure_bonus) * source_weight * recency_weight
                 escalation_hits.append({
                     'keyword': kw,
                     'title': article.get('title', '')[:120],
                     'url': article.get('url', ''),
-                    'source': article.get('source', ''),
+                    'source': source_name,
                     'published': article.get('published', ''),
-                    'feed_type': article.get('feed_type', '')
+                    'feed_type': article.get('feed_type', ''),
+                    'pressure_signals': pressure_labels,
+                    'contribution': round(contribution, 2),
                 })
-                score = min(score + 1.5, 99)
+                score_delta += contribution
                 break
+        else:
+            if pressure_bonus:
+                contribution = pressure_bonus * 0.65 * source_weight * recency_weight
+                pressure_hits.append({
+                    'title': article.get('title', '')[:120],
+                    'url': article.get('url', ''),
+                    'source': source_name,
+                    'published': article.get('published', ''),
+                    'pressure_signals': pressure_labels,
+                    'contribution': round(contribution, 2),
+                })
+                score_delta += contribution
 
         # Stability keywords
         for kw in config['keywords_stability']:
             if kw.lower() in text:
+                contribution = -0.9 * recency_weight
                 stability_hits.append({
                     'keyword': kw,
                     'title': article.get('title', '')[:120],
                     'url': article.get('url', ''),
-                    'source': article.get('source', '')
+                    'source': source_name,
+                    'contribution': round(contribution, 2),
                 })
-                score = max(score - 0.8, 1)
+                score_delta += contribution
                 break
+
+    unique_sources = len(set(_regional_source_name(a) for a in unique_articles))
+    social_signal_count = sum(
+        1 for hit in escalation_hits + pressure_hits
+        if _is_social_source(hit.get('source', ''))
+    )
+    non_social_signal_count = len(escalation_hits + pressure_hits) - social_signal_count
+    source_diversity_bonus = min(3.5, max(0, unique_sources - 4) * 0.25)
+    social_corroboration_bonus = (
+        min(2.5, social_signal_count * 0.25)
+        if social_signal_count and non_social_signal_count >= 2 else 0.0
+    )
+    score = float(base) + score_delta + source_diversity_bonus + social_corroboration_bonus
 
     # ---- Pressure Index: military vector boost ----
     pressure_boost, pressure_details = _wha_pressure_boost(country_id)
@@ -1528,8 +1639,21 @@ def scan_country(country_id, days=7):
         'articles_scanned': len(unique_articles),
         'escalation_signals': len(escalation_hits),
         'stability_signals': len(stability_hits),
+        'pressure_signals': len(pressure_hits),
         'pressure_index': pressure_details,
+        'scoring_breakdown': {
+            'base_conflict_pct': base,
+            'article_signal_delta': round(score_delta, 2),
+            'source_diversity_bonus': round(source_diversity_bonus, 2),
+            'social_corroboration_bonus': round(social_corroboration_bonus, 2),
+            'unique_sources': unique_sources,
+            'social_signal_count': social_signal_count,
+            'non_social_signal_count': non_social_signal_count,
+        },
         'top_signals': top_signals,
+        'pressure_only_signals': sorted(
+            pressure_hits, key=lambda x: x.get('published', ''), reverse=True
+        )[:8],
         'days_analyzed': days,
         'last_updated': datetime.now(timezone.utc).isoformat(),
         'cached': False,
