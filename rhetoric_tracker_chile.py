@@ -178,6 +178,38 @@ ACTORS = {
             ('icj_filing',           3, ['icj chile filing', 'la haya nuevo caso', 'corte internacional chile']),
         ],
     },
+    'fisheries_sector': {
+        'name':     'Fisheries Sector',
+        'flag':     '\U0001F1E8\U0001F1F1',
+        'icon':     '\U0001F41F',
+        'role':     'Anchoveta quota + salmon farming + fishmeal (secondary resource axis; Humboldt sibling to Peru)',
+        'vector':   'resource_sector',
+        'baseline': 4,   # LOW — Chile fisheries is a minor political signal vs. copper/lithium; dormant convergence scaffolding
+        'keywords': [
+            # English — anchoveta / fishmeal / quota
+            'chile anchoveta', 'chile fishmeal', 'chile fishing quota',
+            'sernapesca', 'subpesca chile', 'chile fishing law',
+            'chile industrial fishing', 'chile fishing ban',
+            'humboldt current chile', 'chile fisheries collapse',
+            # English — salmon (Chile is world #2 salmon farmer; consumes fishmeal)
+            'chile salmon farming', 'salmon chile', 'salmonicultura',
+            'chile salmon exports', 'aysen salmon', 'los lagos salmon',
+            # Spanish — anchoveta / pesca
+            'anchoveta chile', 'cuota pesquera', 'ley de pesca chile',
+            'pesca industrial chile', 'harina de pescado',
+            'jibia chile', 'merluza chile', 'sardina chile',
+            'sernapesca', 'subpesca', 'veda pesca chile',
+            'colapso pesquero', 'sobreexplotación pesca',
+            # Spanish — salmon
+            'salmón chile', 'salmonicultura chile', 'exportación salmón',
+        ],
+        'tripwires': [
+            ('fishing_quota_cut',      3, ['cuota pesquera', 'fishing quota cut chile', 'recorte cuota', 'veda anchoveta']),
+            ('fishing_law_reform',     3, ['ley de pesca', 'chile fishing law reform', 'reforma ley pesca']),
+            ('salmon_disruption',      2, ['salmon disease chile', 'salmón mortandad', 'salmon algal bloom', 'floración algas salmón']),
+            ('fisheries_collapse',     3, ['colapso pesquero', 'fisheries collapse chile', 'anchoveta collapse']),
+        ],
+    },
     'mining_sector': {
         'name':     'Mining Sector',
         'flag':     '🇨🇱',
@@ -400,7 +432,7 @@ VECTORS = {
     },
     'resource_sector': {
         'name': 'Resource-Sector Politics',
-        'actors': ['mining_sector'],
+        'actors': ['mining_sector', 'fisheries_sector'],
     },
     'us_alignment': {
         'name': 'US Alignment',
@@ -438,6 +470,7 @@ GDELT_QUERIES_EN = [
     'Chile constitutional reform',    'Chile pension reform',
     'US Chile critical minerals',     'Chile FTA review',
     'China Chile investment',         'Tianqi SQM stake',
+    'Chile fishing quota',            'Chile anchoveta salmon',  # fisheries (dormant convergence scaffold)
 ]
 
 GDELT_QUERIES_ES = [
@@ -449,6 +482,7 @@ GDELT_QUERIES_ES = [
     'acusación constitucional',       'cancillería Chile',
     'inversión china Chile',          'tianqi SQM',
     'minerales críticos Chile',
+    'cuota pesquera Chile',           'ley de pesca Chile',  # fisheries (dormant convergence scaffold)
 ]
 
 
@@ -656,7 +690,7 @@ def fetch_newsapi(query, days=7):
 
 def fetch_all_newsapi(days=7):
     out = []
-    for q in ['Chile mining', 'Boric Chile', 'Mapuche Chile', 'Codelco', 'SQM lithium', 'Chile constitutional']:
+    for q in ['Chile mining', 'Boric Chile', 'Mapuche Chile', 'Codelco', 'SQM lithium', 'Chile constitutional', 'Chile fishing quota']:
         out.extend(fetch_newsapi(q, days=days))
         time.sleep(0.3)
     print(f"[Chile Rhetoric] NewsAPI: {len(out)} articles")
@@ -696,7 +730,7 @@ def fetch_all_brave(days=7, gdelt_count=0, newsapi_count=0):
     if (gdelt_count + newsapi_count) >= 30:
         return []
     out = []
-    for q in ['Chile mining strike', 'Boric Chile politics', 'Mapuche Araucania', 'Chile lithium SQM']:
+    for q in ['Chile mining strike', 'Boric Chile politics', 'Mapuche Araucania', 'Chile lithium SQM', 'Chile fishing quota']:
         out.extend(fetch_brave(q, days=days))
         time.sleep(0.5)
     print(f"[Chile Rhetoric] Brave: {len(out)} articles")
@@ -824,6 +858,20 @@ def _write_chile_fingerprints(actor_levels, vector_scores, tripwires_global):
                         'major_reform_collapse') for t in tripwires_global):
             _redis_set('chile_constitutional_pressure',
                        {'active': True, 'tripwires': [t[1] for t in tripwires_global],
+                        'scanned_at': datetime.now(timezone.utc).isoformat()},
+                       ttl_hours=CACHE_TTL_HOURS)
+
+        # Fisheries disruption fingerprint (convergence hook -- feeds the
+        # fertilizer/food-input convergence read via the feed-protein axis;
+        # Humboldt sibling to Peru anchoveta). Dormant until a tripwire fires.
+        if any(t[1] in ('fishing_quota_cut', 'fishing_law_reform',
+                        'fisheries_collapse', 'salmon_disruption') for t in tripwires_global):
+            _redis_set('chile_fishmeal_disruption',
+                       {'active': True, 'tripwires': [t[1] for t in tripwires_global
+                                                      if t[1] in ('fishing_quota_cut', 'fishing_law_reform',
+                                                                  'fisheries_collapse', 'salmon_disruption')],
+                        'note': 'Chile Humboldt fisheries -- secondary anchoveta/fishmeal + salmon axis; '
+                                'feeds fertilizer/food-input convergence (feed-protein pillar)',
                         'scanned_at': datetime.now(timezone.utc).isoformat()},
                        ttl_hours=CACHE_TTL_HOURS)
     except Exception as e:

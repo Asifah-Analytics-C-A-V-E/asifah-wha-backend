@@ -62,6 +62,7 @@ ACTOR_PROSE_NAMES = {
     'presidency':              'the Presidency',
     'cancilleria':             'Cancillería',
     'mining_sector':           'the mining sector',
+    'fisheries_sector':        'the fisheries sector',
     'mapuche_conflict':        'the Mapuche conflict zone',
     'constitutional_politics': 'constitutional politics',
     'us_chile':                'US-Chile bilateral channels',
