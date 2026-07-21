@@ -52,6 +52,7 @@ ACTOR_PROSE_NAMES = {
     'ffaa':           'the Armed Forces',
     'mining_sector':  'the mining sector',
     'las_bambas':     'Las Bambas',
+    'fisheries_sector': 'the fisheries sector (anchoveta quota)',
     'vraem_sendero':  'VRAEM / Sendero',
     'us_peru':        'US-Peru bilateral channels',
     'china_peru':     'China-Peru / BRI channels',

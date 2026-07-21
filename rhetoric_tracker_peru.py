@@ -112,6 +112,7 @@ HISTORY_KEY            = 'rhetoric:peru:history'   # canonical snapshot index (M
 REDIS_KEY_FINGERPRINT_AXIS         = 'rhetoric:peru:china_axis_active'
 REDIS_KEY_FINGERPRINT_CHANCAY      = 'rhetoric:peru:chancay_pressure'
 REDIS_KEY_FINGERPRINT_MINING       = 'rhetoric:peru:mining_disruption'
+REDIS_KEY_FINGERPRINT_FISHMEAL     = 'rhetoric:peru:fishmeal_disruption'
 
 GDELT_BASE_URL   = 'https://api.gdeltproject.org/api/v2/doc/doc'
 NEWSAPI_BASE_URL = 'https://newsapi.org/v2/everything'
@@ -395,6 +396,36 @@ ACTORS = {
         'baseline_statements_per_week': 5,
     },
 
+    'fisheries_sector': {
+        'name': 'Fisheries Sector \u2014 Anchoveta Quota',
+        'flag': '\U0001F1F5\U0001F1EA', 'icon': '\U0001F41F',
+        'color': '#0891b2',
+        'role': 'Anchoveta quota politics \u2014 IMARPE / PRODUCE / industrial fleet vs. artisanal; the world\'s largest single-species fishery',
+        'description': 'Peru is the world\'s largest fishmeal exporter; the anchoveta (Humboldt Current) is the planet\'s biggest single-species fishery and a top global input to aquaculture + animal feed. Quota-season politics are a genuine flashpoint: IMARPE biomass surveys, PRODUCE ministry quota-setting, industrial-fleet vs. artisanal disputes, season cancellations (as in 2023), El Ni\u00f1o warm-water anomalies, fishing-fleet protests. FOOD-SECURITY axis (distinct from mining) \u2014 feeds the fertilizer/food-input convergence (feed-protein pillar) as the Humboldt sibling to Chile. This is the trackable core of the viral \'guano collapse\' narrative: the real signal is the quota, not the birds.',
+        'vector': 'resource_sector',
+        'keywords': [
+            'peru anchoveta', 'anchoveta quota', 'peru fishing quota',
+            'peru fishing season', 'imarpe', 'produce peru fishing',
+            'peru fishmeal', 'peruvian fishmeal', 'peru fishing ban',
+            'peru fishing suspended', 'anchoveta biomass', 'anchoveta season',
+            'peru fishing exports', 'humboldt current anchoveta',
+            'peru fisheries collapse', 'peru overfishing',
+            'peru fishing fleet', 'peruvian fishing fleet',
+            'industrial fishing peru', 'artisanal fishing peru',
+            'peru fishermen protest', 'sni pesca',
+            'anchoveta per\u00fa', 'cuota anchoveta', 'cuota de pesca per\u00fa',
+            'temporada de pesca per\u00fa', 'imarpe anchoveta', 'ministerio de la producci\u00f3n',
+            'produce per\u00fa pesca', 'harina de pescado per\u00fa', 'harina de pescado',
+            'veda anchoveta', 'veda pesquera per\u00fa', 'biomasa anchoveta',
+            'pesca industrial per\u00fa', 'pesca artesanal per\u00fa',
+            'colapso pesquero per\u00fa', 'sobrepesca per\u00fa',
+            'flota pesquera per\u00fa', 'pescadores per\u00fa protesta',
+            'sociedad nacional de pesquer\u00eda', 'snp per\u00fa',
+            'el ni\u00f1o pesca per\u00fa', 'el ni\u00f1o anchoveta',
+        ],
+        'baseline_statements_per_week': 6,
+    },
+
     'china_peru': {
         'name': 'China-Peru / Belt and Road',
         'flag': '🇨🇳', 'icon': '🚢',
@@ -448,9 +479,9 @@ ACTORS = {
 }
 
 # Helper sets for downstream classification logic
-DOMESTIC_ACTORS = ['presidency', 'cancilleria', 'ffaa', 'mining_sector', 'las_bambas', 'vraem_sendero']
+DOMESTIC_ACTORS = ['presidency', 'cancilleria', 'ffaa', 'mining_sector', 'las_bambas', 'fisheries_sector', 'vraem_sendero']
 EXTERNAL_ACTORS = ['us_peru', 'china_peru']
-RESOURCE_ACTORS = ['mining_sector', 'las_bambas']
+RESOURCE_ACTORS = ['mining_sector', 'las_bambas', 'fisheries_sector']
 ALIGNMENT_ACTORS = {'us_peru': 'us_alignment', 'china_peru': 'china_alignment'}
 
 # Vector groupings for the 4-vector composite score
@@ -476,6 +507,34 @@ TRIPWIRES = {
         ],
         'severity': 'surge',
         'description': 'Peru state of emergency declared — domestic stability rupture',
+    },
+    'anchoveta_season_cancelled': {
+        'patterns': [
+            'peru cancels fishing season', 'anchoveta season cancelled',
+            'peru suspends anchoveta', 'imarpe recommends no fishing',
+            'temporada anchoveta cancelada', 'suspende temporada anchoveta',
+            'veda total anchoveta', 'per\u00fa cancela temporada pesca',
+        ],
+        'severity': 'high',
+        'description': 'Anchoveta season cancellation -- global fishmeal-price event + Peru food/feed shock (2023 precedent)',
+    },
+    'fishing_quota_slashed': {
+        'patterns': [
+            'anchoveta quota cut', 'peru slashes fishing quota',
+            'reduced anchoveta quota', 'cuota anchoveta reducida',
+            'recorte cuota anchoveta', 'produce reduce cuota',
+        ],
+        'severity': 'elevated',
+        'description': 'Anchoveta quota reduction -- fishmeal supply tightening + fleet political friction',
+    },
+    'fishing_fleet_protest': {
+        'patterns': [
+            'peru fishermen protest', 'peru fishing strike',
+            'pescadores per\u00fa protesta', 'paro pescadores per\u00fa',
+            'huelga pesquera per\u00fa', 'protesta flota pesquera',
+        ],
+        'severity': 'elevated',
+        'description': 'Fishing-fleet protest / strike -- quota-politics flashpoint (industrial vs. artisanal)',
     },
     'las_bambas_full_closure': {
         'patterns': [
@@ -601,6 +660,8 @@ GDELT_QUERIES_EN = [
     # Mining sector
     '"Peru" AND ("mining" OR "miner" OR "copper" OR "silver")',
     '"Peru" AND ("Antamina" OR "Cerro Verde" OR "Toromocho" OR "Yanacocha")',
+    # Fisheries — anchoveta quota (food-security / feed-protein axis)
+    '"Peru" AND ("anchoveta" OR "fishing quota" OR "fishmeal" OR "IMARPE")',
     # Las Bambas — single-mine flashpoint
     '"Las Bambas" OR "MMG Peru"',
     '"Apurimac" AND ("blockade" OR "protest" OR "mining")',
@@ -629,6 +690,8 @@ GDELT_QUERIES_ES = [
     # Mining
     '"minería peruana" OR "huelga minera"',
     '"Antamina" OR "Cerro Verde" OR "Toromocho" OR "Yanacocha"',
+    # Pesca — anchoveta / cuota (eje seguridad alimentaria)
+    '"anchoveta" AND ("Perú" OR "Peru" OR "cuota" OR "IMARPE")',
     # Las Bambas
     '"Las Bambas" AND ("bloqueo" OR "paralización")',
     '"Apurímac" AND ("conflicto" OR "minería")',
@@ -1189,6 +1252,29 @@ def _write_peru_fingerprints(actor_levels, vector_scores, tripwires_global):
         'last_updated':     now_iso,
     }
     _redis_set(REDIS_KEY_FINGERPRINT_MINING, mining,
+               ttl_hours=CROSSTHEATER_FINGERPRINT_TTL_HOURS)
+
+    # Fisheries / fishmeal disruption fingerprint (convergence hook -- feeds the
+    # fertilizer/food-input convergence via the feed-protein pillar; Peru is the
+    # PRIMARY Humboldt anchoveta producer, Chile the secondary sibling).
+    fisheries_level = actor_levels.get('fisheries_sector', 'low')
+    fisheries_active = (
+        fisheries_level in ('high', 'surge')
+        or any(tw.get('id') in ('anchoveta_season_cancelled', 'fishing_quota_slashed',
+                                'fishing_fleet_protest') for tw in tripwires_global)
+    )
+    fishmeal = {
+        'active':           fisheries_active,
+        'fisheries_level':  fisheries_level,
+        'tripwires':        [tw.get('id') for tw in tripwires_global
+                             if tw.get('id') in ('anchoveta_season_cancelled',
+                                                 'fishing_quota_slashed', 'fishing_fleet_protest')],
+        'note':             'Peru anchoveta/fishmeal -- PRIMARY Humboldt producer; feeds fertilizer/'
+                            'food-input convergence (feed-protein pillar). Food-security axis, not fertilizer.',
+        'resource_score':   vector_scores.get('resource_sector', 0),
+        'last_updated':     now_iso,
+    }
+    _redis_set(REDIS_KEY_FINGERPRINT_FISHMEAL, fishmeal,
                ttl_hours=CROSSTHEATER_FINGERPRINT_TTL_HOURS)
 
 
