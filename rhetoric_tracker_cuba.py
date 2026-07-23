@@ -101,6 +101,18 @@ from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from flask import jsonify, request
 
+# Elite-fracture detector (v1.1.0 Slice 2) -- portable primitive.
+# Answers a DIFFERENT question from regime_fracture: that vector measures the
+# STREET (dissidents minus suppression), which by construction falls toward
+# zero when repression rises. Elite/palace stress has the inverted signature --
+# the street goes quiet precisely because the fight moved indoors.
+try:
+    from elite_fracture import compute_elite_fracture
+    _ELITE_FRACTURE_AVAILABLE = True
+except ImportError as e:
+    print(f"[Cuba Rhetoric] WARNING: elite_fracture not available ({e})")
+    _ELITE_FRACTURE_AVAILABLE = False
+
 # Signal interpreter (Red Lines + So What)
 try:
     from cuba_signal_interpreter import (
@@ -2392,6 +2404,24 @@ def run_cuba_rhetoric_scan(force=False):
             except Exception as _re:
                 print(f"[Cuba Rhetoric] RUMINT error: {str(_re)[:100]}")
 
+        # ── ELITE FRACTURE (v1.1.0 Slice 2) ──────────────────────────────
+        # Rides alongside the threat level and NEVER moves it. The street and
+        # palace reads are separate instruments answering separate questions;
+        # folding one into the other would destroy the divergence that is the
+        # whole finding (street calm + elite acute = the Madero shape).
+        cuba_elite = {'band': 'unavailable', 'band_label': 'Elite read unavailable',
+                      'lit_count': 0, 'composite': 0, 'components': []}
+        if _ELITE_FRACTURE_AVAILABLE:
+            try:
+                cuba_elite = compute_elite_fracture(articles, actor_results,
+                                                    country='cuba')
+                print("[Cuba Elite] %s -- %d/7 components, composite %.1f"
+                      % (cuba_elite.get('band_label', '?'),
+                         cuba_elite.get('lit_count', 0),
+                         cuba_elite.get('composite', 0)))
+            except Exception as _ef:
+                print(f"[Cuba Rhetoric] elite_fracture error: {str(_ef)[:120]}")
+
         result = {
             'success':               True,
             'theatre':               'Cuba',
@@ -2451,6 +2481,9 @@ def run_cuba_rhetoric_scan(force=False):
             'red_lines':             red_lines_triggered,
             'so_what':               so_what,
             'rumint':                cuba_rumint,
+            # v1.1.0 Slice 2 -- separate instrument, deliberately NOT folded
+            # into regime_fracture or the theatre score.
+            'elite_fracture':        cuba_elite,
 
             # Metadata
             'total_articles':        len(articles),
