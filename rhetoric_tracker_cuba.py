@@ -1,7 +1,7 @@
 """
 Asifah Analytics -- Cuba Rhetoric & Pressure Tracker
 WHA Backend Module
-v1.1.0 -- July 23 2026
+v1.2.0 -- July 23 2026
 
 Cuba Rhetoric Tracker -- Inverted Pressure Model
 
@@ -85,6 +85,14 @@ CHANGELOG:
                        (5) Spanish source expansion (Marti Noticias, El Nuevo
                        Herald, Periodico Cubano, Infobae, topical sweep) + GDELT
                        Portuguese.
+  v1.2.0 (2026-07-23): SLICE 2+3. elite_fracture.py wired -- palace/elite stress
+                       measured separately from street fracture, with two inverse
+                       components (continuity messaging; suppression running ahead
+                       of the street). principal_cadence.py wired -- per-principal
+                       learned appearance norms, corpus-health gated so a feed
+                       outage cannot read as a vanished leadership. Neither feeds
+                       the theatre score: street and palace are separate
+                       instruments and their divergence is the finding.
 
 COPYRIGHT 2025-2026 Asifah Analytics. All rights reserved.
 """
@@ -112,6 +120,17 @@ try:
 except ImportError as e:
     print(f"[Cuba Rhetoric] WARNING: elite_fracture not available ({e})")
     _ELITE_FRACTURE_AVAILABLE = False
+
+# Principal appearance cadence (v1.1.0 Slice 3). Elite-fracture can only see
+# absence the press REMARKS on; this measures the appearance record itself and
+# calls the break against each principal's own learned norm -- the same
+# inversion used for claiming actors, where silence is the signal.
+try:
+    from principal_cadence import record_scan as _cadence_record, compute_cadence
+    _CADENCE_AVAILABLE = True
+except ImportError as e:
+    print(f"[Cuba Rhetoric] WARNING: principal_cadence not available ({e})")
+    _CADENCE_AVAILABLE = False
 
 # Signal interpreter (Red Lines + So What)
 try:
@@ -2422,6 +2441,29 @@ def run_cuba_rhetoric_scan(force=False):
             except Exception as _ef:
                 print(f"[Cuba Rhetoric] elite_fracture error: {str(_ef)[:120]}")
 
+        # ── PRINCIPAL CADENCE (v1.1.0 Slice 3) ───────────────────────────
+        # Record first, then read: today's scan becomes part of the baseline
+        # it is judged against. Cadence history accrues in wall-clock time and
+        # cannot be backfilled, so the recording runs even while the baseline
+        # is still too thin to assert anything.
+        cuba_cadence = {'ready': False, 'band': 'unavailable',
+                        'prose': 'Cadence engine unavailable.'}
+        if _CADENCE_AVAILABLE:
+            try:
+                _cadence_record(articles, country='cuba')
+                cuba_cadence = compute_cadence('cuba')
+                if cuba_cadence.get('ready'):
+                    print("[Cuba Cadence] band=%s flagged=%s (%d days banked)"
+                          % (cuba_cadence.get('band'),
+                             cuba_cadence.get('flagged_count', 0),
+                             cuba_cadence.get('days_banked', 0)))
+                else:
+                    print("[Cuba Cadence] baseline accumulating -- %d/%d days"
+                          % (cuba_cadence.get('days_banked', 0),
+                             cuba_cadence.get('days_required', 10)))
+            except Exception as _ce:
+                print(f"[Cuba Rhetoric] cadence error: {str(_ce)[:120]}")
+
         result = {
             'success':               True,
             'theatre':               'Cuba',
@@ -2484,6 +2526,7 @@ def run_cuba_rhetoric_scan(force=False):
             # v1.1.0 Slice 2 -- separate instrument, deliberately NOT folded
             # into regime_fracture or the theatre score.
             'elite_fracture':        cuba_elite,
+            'principal_cadence':     cuba_cadence,
 
             # Metadata
             'total_articles':        len(articles),
