@@ -1,7 +1,7 @@
 """
 Asifah Analytics -- Cuba Rhetoric & Pressure Tracker
 WHA Backend Module
-v1.0.0 -- April 2026
+v1.1.0 -- July 23 2026
 
 Cuba Rhetoric Tracker -- Inverted Pressure Model
 
@@ -71,6 +71,20 @@ SOURCE STRATEGY:
 
 CHANGELOG:
   v1.0.0 (2026-04-20): Initial build -- 9-actor inverted model with three-question frame
+  v1.1.0 (2026-07-23): SILENT-MISS SWEEP. (1) Accent-folding at match time --
+                       Spanish sources write Raul/apagon/regimen and unaccented
+                       keywords never matched them; fixed once for all keywords
+                       via _fold(). (2) Diplomatic-rupture keyword set (charge
+                       d'affaires visa attrition, persona non grata, mission
+                       drawdown) -- an entire signal class that was absent.
+                       (3) Repression set (arresto domiciliario, presos
+                       politicos, detencion arbitraria) -- house arrest is the
+                       regime's quietest tool and registered as silence.
+                       (4) Reddit RUMINT reception layer WIRED -- was hardcoded
+                       to [] so the reception dimension scored 0 every scan.
+                       (5) Spanish source expansion (Marti Noticias, El Nuevo
+                       Herald, Periodico Cubano, Infobae, topical sweep) + GDELT
+                       Portuguese.
 
 COPYRIGHT 2025-2026 Asifah Analytics. All rights reserved.
 """
@@ -78,6 +92,7 @@ COPYRIGHT 2025-2026 Asifah Analytics. All rights reserved.
 import os
 import json
 import threading
+import unicodedata
 import time
 import requests
 import xml.etree.ElementTree as ET
@@ -447,6 +462,27 @@ ACTORS = {
             # Additional official voice patterns
             'la habana responde', 'la habana condena', 'la habana rechaza',
             'cuba exige', 'cuba advierte',
+            # ── v1.1.0 DIPLOMATIC-RUPTURE SET (Jul 23 2026) ──────────────────
+            # Squeezing out the US mission by visa attrition is a rupture move
+            # that never says "rupture". Refusing to renew the charge d'affaires'
+            # accreditation forces a post vacancy without a formal expulsion --
+            # deniable, gradual, and previously invisible to this tracker.
+            'charge d\'affaires', 'chargé d\'affaires', 'encargado de negocios',
+            'jefe de mision', 'jefe de la mision de estados unidos',
+            'persona non grata', 'persona no grata',
+            'visa denegada', 'niega visa', 'no renovar la visa',
+            'retiro de visa', 'revocacion de visa', 'visa no renovada',
+            'expulsion diplomatica', 'expulsa diplomaticos',
+            'reduccion de personal diplomatico', 'retiro de personal diplomatico',
+            # Spanish headlines favour the VERB form over the noun -- caught by
+            # the build test: 'retira personal diplomatico' was missed while
+            # 'retiro de personal diplomatico' matched. Carry both voices.
+            'retira personal diplomatico', 'retira a su personal',
+            'reduce personal diplomatico', 'evacua su embajada',
+            'suspende operaciones consulares', 'cierra su embajada',
+            'embajada de estados unidos en la habana', 'us embassy havana',
+            'seccion de intereses', 'suspende servicios consulares',
+            'llama a consultas al embajador', 'retira a su embajador',
         ],
         'baseline_statements_per_week': 20,
         'tripwires': [
@@ -454,6 +490,9 @@ ACTORS = {
             'cuba state of emergency',
             'cuba breaks diplomatic relations',
             'cuba ambassador recalled',
+            'declara persona non grata',
+            'expulsa al encargado de negocios',
+            'cierre de la embajada de estados unidos',
             'cuba martial law',
             'cuba emergency powers',
         ],
@@ -496,11 +535,25 @@ ACTORS = {
             # Cyber
             'cuba cyber operation', 'cuba hacking', 'cuban intelligence operation',
             'cuba state hacking', 'cuba cyber attack',
+            # ── v1.1.0 REPRESSION / DETENTION SET (Jul 23 2026) ──────────────
+            # House arrest is the regime's preferred pre-emptive tool: it
+            # suppresses without producing arrest photographs. Absent entirely
+            # before this build, so a wave of them registered as quiet.
+            'arresto domiciliario', 'arrestos domiciliarios', 'house arrest',
+            'prisionero politico', 'prisioneros politicos', 'political prisoner',
+            'detencion arbitraria', 'detenciones arbitrarias', 'arbitrary detention',
+            'regulado', 'regulados', 'regulacion migratoria',
+            'citacion policial', 'interrogatorio seguridad del estado',
+            'acoso policial', 'vigilancia domiciliaria', 'cerco policial',
+            'preso de conciencia', 'presos de conciencia',
+            'juicio sumario', 'condena a disidente', 'sentencia a opositor',
         ],
         'baseline_statements_per_week': 5,
         'tripwires': [
             'cuba deploys troops',
             'cuba arrests dissidents mass',
+            'ola de arrestos domiciliarios',
+            'detencion masiva de opositores',
             'cuba bastion exercise',
             'cuba military mobilization',
             'far deployed cuba',
@@ -1042,6 +1095,32 @@ RHETORIC_RSS_FEEDS = [
 
     # Regional context (Spanish wire services)
     {'url': 'https://www.efe.com/efe/america/rss/1',             'name': 'EFE Americas',                'weight': 0.80, 'lang': 'es'},
+
+    # ── v1.1.0 SPANISH EXPANSION (Jul 23 2026) ───────────────────────────
+    # Delivered as Google News RSS queries rather than native feeds: the
+    # outlets' own feed URLs change without notice (the Badil lesson), while
+    # the News RSS endpoint is stable and returns the same items. Swap any of
+    # these for a native feed once verified.
+    #
+    # Marti Noticias -- US-funded, Cuba-dedicated, the densest Spanish-language
+    # reporting on detentions and blackouts; a deliberate counterweight to the
+    # state feeds (Granma / Cubadebate / Juventud Rebelde) already in the pool.
+    {'url': 'https://news.google.com/rss/search?q=site:martinoticias.com&hl=es-419&gl=US&ceid=US:es-419',
+     'name': 'Marti Noticias (US-funded, ES)',  'weight': 0.88, 'lang': 'es'},
+    # Diaspora / Miami Spanish -- carries US-policy reaction and family-remittance
+    # signal that on-island outlets cannot publish.
+    {'url': 'https://news.google.com/rss/search?q=site:elnuevoherald.com+Cuba&hl=es-419&gl=US&ceid=US:es-419',
+     'name': 'El Nuevo Herald (Cuba, ES)',      'weight': 0.85, 'lang': 'es'},
+    {'url': 'https://news.google.com/rss/search?q=site:periodicocubano.com&hl=es-419&gl=US&ceid=US:es-419',
+     'name': 'Periodico Cubano (Independent)',  'weight': 0.82, 'lang': 'es'},
+    # Pan-LatAm desk -- picks up regional framing (VZ/Cuba coupling) the
+    # Cuba-only outlets miss.
+    {'url': 'https://news.google.com/rss/search?q=Cuba+site:infobae.com&hl=es-419&gl=US&ceid=US:es-419',
+     'name': 'Infobae (Cuba desk, ES)',         'weight': 0.82, 'lang': 'es'},
+    # TOPICAL sweep -- catches the live civilian-pressure and repression story
+    # regardless of outlet, including sources not otherwise in the roster.
+    {'url': 'https://news.google.com/rss/search?q=Cuba+(apagon+OR+escasez+OR+%22arresto+domiciliario%22+OR+combustible)&hl=es-419&gl=US&ceid=US:es-419',
+     'name': 'Topical ES (blackout/scarcity/detention)', 'weight': 0.80, 'lang': 'es'},
 ]
 
 # GDELT query strategy: Cuba in multiple languages.
@@ -1052,6 +1131,8 @@ GDELT_QUERIES = {
     'rus': 'Куба OR Гавана',
     'zho': '古巴 OR 哈瓦那',
     'fas': 'کوبا OR هاوانا',
+    # v1.1.0: Brazilian/Portuguese desks cover Cuba-Venezuela coupling closely
+    'por': 'Cuba OR Havana OR "regime cubano"',
 }
 
 
@@ -1287,6 +1368,76 @@ def _fetch_newsapi(query='Cuba', days=3, max_records=30, language='en'):
     return articles
 
 
+# ============================================
+# REDDIT -- RUMINT RECEPTION LAYER (v1.1.0, Jul 23 2026)
+# ============================================
+# The RUMINT scorer has always expected a reddit corpus and always received an
+# empty list -- `_score_rumint({'rumint_articles': articles, 'rumint_reddit': []})`
+# was hardcoded. Its own docstring admitted it: "returns 0 until reddit is
+# wired". So the reception dimension ("is anyone reacting to this?") scored
+# zero on every scan since the module shipped.
+#
+# DOCTRINE: reddit feeds the RUMINT reception read ONLY. It is deliberately NOT
+# merged into the actor-scoring corpus -- chatter is supportive, never decisive,
+# and letting forum volume move a country's escalation level would be exactly
+# the "measuring anger instead of intent" failure.
+#
+# The first four subs are the RUMINT_RECEPTION_VENUES the interpreter counts;
+# the rest broaden corroboration without counting as reception.
+REDDIT_SUBS = [
+    'cuba',            # reception venue -- diaspora + on-island posting
+    'geopolitics',     # reception venue
+    'venezuela',       # reception venue -- VZ/Cuba coupling
+    'LatinAmerica',    # reception venue
+    'vzla',            # Spanish-language Venezuelan sub (corroboration)
+    'CredibleDefense', # RUMINT anchor-quality venue (corroboration)
+]
+
+REDDIT_UA = 'Mozilla/5.0 (compatible; AsifahAnalytics/1.1; +https://asifahanalytics.com)'
+
+
+def _fetch_reddit_cuba(limit=25):
+    """Pull recent posts from Cuba-relevant subreddits for the RUMINT layer.
+
+    Returns [{'source': 'r/<sub>', 'title': ..., 'text': ..., 'url': ...}].
+    `source` must match RUMINT_RECEPTION_VENUES verbatim for the reception
+    count to register -- hence the 'r/' prefix.
+
+    Absence-honest: a failed sub yields nothing rather than a fabricated zero,
+    and the caller reports the real count.
+    """
+    out = []
+    for sub in REDDIT_SUBS:
+        try:
+            resp = requests.get(
+                f'https://www.reddit.com/r/{sub}/new.json?limit={limit}',
+                headers={'User-Agent': REDDIT_UA},
+                timeout=8,
+            )
+            if resp.status_code != 200:
+                print(f"[Cuba Reddit] r/{sub}: HTTP {resp.status_code}")
+                continue
+            children = ((resp.json() or {}).get('data') or {}).get('children') or []
+            for ch in children:
+                d = (ch or {}).get('data') or {}
+                title = d.get('title') or ''
+                body = d.get('selftext') or ''
+                if not title:
+                    continue
+                out.append({
+                    'source':    f'r/{sub}',
+                    'subreddit': f'r/{sub}',
+                    'title':     title,
+                    'text':      f"{title} {body}"[:1200],
+                    'url':       'https://www.reddit.com' + (d.get('permalink') or ''),
+                    'created':   d.get('created_utc'),
+                })
+        except Exception as e:
+            print(f"[Cuba Reddit] r/{sub} error: {str(e)[:90]}")
+    print(f"[Cuba Reddit] Collected {len(out)} posts across {len(REDDIT_SUBS)} subs")
+    return out
+
+
 def _fetch_all_articles():
     """Fetch from all RSS sources + GDELT + NewsAPI fallback. Returns deduplicated list."""
     articles = []
@@ -1470,17 +1621,39 @@ def _fetch_all_articles():
 # ============================================
 # ARTICLE CLASSIFICATION
 # ============================================
+def _fold(s):
+    """Strip diacritics and lowercase, for accent-insensitive matching.
+
+    v1.1.0 (Jul 23 2026) -- SILENT-MISS FIX. Spanish sources write Raul as
+    "Raul", regimen as "regimen", apagon as "apagon". Keywords written without
+    accents simply never matched those articles: no error, no warning, just
+    missing signal. Every Cuban primary source is Spanish (Granma, Cubadebate,
+    14ymedio, CiberCuba, Diario de Cuba, CubaNet), so this was dropping the
+    highest-value corpus on any accented term.
+
+    Folding BOTH the corpus and the keyword means an unaccented keyword matches
+    accented text and vice versa -- fixed once, for every keyword, forever,
+    instead of hand-adding variants each time a term is missed.
+
+    Non-Latin scripts are unaffected in practice: folding is applied to both
+    sides, so Cyrillic/Chinese/Farsi/Arabic keywords still match themselves.
+    """
+    if not s:
+        return ''
+    return ''.join(c for c in unicodedata.normalize('NFKD', s)
+                   if not unicodedata.combining(c)).lower()
+
+
 def _score_article_for_actor(article, actor_key, actor_def):
     """Score an article for a specific actor. Returns (level, trigger_phrase)."""
-    title = (article.get('title') or '').lower()
-    desc  = (article.get('description') or '').lower()
-    text  = f"{title} {desc}"
+    # v1.1.0: accent-folded so Spanish-language sources match unaccented keywords
+    text = _fold(f"{article.get('title') or ''} {article.get('description') or ''}")
 
     for kw in actor_def.get('keywords', []):
-        if kw.lower() in text:
+        if _fold(kw) in text:
             # Tripwires elevate match to L4 (Coercion level)
             for tw in actor_def.get('tripwires', []):
-                if tw.lower() in text:
+                if _fold(tw) in text:
                     return 4, tw
             return 1, kw
     return 0, None
@@ -1507,10 +1680,13 @@ def _classify_global_signals(articles):
     }
 
     for article in articles:
-        text = (
+        # v1.1.0: accent-folded -- 'apagon' now matches 'apagon', 'escasez' the
+        # accented forms, etc. The civilian-pressure ladder is almost entirely
+        # Spanish-source-driven, so this is where folding pays most.
+        text = _fold(
             (article.get('title', '') or '') + ' ' +
             (article.get('description', '') or '')
-        ).lower()
+        )
 
         # Migration OUT (Cuba → US/Mexico, escalatory)
         for level in (5, 4, 3, 2, 1):
@@ -2207,7 +2383,12 @@ def run_cuba_rhetoric_scan(force=False):
                        'framing': 0, 'specificity': 0, 'reception': 0, 'corroboration': 0}
         if _INTERPRETER_AVAILABLE:
             try:
-                cuba_rumint = _score_rumint({'rumint_articles': articles, 'rumint_reddit': []})
+                # v1.1.0: reddit reception layer now actually populated (was [])
+                _reddit_posts = _fetch_reddit_cuba()
+                cuba_rumint = _score_rumint({'rumint_articles': articles,
+                                             'rumint_reddit': _reddit_posts})
+                if isinstance(cuba_rumint, dict):
+                    cuba_rumint['reddit_posts_scanned'] = len(_reddit_posts)
             except Exception as _re:
                 print(f"[Cuba Rhetoric] RUMINT error: {str(_re)[:100]}")
 
