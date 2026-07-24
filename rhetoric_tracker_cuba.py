@@ -150,6 +150,15 @@ except ImportError as e:
     print(f"[Cuba Rhetoric] WARNING: patron_axis not available ({e})")
     _PATRON_AXIS_AVAILABLE = False
 
+# Shared GDELT gateway (v1.4.0) -- serialises and paces GDELT access so the
+# trackers on this backend stop competing with each other for it.
+try:
+    from gdelt_gateway import gdelt_fetch as _gw_fetch
+    _GDELT_GATEWAY = True
+except ImportError:
+    print("[Cuba Rhetoric] gdelt_gateway not available -- using direct GDELT calls")
+    _GDELT_GATEWAY = False
+
 # Signal interpreter (Red Lines + So What)
 try:
     from cuba_signal_interpreter import (
@@ -1322,7 +1331,35 @@ def _fetch_rss(url, source_name, weight=0.85, lang='en', max_items=20):
 
 
 def _fetch_gdelt(query, language='eng', days=3, max_records=25):
-    """Fetch GDELT articles for a language/query. Returns normalized article dicts."""
+    """Fetch GDELT articles for a language/query. Returns normalized article dicts.
+
+    v1.4.0 (Jul 23 2026): routed through the shared GDELT gateway. A live scan
+    showed every WHA tracker calling api.gdeltproject.org concurrently -- the
+    country scanner, Cuba's six languages, US rhetoric, US stability, Venezuela,
+    Peru and Chile -- from one process on one IP. GDELT throttled, the 5-15s
+    timeouts fired, and GDELT contributed ZERO articles across the whole
+    backend. The gateway serialises and paces those calls.
+
+    The direct path below is kept as fallback so this file still works if the
+    gateway module is absent. Article shape is preserved exactly either way --
+    note `source` is a DICT here, which downstream code depends on.
+    """
+    if _GDELT_GATEWAY:
+        _lang_map_gw = {'eng': 'en', 'spa': 'es', 'rus': 'ru',
+                        'zho': 'zh', 'fas': 'fa', 'por': 'pt'}
+        raw = _gw_fetch(query, language=language, timespan=f'{days}d',
+                        maxrecords=max_records, label=f'cuba/{language}')
+        return [{
+            'title':       a.get('title', ''),
+            'description': a.get('title', ''),
+            'url':         a.get('url', ''),
+            'publishedAt': a.get('published', ''),
+            'source':      {'name': f"GDELT ({language})"},
+            'content':     a.get('title', ''),
+            'language':    _lang_map_gw.get(language, language),
+            'feed_type':   'gdelt',
+        } for a in raw]
+
     articles = []
     try:
         params = {

@@ -93,6 +93,15 @@ UPSTASH_TOKEN  = os.environ.get('UPSTASH_REDIS_REST_TOKEN') or os.environ.get('U
 RHETORIC_CACHE_KEY  = 'rhetoric:venezuela:latest'
 SUMMARY_CACHE_KEY   = 'rhetoric:venezuela:summary'
 HISTORY_KEY         = 'rhetoric:venezuela:history'
+# Shared GDELT gateway (v1.1.0) -- one paced, serialised path to GDELT for
+# every tracker on this backend.
+try:
+    from gdelt_gateway import gdelt_fetch as _gw_fetch
+    _GDELT_GATEWAY = True
+except ImportError:
+    print("[VZ Rhetoric] gdelt_gateway not available -- using direct GDELT calls")
+    _GDELT_GATEWAY = False
+
 FINGERPRINT_KEY     = 'fingerprint:venezuela:current'
 CROSSTHEATER_KEY    = 'rhetoric:crosstheater:fingerprints'  # shared wheel-readable dict (mirrors ME theaters)
 
@@ -1211,7 +1220,28 @@ def _fetch_rss(url, source_name, weight=0.85, lang='es', max_items=20):
 
 
 def _fetch_gdelt(query, language='eng', days=3, max_records=25):
-    """GDELT Doc API with 8s timeout + 429 short-circuit."""
+    """GDELT Doc API -- routed through the shared gateway.
+
+    v1.1.0 (Jul 23 2026): the 8s timeout here was failing on essentially every
+    call because this backend fires GDELT requests from seven trackers at once.
+    The gateway serialises them and waits 25s, which is what GDELT actually
+    needs under load. Direct path kept as fallback; article shape unchanged
+    (`source` is a dict, carrying the domain).
+    """
+    if _GDELT_GATEWAY:
+        raw = _gw_fetch(query, language=language, timespan=f'{days}d',
+                        maxrecords=max_records, label=f'venezuela/{language}')
+        return [{
+            'title':       a.get('title', ''),
+            'description': a.get('published', ''),
+            'content':     a.get('title', ''),
+            'url':         a.get('url', ''),
+            'publishedAt': a.get('published', ''),
+            'language':    language,
+            'feed_type':   'gdelt',
+            'source':      {'name': a.get('source') or 'GDELT'},
+        } for a in raw]
+
     try:
         url = (
             f"https://api.gdeltproject.org/api/v2/doc/doc?query={quote_plus(query)}"
