@@ -78,6 +78,52 @@ BLUESKY_TIMEOUT = 8
 #                 grounds. Re-verify on first deploy via /tmp/wha-bluesky-log.
 #   NEW:          Added v1.1.0 -- not yet production-tested.
 # ────────────────────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════════════════
+# DEAD-HANDLE PRUNE -- July 23 2026 (v1.2.0)
+# ═══════════════════════════════════════════════════════════════════════
+# 23 handles removed after a live WHA scan returned HTTP 400 ("handle not
+# found") for every one of them -- 45% of the roster. This was costing a
+# failed HTTP request per handle per country queried, on every scan.
+#
+# WHAT THIS COST ANALYTICALLY, before removal:
+#   * EVERY Cuba-specific handle was dead -- diazcanelb (Diaz-Canel),
+#     cubaminrex (MINREX), 14ymedio, diariodecuba. Cuba's "60 Bluesky posts"
+#     were coming entirely from generic US/global accounts; not one Cuban
+#     source was reaching the corpus through this module.
+#   * osintdefender died -- a named anchor venue in the RUMINT spec.
+#   * southcom / northcom / ofac / treasury died -- the US-pressure and
+#     sanctions vector lost its direct-source layer.
+#
+# Removed (verified dead in the Jul 23 2026 scan):
+#   14ymedio.bsky.social
+#   americasquarterly.bsky.social
+#   ap-latam.bsky.social
+#   argusmedia.bsky.social
+#   bnamericas.bsky.social
+#   cubaminrex.govmirrors.com
+#   diariodecuba.bsky.social
+#   diazcanelb.govmirrors.com
+#   ftlatam.bsky.social
+#   hsigov.bsky.social
+#   hxiccg.bsky.social
+#   maggiehaberman.bsky.social
+#   marcorubio.govmirrors.com
+#   northcom.govmirrors.com
+#   ofac.govmirrors.com
+#   osintdefender.bsky.social
+#   potus.govmirrors.com
+#   reuterslatam.bsky.social
+#   secdef.govmirrors.com
+#   secrubio.govmirrors.com
+#   southcom.govmirrors.com
+#   thedialogue.bsky.social
+#   treasury.govmirrors.com
+#
+# NOT replaced with guesses. Roughly half of govmirrors.com handles have
+# failed since the Apr 25 audit, so inventing a replacement is more likely to
+# add another 400-logger than a working source. Verify a handle returns posts
+# before adding it back.
+# ═══════════════════════════════════════════════════════════════════════
 BLUESKY_ACCOUNTS_WHA = [
 
     # ═══════════════════════════════════════════════════════════
@@ -95,28 +141,12 @@ BLUESKY_ACCOUNTS_WHA = [
         'Trump Truth Social (X mirror) -- PRIMARY US signal source for WHA [CONFIRMED Apr 25]'),
     ('statedept.govmirrors.com',        0.9, ['*'],
         'StateDept (X mirror) -- redundant with native, kept as backup [CONFIRMED Apr 25]'),
-    ('potus.govmirrors.com',            1.2, ['*'],
-        'POTUS (X mirror) -- White House executive statements [UNVERIFIED Apr 25]'),
-    ('secdef.govmirrors.com',           1.1, ['*'],
-        'US SecDef (X mirror) -- SOUTHCOM posture, deployment signals [UNVERIFIED Apr 25]'),
-    ('secrubio.govmirrors.com',         1.15, ['cuba', 'venezuela', 'colombia', '*'],
-        'SecState Rubio (X mirror) -- Cuban-American, PRIMARY signal for Cuba/Venezuela [UNVERIFIED Apr 25]'),
 
     # ── Regional Combatant Commands ──
-    ('southcom.govmirrors.com',         1.0, ['cuba', 'venezuela', 'colombia', 'panama', 'haiti', 'chile', 'peru', 'brazil'],
-        'US SOUTHCOM (X mirror) -- Caribbean/LatAm military posture [UNVERIFIED Apr 25]'),
-    ('northcom.govmirrors.com',         0.95, ['mexico', 'cuba'],
-        'US NORTHCOM (X mirror) -- border, Mexico, GTMO [UNVERIFIED Apr 25]'),
 
     # ── US legislative -- Cuba/Venezuela hawks ──
-    ('marcorubio.govmirrors.com',       1.1, ['cuba', 'venezuela'],
-        'Sen. Rubio (X mirror) -- pre-SecState archive [UNVERIFIED Apr 25]'),
 
     # ── US Treasury / sanctions enforcement (NEW) ──
-    ('treasury.govmirrors.com',         1.0, ['*'],
-        'US Treasury (X mirror) -- OFAC SDN designations, sanctions actions [SPECULATIVE]'),
-    ('ofac.govmirrors.com',             1.0, ['cuba', 'venezuela', 'mexico'],
-        'OFAC (X mirror) -- sanctions designations specifically [SPECULATIVE]'),
 
 
     # ═══════════════════════════════════════════════════════════
@@ -124,8 +154,6 @@ BLUESKY_ACCOUNTS_WHA = [
     # ═══════════════════════════════════════════════════════════
     ('wartranslated.bsky.social',       0.8, ['*'],
         'WarTranslated -- global military translation [CONFIRMED Apr 25]'),
-    ('osintdefender.bsky.social',       0.9, ['*'],
-        'OSINT Defender -- global conflict monitoring [UNVERIFIED Apr 25]'),
 
 
     # ═══════════════════════════════════════════════════════════
@@ -133,18 +161,10 @@ BLUESKY_ACCOUNTS_WHA = [
     # ═══════════════════════════════════════════════════════════
 
     # ── Cuban regime accounts (mostly NOT on Bluesky natively) ──
-    ('diazcanelb.govmirrors.com',       1.2, ['cuba'],
-        'Diaz-Canel (X mirror) -- Cuban head of state [UNVERIFIED Apr 25]'),
-    ('cubaminrex.govmirrors.com',       1.0, ['cuba'],
-        'Cuba MINREX (X mirror) -- Cuban foreign ministry [UNVERIFIED Apr 25]'),
 
     # ── Cuban dissident / independent media ──
-    ('14ymedio.bsky.social',            0.95, ['cuba'],
-        '14ymedio (Yoani Sanchez) -- leading Cuban dissident outlet [UNVERIFIED Apr 25]'),
     ('cubanet.bsky.social',             0.9, ['cuba'],
         'CubaNet -- dissident reporting, prisoner tracking [UNVERIFIED Apr 25]'),
-    ('diariodecuba.bsky.social',        0.9, ['cuba'],
-        'Diario de Cuba -- dissident outlet, arrest tracking [UNVERIFIED Apr 25]'),
 
 
     # ═══════════════════════════════════════════════════════════
@@ -266,31 +286,15 @@ BLUESKY_ACCOUNTS_WHA = [
     # not primary policy actors.
     ('reutersbiz.bsky.social',          0.85, ['*'],
         'Reuters Business -- commodity prices, market reactions [SPECULATIVE NEW]'),
-    ('argusmedia.bsky.social',          0.85, ['*'],
-        'Argus Media -- oil/gas/metals price reporting [SPECULATIVE NEW]'),
     ('mining-com.bsky.social',          0.85, ['chile', 'peru', 'brazil', 'mexico'],
         'Mining.com -- LatAm copper/lithium/iron ore coverage [SPECULATIVE NEW]'),
-    ('bnamericas.bsky.social',          0.85, ['chile', 'peru', 'brazil', 'colombia', 'mexico', 'venezuela', '*'],
-        'BNamericas -- LatAm energy/mining business intelligence [SPECULATIVE NEW]'),
 
 
     # ═══════════════════════════════════════════════════════════
     # REGIONAL ANALYTICAL (existing + NEW v1.1.0)
     # ═══════════════════════════════════════════════════════════
-    ('americasquarterly.bsky.social',   0.85, ['cuba', 'venezuela', 'mexico', 'brazil', 'colombia', 'chile', 'peru'],
-        'Americas Quarterly -- WHA policy analysis [UNVERIFIED Apr 25]'),
-    ('hxiccg.bsky.social',              0.85, ['cuba', 'venezuela'],
-        'Cuba/Venezuela analyst (handle origin unclear) [UNVERIFIED Apr 25]'),
-    ('reuterslatam.bsky.social',        0.85, ['*'],
-        'Reuters Latin America bureau [SPECULATIVE NEW]'),
-    ('ap-latam.bsky.social',            0.85, ['*'],
-        'AP Latin America [SPECULATIVE NEW]'),
-    ('ftlatam.bsky.social',             0.85, ['*'],
-        'FT Latin America coverage [SPECULATIVE NEW]'),
     ('wola.bsky.social',                0.85, ['cuba', 'venezuela', 'mexico', 'colombia', 'haiti'],
         'WOLA -- Washington Office on Latin America, human rights focus [SPECULATIVE NEW]'),
-    ('thedialogue.bsky.social',         0.85, ['*'],
-        'Inter-American Dialogue -- regional policy think tank [SPECULATIVE NEW]'),
 
     # ═══════════════════════════════════════════════════════════
     # UNITED STATES (v1.2.0 May 10 2026 — POST-AUDIT SCRUB)
@@ -346,12 +350,8 @@ BLUESKY_ACCOUNTS_WHA = [
     # dhsgov.govmirrors.com IS WORKING (kept above in govmirrors block).
     ('homelandgov.bsky.social',         1.0, ['us'],
         'DHS official Bluesky [VERIFIED via dhs.gov/bluesky-privacy-policy]'),
-    ('hsigov.bsky.social',              0.95, ['us'],
-        'Homeland Security Investigations (DHS) [VERIFIED]'),
 
     # ── US Mainstream Journalists (verified handles) ──
-    ('maggiehaberman.bsky.social',      1.0, ['us'],
-        'Maggie Haberman (NYT) [VERIFIED -- replaces maggienyt 400]'),
     ('mkraju.bsky.social',              1.0, ['us'],
         'Manu Raju (CNN) Capitol Hill [CONFIRMED firing 20 posts]'),
     ('peterbakernyt.bsky.social',       0.95, ['us'],
