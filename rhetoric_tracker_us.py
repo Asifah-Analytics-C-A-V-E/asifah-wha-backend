@@ -864,8 +864,39 @@ def _fetch_rss(url, source_name, weight=0.85, lang='eng', max_items=20):
         return []
 
 
+# Shared GDELT gateway (Jul 23 2026) -- one paced, serialised path to GDELT for
+# every tracker on this backend. A live scan showed seven WHA trackers calling
+# api.gdeltproject.org concurrently from one process; GDELT throttled and every
+# caller timed out, contributing ZERO articles backend-wide.
+try:
+    from gdelt_gateway import gdelt_fetch as _gw_fetch
+    _GDELT_GATEWAY = True
+except ImportError:
+    print("[US Rhetoric] gdelt_gateway not available -- using direct GDELT calls")
+    _GDELT_GATEWAY = False
+
 def _fetch_gdelt(query, language='eng', days=3, max_records=25, weight=0.95):
-    """Fetch from GDELT 2.0 DOC API. Returns list of articles."""
+    """Fetch from GDELT 2.0 DOC API -- routed through the shared gateway.
+
+    This tracker's article shape is the most divergent on the backend: it uses
+    `link` rather than `url`, `source_type` rather than `feed_type`, and
+    prefixes the source with 'gdelt/'. All preserved verbatim -- the gateway
+    adapts to the caller, never the other way round.
+    """
+    if _GDELT_GATEWAY:
+        raw = _gw_fetch(query, language=language, timespan=f'{days*24}h',
+                        maxrecords=max_records, label=f'us/{language}')
+        return [{
+            'title':       a.get('title', ''),
+            'description': '',
+            'link':        a.get('url', ''),
+            'published':   a.get('published', ''),
+            'source':      f"gdelt/{a.get('source') or 'unknown'}",
+            'source_type': 'gdelt',
+            'language':    language,
+            'weight':      weight,
+        } for a in raw]
+
     try:
         params = {
             'query':      query,

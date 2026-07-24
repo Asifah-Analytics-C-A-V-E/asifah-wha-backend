@@ -857,8 +857,40 @@ def fetch_all_rss():
     return all_articles
 
 
+# Shared GDELT gateway (Jul 23 2026) -- one paced, serialised path to GDELT for
+# every tracker on this backend. A live scan showed seven WHA trackers calling
+# api.gdeltproject.org concurrently from one process; GDELT throttled and every
+# caller timed out, contributing ZERO articles backend-wide.
+try:
+    from gdelt_gateway import gdelt_fetch as _gw_fetch
+    _GDELT_GATEWAY = True
+except ImportError:
+    print("[Peru Rhetoric] gdelt_gateway not available -- using direct GDELT calls")
+    _GDELT_GATEWAY = False
+
 def fetch_gdelt_query(query, language='eng', days=7, max_articles=50):
-    """Fetch a single GDELT query with circuit-breaker timeout."""
+    """Fetch a single GDELT query -- routed through the shared gateway.
+
+    Peru embeds sourcelang INSIDE the query string rather than passing it as a
+    parameter, so the gateway is handed the composed query and language='eng'
+    to stop it adding a second, conflicting sourcelang param.
+    """
+    if _GDELT_GATEWAY:
+        raw = _gw_fetch(f'{query} sourcelang:{language}', language='eng',
+                        timespan=f'{days}d', maxrecords=max_articles,
+                        label=f'peru/{language}')
+        return [{
+            'title':       a.get('title', ''),
+            'description': '',
+            'url':         a.get('url', ''),
+            'published':   a.get('published', ''),
+            'source':      a.get('source') or 'GDELT',
+            'feed_id':     'gdelt',
+            'feed_type':   'gdelt',
+            'language':    'es' if language == 'spa' else 'en',
+            'feed_weight': 0.85,
+        } for a in raw]
+
     params = {
         'query':       f'{query} sourcelang:{language}',
         'mode':        'artlist',

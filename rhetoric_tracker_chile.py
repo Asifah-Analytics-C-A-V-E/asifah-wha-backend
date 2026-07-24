@@ -616,7 +616,35 @@ def fetch_all_rss():
     return all_articles
 
 
+# Shared GDELT gateway (Jul 23 2026) -- one paced, serialised path to GDELT for
+# every tracker on this backend. A live scan showed seven WHA trackers calling
+# api.gdeltproject.org concurrently from one process; GDELT throttled and every
+# caller timed out, contributing ZERO articles backend-wide.
+try:
+    from gdelt_gateway import gdelt_fetch as _gw_fetch
+    _GDELT_GATEWAY = True
+except ImportError:
+    print("[Chile Rhetoric] gdelt_gateway not available -- using direct GDELT calls")
+    _GDELT_GATEWAY = False
+
 def fetch_gdelt_query(query, language='eng', days=7, max_articles=50):
+    """Routed through the shared GDELT gateway; direct path kept as fallback.
+
+    Article shape preserved exactly -- note `source` is a plain STRING here
+    (the domain), unlike the Cuba/Venezuela trackers which use a dict.
+    """
+    if _GDELT_GATEWAY:
+        raw = _gw_fetch(query, language=language, timespan=f'{days}d',
+                        maxrecords=max_articles, label=f'chile/{language}')
+        return [{
+            'title':     (a.get('title') or '')[:300],
+            'url':       a.get('url', ''),
+            'source':    a.get('source') or 'GDELT',
+            'language':  language[:2] if language else 'en',
+            'published': a.get('published', ''),
+            'feed_type': 'gdelt',
+        } for a in raw]
+
     out = []
     try:
         url = (
