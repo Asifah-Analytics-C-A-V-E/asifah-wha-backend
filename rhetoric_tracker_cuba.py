@@ -1,7 +1,7 @@
 """
 Asifah Analytics -- Cuba Rhetoric & Pressure Tracker
 WHA Backend Module
-v1.2.0 -- July 23 2026
+v1.3.0 -- July 23 2026
 
 Cuba Rhetoric Tracker -- Inverted Pressure Model
 
@@ -93,6 +93,14 @@ CHANGELOG:
                        outage cannot read as a vanished leadership. Neither feeds
                        the theatre score: street and palace are separate
                        instruments and their divergence is the finding.
+  v1.3.0 (2026-07-23): SLICE 4. patron_axis.py wired -- Venezuela/Russia/China/
+                       Iran/DPRK read from their OWN published cross-theater
+                       fingerprints rather than a second copy of their vocabulary
+                       maintained here. Assesses patron CAPACITY (a patron under
+                       pressure is a lifeline at risk regardless of intent) and
+                       fires the compound read when an oil-lifeline patron is
+                       strained while Cuban scarcity is elevated. DPRK inverted
+                       polarity carried through from source, not flattened.
 
 COPYRIGHT 2025-2026 Asifah Analytics. All rights reserved.
 """
@@ -131,6 +139,16 @@ try:
 except ImportError as e:
     print(f"[Cuba Rhetoric] WARNING: principal_cadence not available ({e})")
     _CADENCE_AVAILABLE = False
+
+# Patron axis (v1.2.0 Slice 4). Reads the patron trackers' OWN published
+# cross-theater fingerprints (Venezuela, Russia, China, Iran, DPRK) instead of
+# maintaining a second copy of their vocabulary here. Emit once, consume many.
+try:
+    from patron_axis import compute_patron_axis
+    _PATRON_AXIS_AVAILABLE = True
+except ImportError as e:
+    print(f"[Cuba Rhetoric] WARNING: patron_axis not available ({e})")
+    _PATRON_AXIS_AVAILABLE = False
 
 # Signal interpreter (Red Lines + So What)
 try:
@@ -2464,6 +2482,26 @@ def run_cuba_rhetoric_scan(force=False):
             except Exception as _ce:
                 print(f"[Cuba Rhetoric] cadence error: {str(_ce)[:120]}")
 
+        # ── PATRON AXIS (v1.2.0 Slice 4) ─────────────────────────────────
+        # Passing civilian pressure enables the compound read: an oil-lifeline
+        # patron under external pressure co-occurring with domestic scarcity is
+        # a different analytical object from either signal alone, and the two
+        # layers come from genuinely independent instruments.
+        cuba_patrons = {'band': 'unavailable', 'band_label': 'Patron axis unavailable',
+                        'patrons_live': 0, 'reads': []}
+        if _PATRON_AXIS_AVAILABLE:
+            try:
+                cuba_patrons = compute_patron_axis(
+                    'cuba', civilian_pressure_level=civ_press_lvl_for_gate)
+                print("[Cuba Patrons] %s -- %d/%d live%s"
+                      % (cuba_patrons.get('band_label', '?'),
+                         cuba_patrons.get('patrons_live', 0),
+                         cuba_patrons.get('patrons_total', 0),
+                         (' | COMPOUND: ' + cuba_patrons['compound_read']['headline'])
+                         if (cuba_patrons.get('compound_read') or {}).get('active') else ''))
+            except Exception as _pe:
+                print(f"[Cuba Rhetoric] patron_axis error: {str(_pe)[:120]}")
+
         result = {
             'success':               True,
             'theatre':               'Cuba',
@@ -2527,6 +2565,7 @@ def run_cuba_rhetoric_scan(force=False):
             # into regime_fracture or the theatre score.
             'elite_fracture':        cuba_elite,
             'principal_cadence':     cuba_cadence,
+            'patron_axis':           cuba_patrons,
 
             # Metadata
             'total_articles':        len(articles),
