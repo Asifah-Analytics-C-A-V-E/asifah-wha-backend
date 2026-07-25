@@ -1,7 +1,7 @@
 """
 spoke_wheel_reader.py
 Asifah Analytics -- SHARED MODULE (deploy byte-identical to ALL backends)
-v1.0.5 -- July 25, 2026
+v1.0.6 -- July 25, 2026
 
 One reader for the whole spoke-and-wheel architecture. Give it a hub and it
 returns that hub's rim; give it a country list and it returns what those
@@ -88,7 +88,7 @@ import json
 import requests
 from datetime import datetime, timezone
 
-__version__ = '1.0.5'
+__version__ = '1.0.6'
 
 # ============================================================
 # CONFIG
@@ -240,6 +240,26 @@ HUB_REGISTRY = {
 # fingerprint. Checked when a country writes crosstheater:{c}:fingerprint
 # without saying which wheel it belongs to. Extend freely -- unknown shapes
 # simply do not infer, they never crash.
+# Containers that hold PER-HUB sub-readings rather than being vectors
+# themselves. Greenland nests its whole hub slice under `inbound`:
+#   'inbound': {'us_pressure_level': 2, 'russia_arctic_level': 1, ...}
+# Scanning only top-level keys made Greenland invisible to BOTH the US and
+# Russia wheels despite it being a textbook inbound_target for each.
+_NESTED_HUB_CONTAINERS = ('inbound', 'outbound', 'hub_touches', 'external',
+                          'spokes', 'wheels', 'axes', 'vectors')
+
+# Every hub the platform knows. Matching is TOKEN-based (split on '_'), never
+# substring: 'us' is a substring of 'russia', so `russia_arctic_level` would
+# otherwise register as a US touch.
+_KNOWN_HUBS = ('russia', 'turkey', 'iran', 'china', 'israel', 'dprk', 'us')
+
+
+def _hub_tokens(key):
+    """Hub names appearing as whole tokens in a field name."""
+    toks = set(str(key).lower().replace('-', '_').split('_'))
+    return {h for h in _KNOWN_HUBS if h in toks}
+
+
 _HUB_AFFINITY_HINTS = {
     'russia': ('russia_plug', 'russia_spoke', 'russia_axis', 'russia_iran_axis',
                'wagner', 'africa_corps'),
@@ -248,6 +268,9 @@ _HUB_AFFINITY_HINTS = {
                'unity_of_fronts_level'),
     'china':  ('china_spoke', 'china_axis', 'bri', 'belt_and_road'),
     'israel': ('israel_spoke', 'israel_somaliland'),
+    'us':     ('us_pressure', 'us_posture', 'us_acquisition', 'americom',
+               'africom', 'centcom', 'indopacom', 'southcom', 'monroe'),
+    'dprk':   ('dprk_spoke', 'dprk_axis', 'kursk_corps'),
 }
 
 
@@ -395,10 +418,24 @@ def _infer_hubs_from_payload(fp):
     touches = fp.get('hub_touches')
     if isinstance(touches, dict):
         hubs.update(str(k).lower() for k in touches)
-    flat = ' '.join(str(k).lower() for k in fp.keys())
+    # Explicit hint vocabulary, checked across top-level AND nested keys.
+    scan_keys = [str(k).lower() for k in fp.keys()]
+    for container in _NESTED_HUB_CONTAINERS:
+        sub = fp.get(container)
+        if isinstance(sub, dict):
+            scan_keys.extend(str(k).lower() for k in sub.keys())
+    flat = ' '.join(scan_keys)
     for hub, hints in _HUB_AFFINITY_HINTS.items():
         if any(hint in flat for hint in hints):
             hubs.add(hub)
+
+    # Generic token rule -- catches `us_pressure_level`, `russia_arctic_level`,
+    # `china_dual_track` and every future `{hub}_*` field with no vocabulary
+    # edit. Token-based so 'russia' never registers as a US touch.
+    for k in scan_keys:
+        hubs |= _hub_tokens(k)
+
+    hubs.discard(str(fp.get('country', '')).lower())   # a hub is not its own spoke
     return hubs
 
 
@@ -440,6 +477,35 @@ def _extract_hub_detail(fp, hub):
             if 'active' in sub:
                 merged['hub_active'] = bool(sub.get('active'))
             return merged
+
+    # NESTED per-hub SCALARS. Greenland publishes its hub reads as plain ints
+    # inside `inbound`: {'us_pressure_level': 2, 'russia_arctic_level': 1}.
+    # Without this, Greenland's US touch would report Greenland's OVERALL
+    # level -- the same theatre-level-masquerading-as-hub-level error the
+    # Africa build caught with Somalia.
+    for container in _NESTED_HUB_CONTAINERS:
+        sub = fp.get(container)
+        if not isinstance(sub, dict):
+            continue
+        for k, v in sub.items():
+            if hub not in _hub_tokens(k):
+                continue
+            if isinstance(v, bool):
+                continue
+            if isinstance(v, (int, float)):
+                merged = dict(fp)
+                merged['level'] = max(0, min(5, int(v)))
+                merged['hub_block'] = '%s.%s' % (container, k)
+                merged['top_signal'] = '%s read from %s' % (
+                    str(k).replace('_', ' '), container)
+                return merged
+            if isinstance(v, dict) and v:
+                merged = dict(fp)
+                merged['level'] = _coerce_level(v)
+                merged['hub_block'] = '%s.%s' % (container, k)
+                if v.get('note') or v.get('top_signal'):
+                    merged['top_signal'] = v.get('note') or v.get('top_signal')
+                return merged
     return None
 
 
