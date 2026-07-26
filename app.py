@@ -184,7 +184,12 @@ except ImportError as e:
 # Reads from economic_indicators_us + us_government_composition + military fingerprint.
 # Writes stability:us:fingerprint + stability:us:summary for GPI consumption.
 try:
-    
+try:
+    from us_stability import (
+        register_us_stability_endpoints,
+        start_periodic_scanner as start_us_stability_scanner,
+        start_nyse_scheduler,
+    )    
         register_us_stability_endpoints,
         start_periodic_scanner as start_us_stability_scanner,
         start_nyse_scheduler,
