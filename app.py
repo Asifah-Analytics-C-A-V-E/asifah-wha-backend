@@ -1729,6 +1729,19 @@ def _start_background_refresh():
 if WHA_COMMODITY_PROXY_AVAILABLE:
     register_wha_commodity_proxy(app)
 
+# Register Jawboning Proxy endpoints (POST /api/wha/jawboning/detect,
+# GET /api/wha/jawboning/debug).
+# WIRED Jul 26 2026. jawboning_proxy_wha was imported and JAWBONING_PROXY_AVAILABLE
+# was set, but register_jawboning_proxy(app) was never called -- so neither route
+# existed. NOTE the nuance: WHA trackers call detect_jawboning_via_proxy() as a
+# DIRECT function import, so detection itself did not depend on this. What was
+# missing is the DIAGNOSTIC: detect_jawboning_via_proxy() returns {} on any ME
+# failure, and callers treat {} as "no signatures fired" -- so a broken ME
+# round-trip looks identical to a clean scan that found nothing. /debug is the
+# only way to tell those apart.
+if JAWBONING_PROXY_AVAILABLE:
+    register_jawboning_proxy(app)
+
 # Register Cuba rhetoric tracker endpoints
 # (/api/rhetoric/cuba, /summary, /history)
 if CUBA_RHETORIC_AVAILABLE:
