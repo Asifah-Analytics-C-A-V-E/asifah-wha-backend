@@ -184,12 +184,7 @@ except ImportError as e:
 # Reads from economic_indicators_us + us_government_composition + military fingerprint.
 # Writes stability:us:fingerprint + stability:us:summary for GPI consumption.
 try:
-try:
     from us_stability import (
-        register_us_stability_endpoints,
-        start_periodic_scanner as start_us_stability_scanner,
-        start_nyse_scheduler,
-    )    
         register_us_stability_endpoints,
         start_periodic_scanner as start_us_stability_scanner,
         start_nyse_scheduler,
@@ -1804,17 +1799,8 @@ if US_GOV_COMP_AVAILABLE:
 # Reads economic indicators, government composition, military fingerprint.
 # Writes stability:us:fingerprint + stability:us:summary for GPI.
 if US_STABILITY_AVAILABLE:
-    start_us_stability_scanner()
+    register_us_stability_endpoints(app)
 
-# Start the NYSE twice-daily scheduler (7am + 7pm ET, 120s boot delay).
-# WIRED Jul 26 2026. The scheduler was DEFINED in us_stability.py but never
-# called from anywhere, so the thread never ran and us:nyse:latest was never
-# populated -- /api/us-stability returned an empty indices {} with 'first
-# scheduled fetch pending', and Market Watch rendered no US card at all.
-# The cache carries a 14h TTL, so without this the card ALSO goes blank again
-# roughly 14 hours after any manual ?refresh=true&nyse=true.
-if US_STABILITY_AVAILABLE:
-    start_nyse_scheduler()
 # Register Mexico Financial Pulse endpoints
 # (/api/mexico/stability, /api/mexico/stability/debug)
 if MEXICO_STABILITY_AVAILABLE:
@@ -2299,6 +2285,14 @@ if VENEZUELA_RHETORIC_AVAILABLE:
 # and military fingerprint reads. Writes composite score + 30-day history.
 if US_STABILITY_AVAILABLE:
     start_us_stability_scanner()
+
+# Start the NYSE twice-daily scheduler (7am + 7pm ET, 120s boot delay).
+# WIRED Jul 26 2026. start_nyse_scheduler() was DEFINED in us_stability.py but
+# never called, so the thread never ran, us:nyse:latest was never populated, and
+# Market Watch rendered no US card. The cache carries a 14h TTL, so without this
+# the card also goes blank ~14h after any manual ?refresh=true&nyse=true.
+if US_STABILITY_AVAILABLE:
+    start_nyse_scheduler()
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=5000)
