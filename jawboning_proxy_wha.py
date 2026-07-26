@@ -1,6 +1,6 @@
 """
 Asifah Analytics — JAWBONING PROXY (Asia backend)
-v1.0.0 — May 15, 2026
+v1.1.0 — Jul 26, 2026
 
 PLACEMENT: WHA backend (asifah-wha-backend.onrender.com).
 Mirrors the absorption_proxy_asia.py + commodity_proxy_asia.py pattern.
@@ -10,7 +10,8 @@ PURPOSE:
 Forwards jawboning-detection requests from WHA-side trackers (currently
 just rhetoric_tracker_us.py, but future Cuba/Mexico/Venezuela trackers
 can use the same proxy) to the ME backend, which owns:
-  • jawboning_signatures.py    — the catalog of 13 signatures
+  • jawboning_signatures.py    — the signature catalog (17 as of Jul 2026:
+                                 12 command, 2 absorber, 3 mediator)
   • jawboning_detector.py      — the detection logic + fingerprint writes
   • Redis fingerprints         — jawboning:{direction}:{country}:{target}
 
@@ -268,20 +269,61 @@ def register_jawboning_proxy(app):
             'me_reachable':    False,
             'me_endpoints':    None,
         }
-        try:
-            r = requests.get(
-                f"{ME_BACKEND_URL}/api/jawboning/signatures/count",
-                timeout=5,
-            )
-            debug['me_reachable'] = (r.status_code == 200)
-            if r.status_code == 200:
-                payload = r.json()
-                debug['me_endpoints'] = {
-                    'catalog_count': payload.get('count'),
-                    'success':       payload.get('success'),
-                }
-        except Exception as e:
-            debug['me_error'] = str(e)[:200]
+        # FIXED Jul 26 2026. This previously probed ONLY
+        # /api/jawboning/signatures/count and reported that as `me_reachable`.
+        # But the catalog and the detector are registered by two DIFFERENT
+        # functions on ME (register_jawboning_signatures_endpoints vs
+        # register_jawboning_detector_endpoints). So the health check was
+        # reporting on a service this proxy does not actually depend on:
+        # a working detector with an unwired catalog would read as DOWN, and
+        # the reverse would read as UP while every detect call failed.
+        #
+        # Both are now probed and reported separately. `me_reachable` reflects
+        # the DETECTOR, because that is the dependency that matters here.
+        def _probe(path, method='GET'):
+            try:
+                if method == 'POST':
+                    # Empty body -> the detector should answer 400, which still
+                    # proves the ROUTE EXISTS. A 404 means it is unwired.
+                    r = requests.post(f"{ME_BACKEND_URL}{path}", json={}, timeout=6)
+                else:
+                    r = requests.get(f"{ME_BACKEND_URL}{path}", timeout=6)
+                return {'status': r.status_code,
+                        'route_exists': r.status_code != 404,
+                        'body': (r.json() if r.headers.get('content-type', '')
+                                 .startswith('application/json') else None)}
+            except Exception as e:
+                return {'status': None, 'route_exists': False,
+                        'error': f'{type(e).__name__}: {str(e)[:120]}'}
+
+        det = _probe('/api/jawboning/detect', method='POST')
+        cat = _probe('/api/jawboning/signatures/count')
+
+        debug['me_reachable'] = bool(det.get('route_exists'))
+        debug['detector'] = {
+            'path':         '/api/jawboning/detect',
+            'route_exists': det.get('route_exists'),
+            'status':       det.get('status'),
+            'error':        det.get('error'),
+            'note':         ('THIS is the dependency. detect_jawboning_via_proxy() '
+                             'returns {} on any failure and callers read {} as '
+                             '"no signatures fired" -- so if this route is down, '
+                             'every WHA jawboning read is a SILENT zero.'),
+        }
+        debug['catalog'] = {
+            'path':         '/api/jawboning/signatures/count',
+            'route_exists': cat.get('route_exists'),
+            'status':       cat.get('status'),
+            'count':        (cat.get('body') or {}).get('count'),
+            'error':        cat.get('error'),
+            'note':         'Informational only -- the proxy does not call this.',
+        }
+        debug['verdict'] = (
+            'Detector reachable -- jawboning reads are trustworthy.'
+            if det.get('route_exists') else
+            'DETECTOR UNREACHABLE -- every jawboning read is returning {} and '
+            'being interpreted as "quiet". Treat WHA jawboning output as absent, '
+            'not negative, until this clears.')
         return jsonify(debug)
 
     print("[Jawboning Proxy WHA] ✅ Endpoints registered:")
