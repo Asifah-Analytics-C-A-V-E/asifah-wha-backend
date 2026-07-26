@@ -184,9 +184,10 @@ except ImportError as e:
 # Reads from economic_indicators_us + us_government_composition + military fingerprint.
 # Writes stability:us:fingerprint + stability:us:summary for GPI consumption.
 try:
-    from us_stability import (
+    
         register_us_stability_endpoints,
         start_periodic_scanner as start_us_stability_scanner,
+        start_nyse_scheduler,
     )
     US_STABILITY_AVAILABLE = True
     print('[WHA Backend] US stability index module loaded')
@@ -1798,8 +1799,17 @@ if US_GOV_COMP_AVAILABLE:
 # Reads economic indicators, government composition, military fingerprint.
 # Writes stability:us:fingerprint + stability:us:summary for GPI.
 if US_STABILITY_AVAILABLE:
-    register_us_stability_endpoints(app)
+    start_us_stability_scanner()
 
+# Start the NYSE twice-daily scheduler (7am + 7pm ET, 120s boot delay).
+# WIRED Jul 26 2026. The scheduler was DEFINED in us_stability.py but never
+# called from anywhere, so the thread never ran and us:nyse:latest was never
+# populated -- /api/us-stability returned an empty indices {} with 'first
+# scheduled fetch pending', and Market Watch rendered no US card at all.
+# The cache carries a 14h TTL, so without this the card ALSO goes blank again
+# roughly 14 hours after any manual ?refresh=true&nyse=true.
+if US_STABILITY_AVAILABLE:
+    start_nyse_scheduler()
 # Register Mexico Financial Pulse endpoints
 # (/api/mexico/stability, /api/mexico/stability/debug)
 if MEXICO_STABILITY_AVAILABLE:
