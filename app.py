@@ -1862,6 +1862,18 @@ def api_debug_redis_keys():
       { redis_configured, pattern, keys: [...], total_count, sample_values: {...} }
     """
     import urllib.parse
+
+    # --- ADMIN GATE (Jul 27 2026, cross-repo review P0-03) --------------
+    # This route enumerates Redis keys and can return raw sample VALUES,
+    # behind permissive CORS. Unauthenticated, that is a disclosure surface.
+    # Fails CLOSED: if DEBUG_TOKEN is unset on the service, the route 404s
+    # as though it does not exist. With DEBUG_TOKEN set, append
+    # &token=<your token> to every call.
+    _expected = os.environ.get('DEBUG_TOKEN', '')
+    if not _expected or request.args.get('token', '') != _expected:
+        return jsonify({'error': 'Not found'}), 404
+    # -------------------------------------------------------------------
+
     pattern = request.args.get('pattern', '*')
     include_values = request.args.get('values', 'false').lower() == 'true'
     max_keys = int(request.args.get('max', '100'))
