@@ -191,19 +191,65 @@ ACTORS = {
             'Watch for: Truth Social posts, WH press briefings, cabinet statements, '
             'EO announcements, Rose Garden speeches.'
         ),
+        # ════════════════════════════════════════════════════════════
+        # KEYWORD DESIGN (rewritten Sep 7 2026)
+        # ════════════════════════════════════════════════════════════
+        # This net answers ONE question: DID THE EXECUTIVE SPEAK.
+        # It does NOT answer what about. Topic detection belongs to the
+        # jawboning catalog (trump_on_iran, trump_on_china, ...), which
+        # reads this actor's articles and applies its own trigger phrases.
+        #
+        # Sep 7 2026 diagnosis: this actor matched 4 articles out of 664
+        # and scored L0 on a day the US was striking Iranian tankers in
+        # Hormuz. Cause: the net had 'trump statement' and 'trump announces'
+        # but not 'trump said', which is how wire copy actually attributes
+        # presidential speech. It also carried roughly 30 frozen event
+        # phrases from specific May and June cycles, which made coverage
+        # hostage to whatever was in the news when the list was last edited.
+        #
+        # RULE GOING FORWARD: add attribution forms here. Add topics to the
+        # jawboning catalog. If you are adding a phrase that names a
+        # specific deal, week, or document, it belongs in the catalog.
+        # ════════════════════════════════════════════════════════════
         'keywords': [
-            'trump statement', 'trump announces', 'trump declares', 'trump warns',
+            # ── Attribution: how wire copy reports presidential speech ──
+            'trump said', 'trump says', 'trump told', 'trump wrote',
+            'trump posted', 'trump vows', 'trump vowed',
+            'trump warns', 'trump warned', 'trump threatens', 'trump threatened',
+            'trump orders', 'trump ordered', 'trump authorized', 'trump authorised',
+            'trump announces', 'trump announced', 'trump declares', 'trump declared',
+            'trump calls for', 'trump called for', 'trump demands', 'trump demanded',
+            'trump pledges', 'trump pledged', 'trump insists', 'trump claims',
+            'trump confirms', 'trump confirmed', 'trump denies', 'trump denied',
+            'trump statement', 'trump remarks', 'trump speech', 'trump rally',
+            'trump interview', 'trump press conference',
+            # ── Office and title forms ──
+            'president trump', 'trump administration', 'potus',
+            'commander in chief', 'oval office', 'air force one',
+            'rose garden', 'mar-a-lago statement',
+            # ── Truth Social (the primary channel) ──
             'trump truth social', 'trump truth post', 'truth social post',
-            'white house statement', 'white house announces', 'wh press secretary',
-            'press briefing', 'oval office', 'cabinet meeting', 'cabinet statement',
-            'president signs', 'president announces', 'executive order signed',
-            'rose garden', 'air force one', 'wh briefing room',
-            'trump rally', 'trump speech', 'trump remarks',
-            # Cabinet
-            'rubio statement', 'secretary rubio', 'hegseth statement',
-            'noem statement', 'secretary noem', 'kennedy hhs statement',
-            'lutnick commerce', 'bessent treasury',
-            # ── v1.5.0 (May 24, 2026) — Trump Iran deal Truth Social cycle ──
+            'truth social', 'posted on truth social',
+            # ── White House as institution ──
+            'white house said', 'white house says', 'white house statement',
+            'white house announces', 'white house announced',
+            'white house official', 'white house officials',
+            'white house press secretary', 'white house spokesperson',
+            'wh press secretary', 'wh briefing room', 'press briefing',
+            'administration official', 'senior administration official',
+            'executive order signed', 'president signs', 'president announces',
+            'cabinet meeting', 'cabinet statement',
+            # ── Cabinet principals, attribution forms ──
+            'rubio said', 'rubio statement', 'secretary rubio',
+            'hegseth said', 'hegseth statement', 'secretary hegseth',
+            'noem said', 'noem statement', 'secretary noem',
+            'bessent said', 'bessent treasury', 'lutnick commerce',
+            'kennedy hhs statement',
+            # ── Frozen event vocabulary (May-Jun 2026 cycles) ──
+            # Kept deliberately: if these phrases recur they are
+            # high-precision signals. But they are HISTORICAL, not general
+            # coverage. Do not add more of this shape. Topics go in the
+            # jawboning catalog.
             'trump iran deal', 'trump iran agreement',
             'trump iran largely negotiated', 'trump largely negotiated',
             'trump iran final details', 'trump iran peace deal',
@@ -215,13 +261,13 @@ ACTORS = {
             'trump iran encouraging progress', 'trump iran 14-clause',
             'trump iran mou', 'trump iran memorandum',
             'truth social iran deal', 'truth social iran',
-            # ── v1.6.0 Jun 14 2026 — Islamabad MOU signing cycle (Trump framing) ──
-            'open to all', 'hormuz strait open', 'strait is open',
-            'reopen the strait', 'deal signed tomorrow', 'deal is scheduled',
+            'hormuz strait open', 'strait is open', 'reopen the strait',
+            'deal signed tomorrow', 'deal is scheduled',
             'trump hormuz open', 'trump iran deal signed', 'no nuclear weapon',
             'truth social hormuz', 'trump iran cessation', 'trump lifts blockade',
-            # Spanish (for ES tab)
+            # ── Spanish (for ES tab) ──
             'declaración trump', 'casa blanca declara', 'comunicado casa blanca',
+            'trump dijo', 'trump advirtió',
         ],
         'tripwires': [
             'trump invokes insurrection act', 'trump declares national emergency',
@@ -229,6 +275,11 @@ ACTORS = {
             'wh threatens', 'trump withdraws', 'trump terminates',
             'trump declares war', 'trump activates national guard',
         ],
+        # CALIBRATION WARNING (Sep 7 2026): this baseline of 50 was set
+        # against the OLD narrow net that matched ~4 articles per scan.
+        # With the net above it will match far more and the score will
+        # jump. That jump is the fix working, not a new signal. Re-derive
+        # this number from an observed statement_count after a clean scan.
         'baseline_statements_per_week': 50,
     },
 
@@ -312,30 +363,52 @@ ACTORS = {
     'us_defense': {
         'name':  'U.S. Department of Defense',
         'flag':  '🇺🇸',
-        'icon':  '🪖',
-        'color': '#475569',
+        'icon':  '🎖️',
+        'color': '#166534',
         'role':  'Pentagon / Combatant Commands / Military Posture Rhetoric',
         'layer': 'executive',
         'weight': 1.0,
         'description': (
             'Pentagon, CENTCOM, NORTHCOM, SOCOM, INDOPACOM rhetoric and posture '
-            'announcements. Distinct from Asifah Military Tracker (which counts ships) — '
+            'announcements. Distinct from Asifah Military Tracker (which counts ships) -- '
             'this captures the LANGUAGE of force projection. Watch for: deployment '
             'announcements, posture changes, exercises, NDAA disputes, Joint Chiefs '
             'public statements.'
         ),
+        # Same rewrite as us_executive (Sep 7 2026): the old net was built
+        # from announcement verbs only ('pentagon announces') and matched 2
+        # articles out of 664 during active CENTCOM operations. Attribution
+        # forms added below. Topic detection stays in the jawboning catalog.
         'keywords': [
-            'pentagon statement', 'pentagon announces', 'pentagon press briefing',
+            # ── Pentagon attribution ──
+            'pentagon said', 'pentagon says', 'pentagon statement',
+            'pentagon announces', 'pentagon announced', 'pentagon confirms',
+            'pentagon confirmed', 'pentagon spokesman', 'pentagon spokesperson',
+            'pentagon press secretary', 'pentagon press briefing',
+            'defense department', 'department of defense', 'dod said',
+            'war department', 'defense official', 'defense officials',
+            'senior defense official', 'us military official',
+            'us officials said', 'military spokesman',
+            # ── Combatant commands ──
+            'centcom', 'centcom said', 'centcom announces', 'centcom statement',
+            'us central command', 'central command said',
+            'northcom', 'southcom', 'socom', 'indopacom', 'eucom', 'africom',
+            'combatant command', 'fifth fleet', 'sixth fleet', 'seventh fleet',
+            # ── Secretary and Joint Chiefs ──
             'sec def hegseth', 'secretary hegseth', 'defense secretary',
-            'centcom announces', 'northcom announces', 'socom statement',
-            'indopacom', 'eucom', 'africom',
+            'defense secretary said', 'secretary of defense said',
             'joint chiefs', 'chairman joint chiefs',
+            'chairman of the joint chiefs', 'joint staff',
+            # ── Posture and force language ──
             'us military deployment', 'us troops deploy', 'us forces deploy',
+            'us forces struck', 'us forces conducted', 'us military struck',
             'carrier strike group', 'aircraft carrier deploys',
             'us military exercise', 'us forces exercise',
-            'pentagon press secretary', 'singh pentagon',
             'us troop posture', 'us force posture review',
-            'ndaa', 'defense authorization',
+            'force protection', 'threat condition', 'ordered departure',
+            # ── Legislative interface (first thread of the cost ledger) ──
+            'ndaa', 'defense authorization', 'defense appropriations',
+            'unfunded priorities', 'supplemental request',
         ],
         'tripwires': [
             'us troops to', 'carrier deploys', 'pentagon escalates',
@@ -343,6 +416,7 @@ ACTORS = {
             'pentagon issues warning', 'us military strike',
             'us forces respond',
         ],
+        # Same calibration warning as us_executive. Re-derive after a clean scan.
         'baseline_statements_per_week': 25,
     },
 
