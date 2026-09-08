@@ -151,6 +151,7 @@ try:
         compute_so_what_factor,
         compute_branch_divergence_score,
         compute_domestic_fracture_score,
+        compute_capability_rhetoric_gap,
     )
     INTERPRETER_AVAILABLE = True
     print("[US Rhetoric] ✅ Signal interpreter loaded")
@@ -814,6 +815,36 @@ def _redis_get(key):
     except Exception as e:
         print(f"[US Rhetoric] ❌ Redis GET exception for {key}: {type(e).__name__}: {str(e)[:200]}")
         return None
+
+
+MILITARY_CAPABILITY_KEY = 'military:us:capability_direction'
+
+
+def read_military_capability(actor='us'):
+    """Read the military tracker's signed capability fingerprint.
+
+    This is the WHA half of the capability-rhetoric join. The military
+    tracker publishes military:{actor}:capability_direction every scan;
+    this pulls it so rhetoric can be set against measured capability.
+
+    Returns the fingerprint dict, or None. Never raises: if the military
+    read is missing the interpreter says so explicitly rather than
+    silently reporting no divergence.
+    """
+    try:
+        fp = _redis_get(f'military:{actor}:capability_direction')
+        if isinstance(fp, dict) and fp:
+            print(f"[US Rhetoric] Military capability read: {actor} "
+                  f"net {fp.get('net_score')} "
+                  f"(proj {fp.get('projection_score')} / loss {fp.get('loss_score')}, "
+                  f"classified {fp.get('classified_share')}, "
+                  f"scanned {fp.get('scanned_at')})")
+            return fp
+        print(f"[US Rhetoric] Military capability fingerprint absent for {actor} "
+              f"-- capability-rhetoric join will report a coverage gap")
+    except Exception as e:
+        print(f"[US Rhetoric] Military capability read failed: {str(e)[:120]}")
+    return None
 
 
 def _redis_set(key, value, ttl=None):
@@ -1686,16 +1717,35 @@ def run_us_rhetoric_scan(force=False):
         theatre_label = us_label_map.get(theatre_level, 'Stable')
 
         # Phase 5: branch divergence + domestic fracture (interpreter)
+        # THE JOIN (Sep 7, 2026): pull the military tracker's signed capability
+        # read so rhetoric can be set against measured capability. Rhetoric
+        # without movement is posturing; rhetoric against FALLING capability is
+        # the gap. Neither sensor can see that alone.
+        military_capability = read_military_capability('us')
+
         if INTERPRETER_AVAILABLE:
             branch_div = compute_branch_divergence_score(actor_results)
             fracture   = compute_domestic_fracture_score(actor_results, articles)
-            top_signals = compute_top_signals(actor_results, articles, cross_theater_fps)
-            so_what    = compute_so_what_factor(actor_results, composite, outbound_targets)
+            top_signals = compute_top_signals(actor_results, articles, cross_theater_fps,
+                                              capability=military_capability)
+            so_what    = compute_so_what_factor(actor_results, composite, outbound_targets,
+                                                capability=military_capability,
+                                                articles=articles)
+            capability_gap = compute_capability_rhetoric_gap(actor_results,
+                                                             military_capability)
+            if capability_gap.get('available'):
+                print(f"[US Rhetoric] Capability-rhetoric join: {capability_gap['label']} "
+                      f"(confidence {capability_gap['confidence']})")
+            else:
+                print(f"[US Rhetoric] Capability-rhetoric join not completed: "
+                      f"{capability_gap.get('reason')}")
         else:
             branch_div = 0
             fracture   = 0
             top_signals = []
             so_what    = {'factor': 'unknown', 'description': 'Signal interpreter not loaded'}
+            capability_gap = {'available': False, 'reason': 'interpreter_unavailable',
+                              'assessment': 'Signal interpreter not loaded.'}
 
         # ════════════════════════════════════════════════════════════════════
         # Phase 5.5: Jawboning Primitive — fire Trump command signatures
@@ -1782,6 +1832,8 @@ def run_us_rhetoric_scan(force=False):
             'domestic_fracture_score': fracture,
             'top_signals':             top_signals,
             'so_what':                 so_what,
+            'capability_rhetoric_gap':  capability_gap,
+            'military_capability':      military_capability,
             'fingerprint':             fingerprint,
             'article_count':           len(articles),
             'scan_seconds':            elapsed,
@@ -1795,6 +1847,7 @@ def run_us_rhetoric_scan(force=False):
         _redis_set('rhetoric:us:latest', result)
         compact = {k: result[k] for k in ('composite_score', 'tier', 'tier_name', 'tier_band',
                                           'tier_icon', 'top_signals', 'so_what',
+                                          'capability_rhetoric_gap',
                                           'outbound_targets', 'scan_completed_at')}
         _redis_set('rhetoric:us:summary', compact)
 
@@ -2032,6 +2085,8 @@ def register_us_rhetoric_endpoints(app):
                 'telegram_available':  TELEGRAM_AVAILABLE,
                 'reddit_available':    REDDIT_AVAILABLE,
                 'interpreter_available': INTERPRETER_AVAILABLE,
+                'military_capability_key': MILITARY_CAPABILITY_KEY,
+                'military_capability_present': bool(read_military_capability('us')),
                 'scan_interval_hours': SCAN_INTERVAL_HOURS,
             })
         except Exception as e:

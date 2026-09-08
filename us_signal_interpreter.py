@@ -1,6 +1,6 @@
 """
 ========================================
-U.S. SIGNAL INTERPRETER (v1.1.0 -- May 17, 2026)
+U.S. SIGNAL INTERPRETER (v1.2.0 -- September 7, 2026)
 ========================================
 Analytical layer for the US Rhetoric Tracker. Where the engine collects raw
 signals, this module makes them MEAN something.
@@ -19,9 +19,17 @@ v1.1 ADDS: KINETIC-PRECURSOR CADENCE DETECTION
   Same logic regardless of administration. Cadence detection is a tradecraft
   observation, not editorial judgment.
 
-EXPORTS (v1.1):
-  compute_top_signals(actor_results, articles, cross_theater_fps) -> list
-  compute_so_what_factor(actor_results, composite, outbound_targets) -> dict
+v1.2 ADDS: THE CAPABILITY-RHETORIC JOIN
+  Signal 7 has always told a human to go cross-reference the military tracker
+  by hand. That instruction is now code. The military tracker writes a SIGNED
+  capability read to Redis; this module sets it against measured rhetoric
+  intensity. Rhetoric without capability is posturing; rhetoric against
+  FALLING capability is the gap.
+
+EXPORTS (v1.2):
+  compute_top_signals(actor_results, articles, cross_theater_fps, capability=None) -> list
+  compute_so_what_factor(actor_results, composite, outbound_targets, capability=None) -> dict
+  compute_capability_rhetoric_gap(actor_results, capability) -> dict           [NEW v1.2]
   compute_branch_divergence_score(actor_results) -> float
   compute_domestic_fracture_score(actor_results, articles) -> float
   compute_escalation_cadence_score(actor_results, articles, target) -> dict    [NEW v1.1]
@@ -42,6 +50,271 @@ DESIGN PHILOSOPHY:
 """
 
 from datetime import datetime, timezone
+
+
+# ════════════════════════════════════════════════════════════════════
+# CAPABILITY-RHETORIC GAP (v1.2) -- THE JOIN
+# ════════════════════════════════════════════════════════════════════
+# Signal 7 of this module has, since it was written, instructed a human to
+# "cross-reference against the Asifah Military Tracker fingerprint for
+# actual fleet/troop movements. Rhetoric without movement = posturing;
+# rhetoric with movement = preparation."
+#
+# That instruction is now code.
+#
+# The military tracker writes military:{actor}:capability_direction to
+# Redis every scan, carrying a SIGNED read of whether that actor's
+# capability is being applied or spent. The rhetoric tracker reads it and
+# sets it against measured rhetoric intensity. Neither sensor can see this
+# on its own. That is the whole point.
+#
+#   RHETORIC   CAPABILITY   READ
+#   high       rising       credible buildup
+#   high       flat         declaratory / deterrence signaling
+#   high       FALLING      THE GAP
+#   low        rising       quiet preparation (the most serious cell)
+#   low        flat         baseline
+#   low        falling      retrenchment
+#
+# APOLITICAL, consistent with the rest of this module: it measures whether
+# declared posture is matched by measured capability. It does not judge
+# whether either is correct.
+#
+# ABSENCE-HONEST: when the military read is stale, thin, or missing, this
+# says so and refuses to name a cell. A confident wrong cell is worse than
+# an admitted gap in coverage.
+# ════════════════════════════════════════════════════════════════════
+
+# Rhetoric bands, on the 0-100 actor score.
+RHETORIC_HIGH_THRESHOLD = 55
+RHETORIC_MODERATE_THRESHOLD = 35
+
+# Capability bands, on projection share = projection / (projection + loss).
+# Deliberately NOT on net_score: net is in raw score points and is not
+# comparable across actors or across weeks. Share is bounded 0-1.
+CAPABILITY_RISING_SHARE = 0.58
+CAPABILITY_FALLING_SHARE = 0.42
+
+# Below these, the military read is too thin to assert a direction.
+MIN_CLASSIFIED_SHARE = 0.30
+MIN_DIRECTIONAL_SCORE = 20.0
+
+# Beyond this the military scan is too old to set against today's rhetoric.
+MAX_CAPABILITY_AGE_HOURS = 36.0
+
+GAP_CELLS = {
+    ('high', 'rising'): (
+        'credible_buildup',
+        'Credible buildup',
+        'Declared posture is matched by measured capability moving into theater. '
+        'Rhetoric and hulls are telling the same story.'),
+    ('high', 'flat'): (
+        'declaratory',
+        'Declaratory / deterrence signaling',
+        'Rhetoric is running hot while measured capability holds level. Consistent '
+        'with deterrence signaling rather than preparation: the statements are doing '
+        'the work the deployments are not.'),
+    ('high', 'falling'): (
+        'the_gap',
+        'THE GAP: rhetoric rising, capability falling',
+        'Declared posture is escalating while measured capability is being spent '
+        'faster than it is replaced. Historically the least sustainable configuration: '
+        'either the rhetoric moderates, the capability is reinforced, or the gap is '
+        'tested by an adversary who can also read the ledger.'),
+    ('moderate', 'rising'): (
+        'quiet_preparation',
+        'Quiet preparation',
+        'Capability is moving into theater without matching declaratory escalation. '
+        'The most serious cell in the matrix: preparation that is not being announced '
+        'is preparation that is not meant to deter.'),
+    ('low', 'rising'): (
+        'quiet_preparation',
+        'Quiet preparation',
+        'Capability is moving into theater with rhetoric at baseline. The most serious '
+        'cell in the matrix: preparation that is not being announced is preparation '
+        'that is not meant to deter.'),
+    ('moderate', 'flat'): (
+        'baseline',
+        'Baseline',
+        'Rhetoric and capability are both at routine levels. No divergence to report.'),
+    ('low', 'flat'): (
+        'baseline',
+        'Baseline',
+        'Rhetoric and capability are both at routine levels. No divergence to report.'),
+    ('moderate', 'falling'): (
+        'retrenchment',
+        'Retrenchment',
+        'Capability is being spent while rhetoric stays moderate. Consistent with an '
+        'unannounced drawdown, sustainment strain, or attrition being absorbed quietly.'),
+    ('low', 'falling'): (
+        'retrenchment',
+        'Retrenchment',
+        'Capability is declining with rhetoric at baseline. Consistent with an '
+        'unannounced drawdown, sustainment strain, or attrition being absorbed quietly.'),
+}
+
+
+def _rhetoric_band(score):
+    if score >= RHETORIC_HIGH_THRESHOLD:
+        return 'high'
+    if score >= RHETORIC_MODERATE_THRESHOLD:
+        return 'moderate'
+    return 'low'
+
+
+def _capability_age_hours(scanned_at):
+    """Hours since the military scan that produced this read. None if undatable."""
+    if not scanned_at:
+        return None
+    try:
+        txt = str(scanned_at).replace('Z', '+00:00')
+        dt = datetime.fromisoformat(txt)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+    return max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0)
+
+
+def compute_capability_rhetoric_gap(actor_results, capability, rhetoric_actor='us_executive'):
+    """Set measured rhetoric intensity against measured capability direction.
+
+    actor_results   the rhetoric tracker's per-actor results
+    capability      the military:us:capability_direction fingerprint, or None
+    rhetoric_actor  which rhetoric actor carries the declaratory posture
+
+    Returns a dict that ALWAYS has 'available' and 'assessment'. When the
+    military read is missing, stale or thin, available is False and the
+    assessment says which, so the absence is visible rather than silent.
+    """
+    ra = (actor_results or {}).get(rhetoric_actor, {}) or {}
+    try:
+        rhetoric_score = float(ra.get('actor_score') or 0)
+    except (TypeError, ValueError):
+        rhetoric_score = 0.0
+    rhetoric_tier = ra.get('tier', 'L0')
+
+    base = {
+        'available': False,
+        'rhetoric': {
+            'actor': rhetoric_actor,
+            'score': round(rhetoric_score, 1),
+            'tier': rhetoric_tier,
+            'band': _rhetoric_band(rhetoric_score),
+        },
+        'capability': None,
+        'cell': None,
+        'label': None,
+        'confidence': 'none',
+        'assessment': '',
+    }
+
+    if not isinstance(capability, dict) or not capability:
+        base['reason'] = 'no_military_fingerprint'
+        base['assessment'] = (
+            'Military capability fingerprint not available. The rhetoric read stands '
+            'alone and cannot be set against measured capability this period. This is '
+            'a coverage gap, not a finding.')
+        return base
+
+    try:
+        projection = float(capability.get('projection_score') or 0)
+        loss = float(capability.get('loss_score') or 0)
+        net = float(capability.get('net_score') or 0)
+    except (TypeError, ValueError):
+        projection = loss = net = 0.0
+
+    denom = projection + loss
+    share = (projection / denom) if denom else None
+    try:
+        classified_share = float(capability.get('classified_share') or 0)
+    except (TypeError, ValueError):
+        classified_share = 0.0
+    age_hours = _capability_age_hours(capability.get('scanned_at'))
+
+    cap_block = {
+        'actor': capability.get('actor', 'us'),
+        'net_score': round(net, 2),
+        'projection_score': round(projection, 2),
+        'loss_score': round(loss, 2),
+        'projection_share': round(share, 3) if share is not None else None,
+        'classified_share': round(classified_share, 3),
+        'scanned_at': capability.get('scanned_at'),
+        'age_hours': round(age_hours, 1) if age_hours is not None else None,
+        'by_direction': capability.get('by_direction'),
+    }
+    base['capability'] = cap_block
+
+    # ---- Refuse to assert a cell when the read cannot carry one ----
+    if age_hours is not None and age_hours > MAX_CAPABILITY_AGE_HOURS:
+        base['reason'] = 'military_read_stale'
+        base['assessment'] = (
+            f'Military capability read is {age_hours:.0f}h old (limit '
+            f'{MAX_CAPABILITY_AGE_HOURS:.0f}h) and must not be set against '
+            f'present-tense rhetoric. Force a military rescan to restore the join.')
+        return base
+
+    if denom < MIN_DIRECTIONAL_SCORE:
+        base['reason'] = 'insufficient_directional_signal'
+        base['assessment'] = (
+            f'Only {denom:.1f} points of directional military signal this period '
+            f'(minimum {MIN_DIRECTIONAL_SCORE:.0f}). Too thin to characterise capability '
+            f'direction. Absence of a reading here is a coverage gap, not a finding.')
+        return base
+
+    if classified_share < MIN_CLASSIFIED_SHARE:
+        base['reason'] = 'low_classification_coverage'
+        base['assessment'] = (
+            f'Only {classified_share:.0%} of military signals carried a direction '
+            f'(minimum {MIN_CLASSIFIED_SHARE:.0%}). The capability read rests on too '
+            f'little of the corpus to set against rhetoric. Reported for transparency, '
+            f'not as a finding.')
+        return base
+
+    # ---- Both sensors are usable. Name the cell. ----
+    if share >= CAPABILITY_RISING_SHARE:
+        cap_band = 'rising'
+    elif share <= CAPABILITY_FALLING_SHARE:
+        cap_band = 'falling'
+    else:
+        cap_band = 'flat'
+
+    rhet_band = base['rhetoric']['band']
+    cell, label, narrative = GAP_CELLS.get(
+        (rhet_band, cap_band),
+        ('baseline', 'Baseline', 'No divergence to report.'))
+
+    # Confidence is driven by how much of the military corpus was readable
+    # and how far each band sits from its boundary.
+    if classified_share >= 0.50 and (share <= 0.35 or share >= 0.65):
+        confidence = 'high'
+    elif classified_share >= 0.40:
+        confidence = 'medium'
+    else:
+        confidence = 'low'
+
+    assessment = (
+        f"{label}. Rhetoric ({rhetoric_actor.replace('us_', '').replace('_', ' ')}) at "
+        f"{rhetoric_score:.0f}/100 [{rhetoric_tier}], {rhet_band}. Measured capability: "
+        f"projection {projection:.1f} against loss {loss:.1f} (net {net:+.1f}, "
+        f"{share:.0%} projection share), reading {cap_band}. {narrative}")
+
+    if confidence != 'high':
+        assessment += (
+            f" Confidence {confidence}: {classified_share:.0%} of military signals "
+            f"carried a direction this scan.")
+
+    base.update({
+        'available': True,
+        'reason': None,
+        'capability_band': cap_band,
+        'cell': cell,
+        'label': label,
+        'confidence': confidence,
+        'assessment': assessment,
+        'is_divergence': cell in ('the_gap', 'quiet_preparation'),
+    })
+    return base
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -154,7 +427,7 @@ def compute_domestic_fracture_score(actor_results, articles):
 # TOP SIGNALS
 # ════════════════════════════════════════════════════════════════════
 
-def compute_top_signals(actor_results, articles, cross_theater_fps):
+def compute_top_signals(actor_results, articles, cross_theater_fps, capability=None):
     """
     Build the list of top signals to surface in the frontend's "Top Signals"
     card. Each signal has:
@@ -291,14 +564,68 @@ def compute_top_signals(actor_results, articles, cross_theater_fps):
     defense_score = actor_results.get('us_defense', {}).get('actor_score', 0)
     defense_trip = actor_results.get('us_defense', {}).get('tripwires', 0)
     if defense_score >= 45 or defense_trip > 0:
+        # v1.2: the cross-reference this signal used to ask a human to perform
+        # is now performed here, when the military read is usable.
+        _dod_gap = compute_capability_rhetoric_gap(actor_results, capability,
+                                                   rhetoric_actor='us_defense')
+        if _dod_gap.get('available'):
+            _cap = _dod_gap['capability']
+            _tail = (f"Measured military capability is reading "
+                     f"{_dod_gap['capability_band']} "
+                     f"(projection {_cap['projection_score']} against loss "
+                     f"{_cap['loss_score']}, net {_cap['net_score']:+}). "
+                     f"{_dod_gap['label']}.")
+        else:
+            _tail = (f"Military capability read unavailable this period "
+                     f"({_dod_gap.get('reason', 'unknown')}), so rhetoric cannot be "
+                     f"set against movement. Coverage gap, not a finding.")
         signals.append({
             'short_text': f"DoD posture rhetoric elevated -- {defense_trip} tripwires",
             'long_text': (
-                f"Pentagon / combatant command rhetoric running hot. Cross-reference against "
-                f"the Asifah Military Tracker fingerprint for actual fleet/troop movements. "
-                f"Rhetoric without movement = posturing; rhetoric with movement = preparation."
+                f"Pentagon / combatant command rhetoric running hot. "
+                f"Rhetoric without movement is posturing; rhetoric with movement is "
+                f"preparation. {_tail}"
             ),
             'severity': 'high' if defense_trip > 0 else 'medium',
+            'category': 'foreign',
+            'actor_key': 'us_defense',
+        })
+
+    # ── Signal: Capability-Rhetoric Gap (v1.2) -- THE JOIN ──
+    # Two independent sensors disagreeing. Neither can see this alone.
+    gap = compute_capability_rhetoric_gap(actor_results, capability)
+    if gap.get('available'):
+        _cell = gap['cell']
+        if _cell == 'the_gap':
+            _sev, _icon = 'critical', '🚨'
+        elif _cell == 'quiet_preparation':
+            _sev, _icon = 'critical', '🔇'
+        elif _cell == 'credible_buildup':
+            _sev, _icon = 'high', '⚓'
+        elif _cell == 'declaratory':
+            _sev, _icon = 'high', '📣'
+        elif _cell == 'retrenchment':
+            _sev, _icon = 'medium', '📉'
+        else:
+            _sev, _icon = 'low', '·'
+        if _cell != 'baseline':
+            _r = gap['rhetoric']
+            _c = gap['capability']
+            signals.append({
+                'short_text': (f"{_icon} {gap['label']} -- rhetoric {_r['score']:.0f} "
+                               f"[{_r['tier']}] vs capability net {_c['net_score']:+}"),
+                'long_text': gap['assessment'],
+                'severity': _sev,
+                'category': 'foreign',
+                'actor_key': 'us_executive',
+            })
+    elif gap.get('reason') and gap['reason'] != 'no_military_fingerprint':
+        # Absence-honest: a join we could not complete is worth saying out loud,
+        # because silence would read as "no divergence".
+        signals.append({
+            'short_text': "Capability-rhetoric join unavailable this period",
+            'long_text': gap['assessment'],
+            'severity': 'low',
             'category': 'foreign',
             'actor_key': 'us_defense',
         })
@@ -338,7 +665,8 @@ def compute_top_signals(actor_results, articles, cross_theater_fps):
 # SO WHAT FACTOR
 # ════════════════════════════════════════════════════════════════════
 
-def compute_so_what_factor(actor_results, composite, outbound_targets):
+def compute_so_what_factor(actor_results, composite, outbound_targets,
+                           capability=None, articles=None):
     """
     Generate the headline "So What" framing for the dashboard. This is the
     elevator-pitch summary an FSO would write at the top of a daily brief.
@@ -348,6 +676,8 @@ def compute_so_what_factor(actor_results, composite, outbound_targets):
       description:  2-3 sentence narrative
       bullet_points: list of 3-5 strategic implications
     """
+    _so_what_articles = articles
+
     # Determine the dominant story
     actors_by_score = sorted(actor_results.items(),
                              key=lambda kv: kv[1].get('actor_score', 0),
@@ -402,6 +732,20 @@ def compute_so_what_factor(actor_results, composite, outbound_targets):
     # Build bullet points
     bullets = []
 
+    # Bullet 0 (v1.2): the capability-rhetoric join leads when it has something
+    # to say, because it is the only bullet no single sensor could produce.
+    _gap = compute_capability_rhetoric_gap(actor_results, capability)
+    if _gap.get('available') and _gap.get('cell') != 'baseline':
+        _gc = _gap['capability']
+        bullets.append(
+            f"{_gap['label']} -- rhetoric {_gap['rhetoric']['score']:.0f}/100 "
+            f"[{_gap['rhetoric']['tier']}] against measured capability net "
+            f"{_gc['net_score']:+} ({_gc['projection_share']:.0%} projection share, "
+            f"confidence {_gap['confidence']})."
+        )
+    elif _gap.get('reason') and _gap['reason'] != 'no_military_fingerprint':
+        bullets.append(f"Capability-rhetoric join not completed: {_gap['assessment']}")
+
     # Bullet 1: ICE/DHS context (always relevant given calibration note)
     dhs = actor_results.get('us_dhs_ice', {})
     dhs_score = dhs.get('actor_score', 0)
@@ -439,7 +783,10 @@ def compute_so_what_factor(actor_results, composite, outbound_targets):
     # Bullet: Kinetic-precursor cadence (v1.1) -- structural observation
     # Apolitical: same logic regardless of administration.
     try:
-        cadence_targets = compute_kinetic_precursor_targets(actor_results, [])
+        # v1.2 fix: this was passing an empty article list, so cadence could
+        # never reach the So-What bullet no matter what the corpus contained.
+        cadence_targets = compute_kinetic_precursor_targets(
+            actor_results, _so_what_articles or [])
         elevated = [c for c in cadence_targets if c['indicator_count'] >= 3]
         if elevated:
             top = elevated[0]
@@ -505,7 +852,7 @@ _KINETIC_PRECURSOR_TARGETS = {
         'label': 'Venezuela',
         'flag': '🇻🇪',
         'target_official_terms': ['maduro', 'venezuelan government'],
-        'intel_official_terms':  ['burns', 'cia director'],
+        'intel_official_terms':  ['ratcliffe', 'cia director'],
         'intel_visit_locations': ['caracas', 'venezuela'],
         'capability_terms':      ['mohajer venezuela', 'iranian engineers venezuela',
                                   'venezuela drone'],
@@ -736,4 +1083,4 @@ def compute_kinetic_precursor_targets(actor_results, articles):
     return elevated
 
 
-print("[US Signal Interpreter] Module loaded -- v1.1.0")
+print("[US Signal Interpreter] Module loaded -- v1.2.0 (capability-rhetoric join)")
