@@ -928,8 +928,120 @@ def _parse_pub_date(pub_str):
         return None
 
 
+# =====================================================================
+# SOURCE HEALTH INSTRUMENTATION (v1.3, Sep 19 2026)
+# =====================================================================
+# The *_AVAILABLE flags above are CONFIGURATION checks, not health checks.
+# BRAVE_AVAILABLE is literally bool(BRAVE_API_KEY): it reports that a key
+# string exists, and has never had anything to do with whether Brave answers.
+# On Sep 19 the payload showed brave/newsapi/reddit/telegram all "available"
+# while three of them contributed zero articles, because every fetcher below
+# discards its status code and returns [].
+#
+# That made one standing question unanswerable from outside: is a dead feed a
+# 403, a burnt quota, a soft block, or a query that matches nothing? Those
+# have four different fixes and looked identical.
+#
+# This block records the outcome of every fetch attempt. It changes nothing
+# about what is fetched or how anything is scored - it is strictly a
+# measurement, deliberately shipped ahead of any attempt to revive a feed so
+# the corpus stays comparable across the change.
+# Sources this tracker is supposed to have. A name here that never appears
+# in _SOURCE_HEALTH is reported as 'not_attempted' rather than vanishing
+# from the payload, which is how brave and telegram went missing from
+# source_counts without anyone noticing.
+EXPECTED_SOURCES = ('rss', 'gdelt', 'newsapi', 'brave',
+                    'bluesky', 'telegram', 'reddit')
+
+_SOURCE_HEALTH = {}
+
+
+def _health_reset():
+    """Clear per-scan health records. Called once at the top of a scan."""
+    global _SOURCE_HEALTH
+    _SOURCE_HEALTH = {}
+
+
+def _health_note(source, configured=True, http_status=None, error=None,
+                 articles=0, duration_ms=None, note=None):
+    """Record one fetch attempt. Many attempts aggregate into one source."""
+    rec = _SOURCE_HEALTH.setdefault(source, {
+        'configured':    configured,
+        'attempts':      0,
+        'articles':      0,
+        'http_statuses': {},
+        'errors':        [],
+        'notes':         [],
+        'duration_ms':   0,
+    })
+    rec['configured'] = configured
+    rec['attempts'] += 1
+    rec['articles'] += int(articles or 0)
+    if http_status is not None:
+        key = str(http_status)
+        rec['http_statuses'][key] = rec['http_statuses'].get(key, 0) + 1
+    if error and len(rec['errors']) < 3:
+        rec['errors'].append(str(error)[:160])
+    if note and note not in rec['notes']:
+        rec['notes'].append(str(note)[:120])
+    if duration_ms:
+        rec['duration_ms'] += int(duration_ms)
+
+
+def _health_status(rec):
+    """One word for what happened to this source. The whole point is that
+    'we could not reach it' and 'we reached it and asked the wrong question'
+    stop looking the same."""
+    if not rec.get('configured'):
+        return 'not_configured'
+    if rec.get('attempts', 0) == 0:
+        # Never called at all. Brave in particular sits behind a
+        # news_index_total < 60 gate, so a healthy GDELT silently disables it.
+        return 'not_attempted'
+    statuses = rec.get('http_statuses') or {}
+    if any(s in statuses for s in ('401', '403')):
+        return 'auth_failed'
+    if '429' in statuses:
+        return 'rate_limited'
+    non_ok = [s for s in statuses if s not in ('200', 'None')]
+    if non_ok:
+        return 'http_error'
+    if rec.get('errors'):
+        return 'error'
+    if rec.get('articles', 0) > 0:
+        return 'ok'
+    return 'reachable_but_empty'
+
+
+def _health_report(expected=()):
+    """Per-source health for the scan payload.
+
+    `expected` names sources that are supposed to run, so one that was never
+    attempted is reported as absent rather than silently missing from the dict
+    - which is exactly how brave and telegram disappeared from source_counts.
+    """
+    out = {}
+    for name in set(list(_SOURCE_HEALTH.keys()) + list(expected)):
+        rec = _SOURCE_HEALTH.get(name) or {
+            'configured': True, 'attempts': 0, 'articles': 0,
+            'http_statuses': {}, 'errors': [], 'notes': [], 'duration_ms': 0,
+        }
+        out[name] = {
+            'status':        _health_status(rec),
+            'configured':    rec['configured'],
+            'attempts':      rec['attempts'],
+            'articles':      rec['articles'],
+            'http_statuses': rec['http_statuses'],
+            'duration_ms':   rec['duration_ms'],
+            'error':         (rec['errors'][0] if rec['errors'] else None),
+            'notes':         rec['notes'],
+        }
+    return out
+
+
 def _fetch_rss(url, source_name, weight=0.85, lang='eng', max_items=20):
     """Fetch RSS feed and return list of article dicts."""
+    _t0 = time.time()
     try:
         resp = requests.get(url, timeout=RSS_TIMEOUT_SEC, headers={
             'User-Agent': (
@@ -942,6 +1054,9 @@ def _fetch_rss(url, source_name, weight=0.85, lang='eng', max_items=20):
         })
         if resp.status_code != 200:
             print(f"[US Rhetoric RSS] {source_name}: HTTP {resp.status_code}")
+            _health_note('rss', http_status=resp.status_code,
+                         duration_ms=(time.time() - _t0) * 1000,
+                         note=f'{source_name}: HTTP {resp.status_code}')
             return []
 
         root = ET.fromstring(resp.content)
@@ -989,8 +1104,16 @@ def _fetch_gdelt(query, language='eng', days=3, max_records=25, weight=0.95):
     adapts to the caller, never the other way round.
     """
     if _GDELT_GATEWAY:
+        _t0 = time.time()
         raw = _gw_fetch(query, language=language, timespan=f'{days*24}h',
                         maxrecords=max_records, label=f'us/{language}')
+        # The gateway swallows its own transport detail, so the only thing
+        # observable from here is whether it returned anything. Recorded
+        # explicitly so a dead gateway is not mistaken for a dead GDELT.
+        _health_note('gdelt', articles=len(raw or []),
+                     duration_ms=(time.time() - _t0) * 1000,
+                     http_status=200 if raw else None,
+                     note='routed through shared GDELT gateway')
         return [{
             'title':       a.get('title', ''),
             'description': '',
@@ -1016,14 +1139,20 @@ def _fetch_gdelt(query, language='eng', days=3, max_records=25, weight=0.95):
         resp = requests.get(url, timeout=GDELT_TIMEOUT_SEC)
         if resp.status_code == 429:
             print(f"[US Rhetoric GDELT] 429 rate limit -- skipping: {language}")
+            _health_note('gdelt', http_status=429, note='rate limited')
             return []
         if resp.status_code != 200:
             print(f"[US Rhetoric GDELT] HTTP {resp.status_code}")
+            _health_note('gdelt', http_status=resp.status_code)
             return []
         try:
             data = resp.json()
         except Exception:
             print(f"[US Rhetoric GDELT] {language}: non-JSON response (soft block)")
+            # 200 OK carrying HTML is GDELT's soft block. It is neither an
+            # outage nor a query problem and needs its own label.
+            _health_note('gdelt', http_status=200,
+                         note='HTTP 200 with non-JSON body (soft block)')
             return []
 
         articles = []
@@ -1050,7 +1179,9 @@ def _fetch_gdelt(query, language='eng', days=3, max_records=25, weight=0.95):
 def _fetch_newsapi(query, max_records=15, weight=0.9):
     """Fetch from NewsAPI as fallback when GDELT struggles."""
     if not NEWSAPI_AVAILABLE:
+        _health_note('newsapi', configured=False)
         return []
+    _t0 = time.time()
     try:
         url = 'https://newsapi.org/v2/everything'
         params = {
@@ -1063,8 +1194,15 @@ def _fetch_newsapi(query, max_records=15, weight=0.9):
         resp = requests.get(url, params=params, timeout=NEWSAPI_TIMEOUT_SEC)
         if resp.status_code == 429:
             print(f"[US Rhetoric NewsAPI] 429 rate limit -- skipping")
+            _health_note('newsapi', http_status=429, note='rate limited')
             return []
         if resp.status_code != 200:
+            # Previously a bare return []. NewsAPI answers a plan
+            # restriction with 426 and a bad key with 401; both looked
+            # exactly like 'no results' from outside this function.
+            _health_note('newsapi', http_status=resp.status_code,
+                         error=(resp.text or '')[:160],
+                         duration_ms=(time.time() - _t0) * 1000)
             return []
         data = resp.json()
         articles = []
@@ -1079,16 +1217,22 @@ def _fetch_newsapi(query, max_records=15, weight=0.9):
                 'language':    'eng',
                 'weight':      weight,
             })
+        _health_note('newsapi', http_status=200, articles=len(articles),
+                     duration_ms=(time.time() - _t0) * 1000)
         return articles
     except Exception as e:
         print(f"[US Rhetoric NewsAPI] error: {str(e)[:120]}")
+        _health_note('newsapi', error=e,
+                     duration_ms=(time.time() - _t0) * 1000)
         return []
 
 
 def _fetch_brave(query, max_records=15, weight=0.85):
     """Brave Search fallback (free tier, 2000 queries/month)."""
     if not BRAVE_AVAILABLE:
+        _health_note('brave', configured=False)
         return []
+    _t0 = time.time()
     try:
         url = 'https://api.search.brave.com/res/v1/news/search'
         params = {'q': query, 'count': max_records}
@@ -1097,6 +1241,13 @@ def _fetch_brave(query, max_records=15, weight=0.85):
             'X-Subscription-Token': BRAVE_API_KEY,
         })
         if resp.status_code != 200:
+            # The line this replaces is why 'is it a 403, a keyword error,
+            # or did we burn the quota' could not be answered. Brave sends
+            # 401 for a bad token, 403 for a plan problem and 429 when the
+            # 2000/month free tier is spent; all three returned [].
+            _health_note('brave', http_status=resp.status_code,
+                         error=(resp.text or '')[:160],
+                         duration_ms=(time.time() - _t0) * 1000)
             return []
         data = resp.json()
         articles = []
@@ -1111,14 +1262,19 @@ def _fetch_brave(query, max_records=15, weight=0.85):
                 'language':    'eng',
                 'weight':      weight,
             })
+        _health_note('brave', http_status=200, articles=len(articles),
+                     duration_ms=(time.time() - _t0) * 1000)
         return articles
     except Exception as e:
         print(f"[US Rhetoric Brave] error: {str(e)[:120]}")
+        _health_note('brave', error=e,
+                     duration_ms=(time.time() - _t0) * 1000)
         return []
 
 
 def _fetch_all_articles():
     """Aggregate articles from all sources (RSS + GDELT + NewsAPI + Brave + social)."""
+    _health_reset()
     all_articles = []
 
     # ── RSS ──
@@ -1128,6 +1284,7 @@ def _fetch_all_articles():
         all_articles.extend(rss)
         rss_count += len(rss)
         time.sleep(0.3)  # gentle pacing
+    _health_note('rss', articles=rss_count, http_status=200)
     print(f"[US Rhetoric] RSS: {rss_count} articles")
 
     # ── GDELT ──
@@ -1149,6 +1306,14 @@ def _fetch_all_articles():
 
     # ── NewsAPI fallback (if GDELT thin) ──
     newsapi_count = 0
+    if not (gdelt_count < 30 and NEWSAPI_AVAILABLE):
+        # NewsAPI is a conditional fallback. Never firing is a different
+        # state from firing and failing, and the payload has never said
+        # which one happened.
+        _health_note('newsapi', configured=NEWSAPI_AVAILABLE,
+                     note=f'not attempted: gdelt_count={gdelt_count} '
+                          f'(fallback fires below 30)')
+        _SOURCE_HEALTH['newsapi']['attempts'] = 0
     if gdelt_count < 30 and NEWSAPI_AVAILABLE:
         print(f"[US Rhetoric] GDELT thin ({gdelt_count}) -- triggering NewsAPI fallback")
         pre_newsapi = len(all_articles)
@@ -1169,6 +1334,11 @@ def _fetch_all_articles():
     # be backstopped even if curated RSS + social are healthy. Brave free tier
     # is 2000/month so we can spend the requests freely.
     news_index_total = gdelt_count + newsapi_count
+    if not (news_index_total < 60 and BRAVE_AVAILABLE):
+        _health_note('brave', configured=BRAVE_AVAILABLE,
+                     note=f'not attempted: news_index_total='
+                          f'{news_index_total} (fallback fires below 60)')
+        _SOURCE_HEALTH['brave']['attempts'] = 0
     if news_index_total < 60 and BRAVE_AVAILABLE:
         print(f"[US Rhetoric] News-index thin (GDELT={gdelt_count} + NewsAPI={newsapi_count} = {news_index_total}) -- triggering Brave fallback")
         pre_brave = len(all_articles)
@@ -1186,7 +1356,10 @@ def _fetch_all_articles():
         print(f"[US Rhetoric] Brave fallback: {brave_count} articles")
 
     # ── Bluesky ──
+    if not BLUESKY_AVAILABLE:
+        _health_note('bluesky', configured=False)
     if BLUESKY_AVAILABLE:
+        _bs_t0 = time.time()
         try:
             bluesky_raw = fetch_bluesky_for_target('us', days=7, max_posts_per_account=20)
             transformed = []
@@ -1208,12 +1381,20 @@ def _fetch_all_articles():
                     'weight':      1.0,
                 })
             all_articles.extend(transformed)
+            _health_note('bluesky', articles=len(transformed),
+                         duration_ms=(time.time() - _bs_t0) * 1000)
             print(f"[US Rhetoric] Bluesky: +{len(transformed)} posts")
         except Exception as e:
             print(f"[US Rhetoric] Bluesky error: {str(e)[:120]}")
+            _health_note('bluesky', error=e,
+                         duration_ms=(time.time() - _bs_t0) * 1000)
 
     # ── Telegram ──
+    if not TELEGRAM_AVAILABLE:
+        _health_note('telegram', configured=False,
+                     note='module import failed at startup')
     if TELEGRAM_AVAILABLE:
+        _tg_t0 = time.time()
         try:
             tg_raw = fetch_telegram_signals_us(hours_back=7 * 24)
             transformed = []
@@ -1235,21 +1416,45 @@ def _fetch_all_articles():
                     'weight':      0.95,
                 })
             all_articles.extend(transformed)
+            _health_note('telegram', articles=len(transformed),
+                         duration_ms=(time.time() - _tg_t0) * 1000)
             print(f"[US Rhetoric] Telegram: +{len(transformed)} posts")
         except Exception as e:
             print(f"[US Rhetoric] Telegram error: {str(e)[:120]}")
+            _health_note('telegram', error=e,
+                         duration_ms=(time.time() - _tg_t0) * 1000)
 
     # ── Reddit ──
+    if not REDDIT_AVAILABLE:
+        _health_note('reddit', configured=False,
+                     note='module import failed at startup')
     if REDDIT_AVAILABLE:
+        _rd_t0 = time.time()
         try:
             reddit_articles = fetch_reddit_signals_us(days=7, max_per_sub=25)
             for r in reddit_articles:
                 r.setdefault('language', 'eng')
                 r.setdefault('weight', 0.9)
             all_articles.extend(reddit_articles)
+            # Sep 19: every reddit lean bucket read 0 while reddit_available
+            # reported True. If this records articles=0 with no error, the
+            # module ran and returned nothing - a subreddit or auth problem
+            # inside reddit_signals_us, not a problem here.
+            _health_note('reddit', articles=len(reddit_articles),
+                         duration_ms=(time.time() - _rd_t0) * 1000)
             print(f"[US Rhetoric] Reddit: +{len(reddit_articles)} posts")
         except Exception as e:
             print(f"[US Rhetoric] Reddit error: {str(e)[:120]}")
+            _health_note('reddit', error=e,
+                         duration_ms=(time.time() - _rd_t0) * 1000)
+
+    # One line per source, so a dead feed is visible in the boot log
+    # without waiting for anyone to inspect a payload.
+    for _name, _rec in sorted(_health_report(EXPECTED_SOURCES).items()):
+        if _rec['status'] != 'ok':
+            print(f"[US Rhetoric HEALTH] {_name}: {_rec['status']} "
+                  f"(articles={_rec['articles']}, attempts={_rec['attempts']}, "
+                  f"http={_rec['http_statuses'] or '-'})")
 
     return all_articles
 
@@ -1839,6 +2044,10 @@ def run_us_rhetoric_scan(force=False):
             'scan_seconds':            elapsed,
             'scan_completed_at':       datetime.now(timezone.utc).isoformat(),
             'source_counts':           _compute_source_counts(articles),
+            # v1.3 - what each fetcher actually did, as opposed to whether
+            # a key for it exists. See the *_available flags below, which
+            # are configuration checks and are kept only for compatibility.
+            'source_health':           _health_report(EXPECTED_SOURCES),
             'actor_display_order':     ACTOR_DISPLAY_ORDER,
             'layer_order':             LAYER_ORDER,
         }
@@ -2076,8 +2285,13 @@ def register_us_rhetoric_endpoints(app):
                 'scan_completed_at':   cache.get('scan_completed_at'),
                 'article_count':       cache.get('article_count'),
                 'source_counts':       cache.get('source_counts', {}),
+                'source_health':       cache.get('source_health', {}),
                 'cross_theater_fps_loaded': list(cross_fps.keys()),
                 'actors':              list(ACTORS.keys()),
+                # CONFIGURATION checks, not health. '*_available' is True
+                # whenever a key or module import succeeded, whether or not
+                # the source returns anything. Read 'source_health' above
+                # for what actually happened. Kept for UI compatibility.
                 'redis_available':     REDIS_AVAILABLE,
                 'newsapi_available':   NEWSAPI_AVAILABLE,
                 'brave_available':     BRAVE_AVAILABLE,
