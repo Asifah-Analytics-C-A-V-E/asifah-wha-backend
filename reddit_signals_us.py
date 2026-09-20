@@ -232,6 +232,14 @@ def _fetch_subreddit(subreddit, mode='hot', weight=1.0, limit=25, timeout=REDDIT
             print(f"[Reddit US] r/{subreddit}: 429 after retries — skipping")
             return []
         if resp.status_code in (401, 403, 404):
+            # Sep 20 2026 -- these three were silent. 403 is exactly what
+            # Reddit returns for a blocked User-Agent or datacenter IP, and
+            # 401 for a stale OAuth token: the two things we most need to
+            # know about, and the two we could never see.
+            print('[Reddit US] r/%s (%s): HTTP %s%s'
+                  % (subreddit, mode, resp.status_code,
+                     ' -- OAuth token rejected' if resp.status_code == 401
+                     else ''))
             return []
         if resp.status_code != 200:
             print(f"[Reddit US] r/{subreddit} ({mode}): HTTP {resp.status_code}")
