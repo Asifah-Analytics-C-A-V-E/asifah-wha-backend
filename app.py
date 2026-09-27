@@ -1,6 +1,10 @@
 """
-Asifah Analytics -- Western Hemisphere Backend v1.2.0
+Asifah Analytics -- Western Hemisphere Backend v1.3.0
 March 2026 (v1.2.0: May 2026 -- Chile + Peru added)
+v1.3.0: Sep 27 2026 -- the last backend routed through the shared GDELT and
+Brave gateways, and its RSS wired to feed_health. Until today WHA fired
+unpaced GDELT requests from the same IP every other repo was carefully
+pacing, and spent Brave quota that appeared in no budget.
 
 Flask backend for the Western Hemisphere (SOUTHCOM) regional dashboard.
 Covers: Venezuela, Cuba, Haiti, Panama, Colombia, Mexico, Brazil, United States
@@ -227,7 +231,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 # CONFIGURATION
 # ========================================
 
-VERSION = '1.2.0'
+VERSION = '1.3.0'   # Sep 27 2026 -- shared GDELT + Brave gateways, feed health
 
 UPSTASH_REDIS_URL   = os.environ.get('UPSTASH_REDIS_URL')
 UPSTASH_REDIS_TOKEN = os.environ.get('UPSTASH_REDIS_TOKEN')
@@ -1147,6 +1151,64 @@ COUNTRY_CONFIG = {
 
 
 # ========================================
+# SHARED GATEWAYS + FEED HEALTH  (v1.3.0, Sep 27 2026)
+# ========================================
+# WHA was the LAST backend calling GDELT and Brave directly. Every other
+# repo has been serialised, paced and budgeted since July/September; this
+# one kept firing unpaced GDELT requests from the same datacenter IP the
+# gateway was carefully protecting, and spending Brave quota that appeared
+# in no budget. Optional imports: a missing file changes nothing except
+# what /health honestly reports.
+try:
+    from gdelt_gateway import gdelt_fetch as _gw_gdelt
+    _GDELT_GATEWAY = True
+    print('[WHA GDELT] Shared GDELT gateway loaded (paced + circuit-broken)')
+except ImportError:
+    _gw_gdelt = None
+    _GDELT_GATEWAY = False
+    print('[WHA GDELT] gdelt_gateway not available -- direct, unpaced calls')
+
+try:
+    from brave_gateway import brave_fetch as _gw_brave, brave_stats as _gw_brave_stats
+    _BRAVE_GATEWAY = True
+    print('[WHA Brave] Shared Brave gateway loaded (daily budget enforced)')
+except ImportError:
+    _gw_brave = None
+    _gw_brave_stats = None
+    _BRAVE_GATEWAY = False
+    print('[WHA Brave] brave_gateway not available -- NO shared budget')
+
+try:
+    from feed_health import record_fetch as _feed_record, feed_report as _feed_report
+    _FEED_HEALTH = True
+except ImportError:
+    _feed_record = None
+    _feed_report = None
+    _FEED_HEALTH = False
+    print('[WHA RSS] feed_health not available -- feed deaths will stay silent')
+
+
+def _rss_record(feed_url, label, items=0, http_status=None, error=None, t0=None):
+    """One line per fetch outcome. Never raises."""
+    if not _feed_record:
+        return
+    try:
+        _feed_record('wha', feed_url, items=items, label=label,
+                     http_status=http_status, error=error,
+                     duration_ms=((time.time() - t0) * 1000) if t0 else None)
+    except Exception as _e:
+        print(f'[WHA RSS] feed_health record failed: {str(_e)[:80]}')
+
+
+def get_feed_health_report():
+    """Feed-by-feed status for /health. 'needs_attention' is the list to read."""
+    if not _feed_report:
+        return {'state': 'could_not_assess',
+                'reason': 'feed_health module not installed'}
+    return _feed_report('wha')
+
+
+# ========================================
 # GDELT FETCH
 # ========================================
 
@@ -1156,6 +1218,24 @@ _gdelt_circuit_broken = False
 
 def fetch_gdelt(query, days=7, language='eng', max_records=50):
     global _gdelt_circuit_broken
+    # v1.3.0 -- through the shared gateway when present. The gateway has its
+    # own breaker, budget, pacing and Upstash cache, all shared with every
+    # other caller in the platform; the per-scan flag below stays as the
+    # fallback for a deploy without the module.
+    if _GDELT_GATEWAY and _gw_gdelt:
+        raw = _gw_gdelt(query, language=language, timespan=f'{days}d',
+                        maxrecords=max_records, label=f'wha/{language}') or []
+        return [{
+            'title':     a.get('title', '') or '',
+            'url':       a.get('url', '') or '',
+            # This file's dialect: source is a plain string domain.
+            'source':    (a.get('source') if isinstance(a.get('source'), str)
+                          else (a.get('source') or {}).get('name')) or 'GDELT',
+            'published': a.get('published', '') or '',
+            'content':   a.get('title', '') or '',
+            'feed_type': 'gdelt',
+        } for a in raw]
+
     if _gdelt_circuit_broken:
         return []  # short-circuit — give up on GDELT for the rest of this scan
 
@@ -1236,6 +1316,29 @@ def fetch_brave_news(query, count=20, freshness='pw', search_lang='en', country=
     """
     if not BRAVE_API_KEY:
         return []
+    # v1.3.0 -- through the shared gateway when present: one daily budget
+    # across every repo, spend attributed to 'wha/brave', and a 402 stands
+    # the whole platform down at once.
+    if _BRAVE_GATEWAY and _gw_brave:
+        raw = _gw_brave(query, count=count, freshness=freshness,
+                        search_lang=search_lang, country=country,
+                        label='wha/brave') or []
+        out = []
+        for r in raw:
+            src = r.get('source')
+            if isinstance(src, dict):
+                src = src.get('name') or 'Brave'
+            out.append({
+                'title':       r.get('title', '') or '',
+                'url':         r.get('url', '') or '',
+                'source':      src or 'Brave',
+                'published':   r.get('published', '') or r.get('publishedAt', '') or '',
+                'content':     (r.get('description') or r.get('title') or ''),
+                'description': r.get('description', '') or '',
+                'feed_type':   'brave',
+                'language':    search_lang,
+            })
+        return out
     try:
         headers = {
             'Accept': 'application/json',
@@ -1320,10 +1423,16 @@ def fetch_newsapi(query, days=7):
 
 def fetch_rss(feed_url, max_items=15):
     import xml.etree.ElementTree as ET
+    _t0 = time.time()
+    _label = feed_url.split('/')[2] if '//' in feed_url else feed_url[:40]
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (compatible; AsifahAnalytics/1.0)'}
         resp = requests.get(feed_url, headers=headers, timeout=(5, 15))
         if resp.status_code != 200:
+            # v1.3.0 -- was a bare `return []`: a feed could 403 on every
+            # scan forever and never appear anywhere.
+            print(f'[WHA RSS] {_label}: HTTP {resp.status_code}')
+            _rss_record(feed_url, _label, http_status=resp.status_code, t0=_t0)
             return []
         root = ET.fromstring(resp.content)
         items = root.findall('.//item')
@@ -1342,9 +1451,11 @@ def fetch_rss(feed_url, max_items=15):
                 'content': (desc_el.text or '') if desc_el is not None else '',
                 'feed_type': 'rss'
             })
+        _rss_record(feed_url, _label, items=len(articles), http_status=200, t0=_t0)
         return articles
     except Exception as e:
         print(f'[WHA RSS] Error {feed_url[:50]}: {str(e)[:60]}')
+        _rss_record(feed_url, _label, error=e, t0=_t0)
         return []
 
 
@@ -1842,6 +1953,13 @@ def health():
         'wha_commodity_proxy_available': WHA_COMMODITY_PROXY_AVAILABLE,
         'redis_configured': bool(UPSTASH_REDIS_URL and UPSTASH_REDIS_TOKEN),
         'newsapi_configured': bool(NEWSAPI_KEY),
+        # v1.3.0 -- gateways and feed health
+        'gateways': {'gdelt': _GDELT_GATEWAY, 'brave': _BRAVE_GATEWAY,
+                     'feed_health': _FEED_HEALTH},
+        'feeds': get_feed_health_report(),
+        'brave_budget': (_gw_brave_stats() if _gw_brave_stats else
+                         {'note': 'brave_gateway not installed -- '
+                                  'spend is uncapped and unattributed'}),
         'timestamp': datetime.now(timezone.utc).isoformat()
     })
 
