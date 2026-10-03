@@ -135,6 +135,26 @@ ESCALATION_COLORS = {
     5: '#dc2626',
 }
 
+# ── PLAIN-LANGUAGE STATE VOCABULARY (Oct 3 2026) ─────────────────────
+# ESCALATION_LABELS above is CHIP language -- it labels a pill next to a
+# legend. It is wrong for PROSE, where "peak escalation L4" tells a reader
+# who has never seen this platform precisely nothing.
+#
+# theatre_state.py carries the axis-aware vocabulary (a magnitude-9
+# earthquake is a legitimate L5, and calling it "active war footing" is not
+# imprecise, it is false). Rule: the state phrase LEADS, the level follows
+# in parentheses. Fails soft -- missing module keeps the old shape rather
+# than blanking the page.
+try:
+    from theatre_state import state_with_level as _ts_level, named_state as _ts_named
+except ImportError:
+    def _ts_level(level, category=None, pressure_type=None, upper=False):
+        return 'L%s' % level
+    def _ts_named(name, level, category=None, pressure_type=None):
+        return '%s (L%s)' % (name, level)
+
+
+
 # Forward-compat for future stability anchors (e.g., possible US dual-axis)
 INFLUENCE_LABELS = {
     0: 'Standby',
@@ -429,7 +449,7 @@ def _synthesize_top_signals_legacy(theatre, raw_data, threat_int, score, so_what
             'short_text': raw_data.get('signal_text_short') or
                           f'{flag} {display} L{effective_level} — {tracker_label}',
             'long_text':  raw_data.get('signal_text_long') or
-                          f'{flag} {display} at L{effective_level} {tracker_label} (score {score}/100)',
+                          f'{flag} {display} at {_ts_level(effective_level)} -- {tracker_label} (score {score}/100)',
         })
 
     # CUBA-SPECIFIC vector signals (legacy fallback)
@@ -447,7 +467,7 @@ def _synthesize_top_signals_legacy(theatre, raw_data, threat_int, score, so_what
                 'icon':       '🦅',
                 'color':      '#f97316' if us_pressure < 4 else '#dc2626',
                 'short_text': f'{flag} CUBA: U.S. pressure L{us_pressure}',
-                'long_text':  f'CUBA U.S. pressure vector L{us_pressure} — sanctions/coercion language elevated.',
+                'long_text':  f'CUBA U.S. pressure vector at {_ts_level(us_pressure)} — sanctions/coercion language elevated.',
             })
         if regime_fracture >= 3:
             signals.append({
@@ -493,7 +513,7 @@ def _synthesize_top_signals_legacy(theatre, raw_data, threat_int, score, so_what
                 'icon':       '🏛️',
                 'color':      '#f59e0b' if domestic_lvl < 3 else '#dc2626',
                 'short_text': f'{flag} PERU: Domestic stability L{domestic_lvl}',
-                'long_text':  f'PERU domestic-stability vector L{domestic_lvl} — presidency / FFAA / VRAEM / Las Bambas channels signaling above baseline.',
+                'long_text':  f'PERU domestic-stability vector at {_ts_level(domestic_lvl)} — presidency / FFAA / VRAEM / Las Bambas channels signaling above baseline.',
             })
 
         if resource_lvl >= 2:
@@ -505,7 +525,7 @@ def _synthesize_top_signals_legacy(theatre, raw_data, threat_int, score, so_what
                 'icon':       '⛏️',
                 'color':      '#f59e0b' if resource_lvl < 3 else '#dc2626',
                 'short_text': f'{flag} PERU: Resource sector L{resource_lvl}',
-                'long_text':  f'PERU resource-sector vector L{resource_lvl} — mining-sector + Las Bambas rhetoric coupled to global copper / silver supply.',
+                'long_text':  f'PERU resource-sector vector at {_ts_level(resource_lvl)} — mining-sector + Las Bambas rhetoric coupled to global copper / silver supply.',
             })
 
         if us_lvl >= 2:
@@ -517,7 +537,7 @@ def _synthesize_top_signals_legacy(theatre, raw_data, threat_int, score, so_what
                 'icon':       '🦅',
                 'color':      '#3b82f6' if us_lvl < 3 else '#dc2626',
                 'short_text': f'{flag} PERU: U.S. alignment L{us_lvl}',
-                'long_text':  f'PERU U.S.-alignment vector L{us_lvl} — Embassy Lima / INL / SOUTHCOM / FTA channel activity above baseline.',
+                'long_text':  f'PERU U.S.-alignment vector at {_ts_level(us_lvl)} — Embassy Lima / INL / SOUTHCOM / FTA channel activity above baseline.',
             })
 
         if china_lvl >= 2:
@@ -529,7 +549,7 @@ def _synthesize_top_signals_legacy(theatre, raw_data, threat_int, score, so_what
                 'icon':       '🚢',
                 'color':      '#dc2626' if china_lvl >= 3 else '#f59e0b',
                 'short_text': f'{flag} PERU: China alignment L{china_lvl}',
-                'long_text':  f'PERU China-alignment vector L{china_lvl} — Chancay megaport / BRI / Chinese mining-investment activity above baseline.',
+                'long_text':  f'PERU China-alignment vector at {_ts_level(china_lvl)} — Chancay megaport / BRI / Chinese mining-investment activity above baseline.',
             })
 
     # CHILE-SPECIFIC vector signals (4-vector frame, mirrors Peru pattern)
@@ -554,7 +574,7 @@ def _synthesize_top_signals_legacy(theatre, raw_data, threat_int, score, so_what
                 'icon':       '🏛️',
                 'color':      '#f59e0b' if domestic_lvl < 3 else '#dc2626',
                 'short_text': f'{flag} CHILE: Domestic stability L{domestic_lvl}',
-                'long_text':  f'CHILE domestic-stability vector L{domestic_lvl} — presidency / Mapuche conflict / constitutional-politics channels signaling above baseline.',
+                'long_text':  f'CHILE domestic-stability vector at {_ts_level(domestic_lvl)} — presidency / Mapuche conflict / constitutional-politics channels signaling above baseline.',
             })
 
         if resource_lvl >= 2:
@@ -566,7 +586,7 @@ def _synthesize_top_signals_legacy(theatre, raw_data, threat_int, score, so_what
                 'icon':       '⛏️',
                 'color':      '#f59e0b' if resource_lvl < 3 else '#dc2626',
                 'short_text': f'{flag} CHILE: Resource sector L{resource_lvl}',
-                'long_text':  f'CHILE resource-sector vector L{resource_lvl} — Codelco / Escondida / SQM / Albemarle rhetoric coupled to global copper (#1) + lithium (#2) supply.',
+                'long_text':  f'CHILE resource-sector vector at {_ts_level(resource_lvl)} — Codelco / Escondida / SQM / Albemarle rhetoric coupled to global copper (#1) + lithium (#2) supply.',
             })
 
         if us_lvl >= 2:
@@ -578,7 +598,7 @@ def _synthesize_top_signals_legacy(theatre, raw_data, threat_int, score, so_what
                 'icon':       '🦅',
                 'color':      '#3b82f6' if us_lvl < 3 else '#dc2626',
                 'short_text': f'{flag} CHILE: U.S. alignment L{us_lvl}',
-                'long_text':  f'CHILE U.S.-alignment vector L{us_lvl} — Embassy Santiago / SOUTHCOM / strategic-minerals dialog / FTA activity above baseline.',
+                'long_text':  f'CHILE U.S.-alignment vector at {_ts_level(us_lvl)} — Embassy Santiago / SOUTHCOM / strategic-minerals dialog / FTA activity above baseline.',
             })
 
         if china_lvl >= 2:
@@ -590,7 +610,7 @@ def _synthesize_top_signals_legacy(theatre, raw_data, threat_int, score, so_what
                 'icon':       '🐉',
                 'color':      '#dc2626' if china_lvl >= 3 else '#f59e0b',
                 'short_text': f'{flag} CHILE: China alignment L{china_lvl}',
-                'long_text':  f'CHILE China-alignment vector L{china_lvl} — Tianqi-SQM / BYD-Maricunga / Ganfeng-Codelco / FTA channel activity above baseline.',
+                'long_text':  f'CHILE China-alignment vector at {_ts_level(china_lvl)} — Tianqi-SQM / BYD-Maricunga / Ganfeng-Codelco / FTA channel activity above baseline.',
             })
 
     signals.sort(key=lambda s: s['priority'], reverse=True)
@@ -833,7 +853,7 @@ def _build_bluf_prose(posture, trackers):
             parts.append(vz_desc)
         elif threat >= 3:
             # Generic treatment for other future trackers
-            parts.append(f"{display} L{threat} — {ESCALATION_LABELS.get(threat, 'elevated')}.")
+            parts.append(f"{display} -- {_ts_level(threat)}.")
 
     # Cascade flag
     if posture['theatres_at_l3plus'] >= 2:
@@ -1091,18 +1111,19 @@ def _build_bluf_prose_v2(posture, trackers):
     n_live = len(trackers)
     if theatres_at_l3plus >= 2:
         posture_sentence = (
-            f"Regional posture at {posture_label}, with {theatres_at_l3plus} theaters "
-            f"at L3 or higher simultaneously across {n_live} live trackers."
+            f"Regional posture at {posture_label} -- {theatres_at_l3plus} theaters "
+            f"at standoff hardening or above, simultaneously, across {n_live} "
+            f"live trackers."
         )
     elif peak_level >= 3:
         posture_sentence = (
-            f"Regional posture at {posture_label}, with peak escalation L{peak_level} "
-            f"across {n_live} live trackers."
+            f"Regional posture at {posture_label} -- peak theatre at "
+            f"{_ts_level(peak_level)} across {n_live} live trackers."
         )
     else:
         posture_sentence = (
             f"Regional posture at {posture_label} -- {n_live} live trackers, "
-            f"peak L{peak_level} (baseline range)."
+            f"highest theatre at {_ts_level(peak_level)}."
         )
     if breached >= 1:
         posture_sentence += f" {breached} red line{'s' if breached > 1 else ''} breached."
@@ -1121,21 +1142,21 @@ def _build_bluf_prose_v2(posture, trackers):
     top_vectors = _extract_active_vectors(top_raw, threshold=2)
 
     if top_level >= 3:
-        dive = f"The most volatile theater is **{top_name}** (composite L{top_level}"
+        dive = (f"The most volatile theater is **{top_name}** -- "
+                f"{_ts_level(top_level)}")
         if top_direction.get('phrase'):
             dive += f", {top_direction['phrase']}"
-        dive += ")"
         if top_factor:
             dive += f" -- analytical read: {top_factor}."
         else:
             dive += "."
         if top_vectors:
             top_3 = top_vectors[:3]
-            vec_phrases = [f"{name} L{lvl}" for name, lvl in top_3]
+            vec_phrases = [_ts_named(name, lvl) for name, lvl in top_3]
             dive += f" Active vectors: {', '.join(vec_phrases)}."
         para1_parts.append(dive)
     elif top_level >= 1:
-        dive = f"Highest tracker is **{top_name}** at L{top_level}"
+        dive = f"Highest tracker is **{top_name}** -- {_ts_level(top_level)}"
         if top_direction.get('phrase'):
             dive += f" ({top_direction['phrase']})"
         if top_factor:
@@ -1163,7 +1184,7 @@ def _build_bluf_prose_v2(posture, trackers):
         direction = _compute_direction(level, history)
         factor = _extract_so_what_phrase(raw)
 
-        sent = f"**{name}** registers L{level}"
+        sent = f"**{name}** -- {_ts_level(level)}"
         if direction.get('phrase'):
             sent += f" ({direction['phrase']})"
         if factor:
@@ -1171,7 +1192,7 @@ def _build_bluf_prose_v2(posture, trackers):
         else:
             vecs = _extract_active_vectors(raw, threshold=2)
             if vecs:
-                sent += f" -- {vecs[0][0]} elevated at L{vecs[0][1]}."
+                sent += f" -- {_ts_named(vecs[0][0], vecs[0][1])}."
             else:
                 sent += "."
         para2_parts.append(sent)
@@ -1196,7 +1217,8 @@ def _build_bluf_prose_v2(posture, trackers):
         )
     elif theatres_at_l3plus == 2:
         para3_parts.append(
-            "**Why this matters:** Two simultaneous L3+ theaters create real migration and "
+            "**Why this matters:** Two theaters simultaneously at standoff hardening "
+            "or above create real migration and "
             "sanctions cascade risk. Monitor for adversary-axis amplification."
         )
     elif peak_level >= 4:
