@@ -231,7 +231,19 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 # CONFIGURATION
 # ========================================
 
-VERSION = '1.3.0'   # Sep 27 2026 -- shared GDELT + Brave gateways, feed health
+VERSION = '1.3.1'   # Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
+
+# v1.3.1 (Oct 3 2026) -- the UA now derives from VERSION above.
+# WHA was already the cleanest backend on the platform: two call sites, both
+# honest, both in the standard "compatible;" form. The only fault was that
+# they announced version 1.0 while VERSION said 1.3.0 -- three releases of
+# drift in a string nobody reads until a publisher asks who we are.
+#
+# _scrape_travel_advisory() is the one to watch after deploy: it scrapes
+# state.gov HTML rather than reading a feed, and scrapers are where an honest
+# bot identifier gets refused. feed_health will say so. The fix then is a
+# documented exception at that call site, not a revert.
+ASIFAH_USER_AGENT = f"Mozilla/5.0 (compatible; AsifahAnalytics-WHA/{VERSION}; +https://asifahanalytics.com)"
 
 UPSTASH_REDIS_URL   = os.environ.get('UPSTASH_REDIS_URL')
 UPSTASH_REDIS_TOKEN = os.environ.get('UPSTASH_REDIS_TOKEN')
@@ -1426,7 +1438,7 @@ def fetch_rss(feed_url, max_items=15):
     _t0 = time.time()
     _label = feed_url.split('/')[2] if '//' in feed_url else feed_url[:40]
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (compatible; AsifahAnalytics/1.0)'}
+        headers = {'User-Agent': ASIFAH_USER_AGENT}
         resp = requests.get(feed_url, headers=headers, timeout=(5, 15))
         if resp.status_code != 200:
             # v1.3.0 -- was a bare `return []`: a feed could 403 on every
