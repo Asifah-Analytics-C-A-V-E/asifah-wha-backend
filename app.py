@@ -1957,7 +1957,7 @@ def health():
         'wha_bluf_available': WHA_BLUF_AVAILABLE,
         'wha_commodity_proxy_available': WHA_COMMODITY_PROXY_AVAILABLE,
         'redis_configured': bool(UPSTASH_REDIS_URL and UPSTASH_REDIS_TOKEN),
-        'newsapi_configured': bool(NEWSAPI_KEY),
+        'newsapi_configured': bool(_napi_fetch and os.environ.get('NEWSAPI_GATEWAY_KEY')),
         # v1.3.0 -- gateways and feed health
         'gateways': {'gdelt': _GDELT_GATEWAY, 'brave': _BRAVE_GATEWAY,
                      'feed_health': _FEED_HEALTH},
