@@ -1396,38 +1396,31 @@ def fetch_brave_news(query, count=20, freshness='pw', search_lang='en', country=
 # NEWSAPI FETCH
 # ========================================
 
-def fetch_newsapi(query, days=7):
-    if not NEWSAPI_KEY:
-        return []
-    try:
-        from_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
-        resp = requests.get(
-            'https://newsapi.org/v2/everything',
-            params={
-                'q': query,
-                'from': from_date,
-                'sortBy': 'publishedAt',
-                'language': 'en',
-                'apiKey': NEWSAPI_KEY,
-                'pageSize': 30
-            },
-            timeout=(5, 15)
-        )
-        if resp.status_code != 200:
-            return []
-        articles = resp.json().get('articles', [])
-        return [{
-            'title': a.get('title', ''),
-            'url': a.get('url', ''),
-            'source': a.get('source', {}).get('name', 'NewsAPI'),
-            'published': a.get('publishedAt', ''),
-            'content': (a.get('description') or '') + ' ' + (a.get('title') or ''),
-            'feed_type': 'newsapi'
-        } for a in articles]
-    except Exception as e:
-        print(f'[WHA NewsAPI] Error: {str(e)[:80]}')
-        return []
+# ── NewsAPI via the shared newsapi_gateway (Oct 18 2026) ──────────────
+# A FALLBACK, not a feed: real requests only when GDELT is blind (or have=
+# says this scan is thin); 24h cache; one 100/day key budgeted across all
+# five backends. [] is never "no news" -- the reason is in the log and at
+# GET /api/newsapi/health. Key: NEWSAPI_GATEWAY_KEY (NEWSAPI_KEY retired).
+try:
+    from newsapi_gateway import newsapi_fetch as _napi_fetch, register_newsapi_routes
+    register_newsapi_routes(app)
+except ImportError:
+    _napi_fetch = None
+    print("[WHA NewsAPI] newsapi_gateway missing -- NewsAPI off (no direct fallback, by design)")
 
+def fetch_newsapi(query, days=7, label=None, have=None):
+    """NewsAPI through the gateway, in this file's dialect."""
+    if _napi_fetch is None:
+        return []
+    return [{
+        'title': a.get('title', ''),
+        'url': a.get('url', ''),
+        'source': (a.get('source') or {}).get('name', 'NewsAPI'),
+        'published': a.get('publishedAt', ''),
+        'content': (a.get('description') or '') + ' ' + (a.get('title') or ''),
+        'feed_type': 'newsapi'
+    } for a in _napi_fetch(query, days=days, page_size=30, label=label, have=have,
+                           prefix='wha')]
 
 # ========================================
 # RSS FETCH
