@@ -83,6 +83,7 @@ ENDPOINTS REGISTERED:
 """
 
 import os
+import re
 import json
 import time
 import threading
@@ -111,7 +112,7 @@ DEFAULT_MAX_ARTICLES   = 25
 UPSTASH_URL   = os.environ.get('UPSTASH_REDIS_URL', '') or os.environ.get('UPSTASH_REDIS_REST_URL', '')
 UPSTASH_TOKEN = os.environ.get('UPSTASH_REDIS_TOKEN', '') or os.environ.get('UPSTASH_REDIS_REST_TOKEN', '')
 NEWSAPI_KEY   = os.environ.get('NEWSAPI_KEY', '')   # legacy; deleted from Render 18 Oct 2026
-TRACKER_VERSION = '1.4.0'
+TRACKER_VERSION = '1.4.1'   # Nov 1: pre-election gating, commentary + past-cycle guards
 # v1.4.0: NewsAPI through the shared gateway (budget, cache, stand-down).
 try:
     from newsapi_gateway import newsapi_fetch_probed as _newsapi_gw
@@ -1926,38 +1927,44 @@ _ELECTION_CONTEXT = ('election', 'ballot', 'vote', 'voting', 'polling', 'certif'
                      'midterm', 'county board', 'secretary of state', 'recount', 'concede')
 ELECTION_ADMIN_CLASSES = {
     'race_calls': {
-        'label': 'Race calls / concessions', 'rung': 1,
+        'label': 'Race calls / concessions', 'rung': 1, 'post_election': True,
         'patterns': ['projected winner', 'race called', 'declared the winner', 'concedes',
                      'conceded', 'concession speech', 'wins reelection', 'wins re-election',
                      'flips the seat', 'flipped the seat', 'control of the house',
                      'control of the senate'],
     },
     'counting': {
-        'label': 'Counts still open', 'rung': 1,
+        'label': 'Counts still open', 'rung': 1, 'post_election': True,
         'patterns': ['too close to call', 'votes still being counted', 'ballots left to count',
                      'counting continues', 'uncalled races', 'outstanding ballots'],
     },
-    'recount_litigation': {
-        'label': 'Recounts / election litigation', 'rung': 2,
-        'patterns': ['recount', 'election lawsuit', 'sue to stop', 'ballot challenge',
-                     'lawsuit over ballots', 'challenge to ballots', 'contested race',
-                     'provisional ballots dispute', 'cure ballots'],
+    # v1.4.1 Nov 1: split. Recounts exist only after a vote; election
+    # litigation runs all year (voter-roll suits, ballot-rule suits).
+    'recounts': {
+        'label': 'Recounts / contested races', 'rung': 2, 'post_election': True,
+        'patterns': ['recount', 'contested race', 'provisional ballots dispute', 'cure ballots'],
+    },
+    'election_litigation': {
+        'label': 'Election litigation', 'rung': 2,
+        'patterns': ['election lawsuit', 'sue to stop', 'ballot challenge',
+                     'lawsuit over ballots', 'challenge to ballots', 'voter roll lawsuit',
+                     'sues over voter rolls'],
     },
     'results_mobilization': {
-        'label': 'Results-driven mobilization', 'rung': 2,
+        'label': 'Results-driven mobilization', 'rung': 2, 'post_election': True,
         'patterns': ['stop the count', 'count every vote', 'protest election results',
                      'protesters outside election', 'protest at counting',
                      'rally over election results'],
     },
     'certification_refusal': {
-        'label': 'Certification refused or delayed', 'rung': 3,
+        'label': 'Certification refused or delayed', 'rung': 3, 'post_election': True,
         'patterns': ['refuse to certify', 'refused to certify', 'refuses to certify',
                      'declined to certify', 'vote against certifying', 'voted not to certify',
                      'certification delayed', 'delay certification', 'missed certification deadline',
                      'ordered to certify'],
     },
     'concession_refusal': {
-        'label': 'Concession refused', 'rung': 3,
+        'label': 'Concession refused', 'rung': 3, 'post_election': True,
         'patterns': ['refuses to concede', 'refused to concede', 'will not concede',
                      "won't concede", 'not conceding'],
     },
@@ -1985,16 +1992,49 @@ GOV_LEVEL_LABELS = {0: 'No transition window', 1: 'Transition window -- routine'
 MIN_ARTICLES_FOR_GOVERNANCE = 60
 
 
-def _detect_election_administration(articles):
+# v1.4.1 Nov 1 2026 -- LIVE FALSE POSITIVE, two days BEFORE the vote: the
+# card read L3 "Governing authority contested" off an Axios explainer ("Election
+# cheat sheet"), a Providence Journal opinion piece ("A recount is not a
+# scandal"), a lame-duck agenda story, and a court story that mentioned
+# certification. Three guards:
+#   1. post_election classes are closed until polls close (nothing can be
+#      refused certification before anyone votes);
+#   2. commentary is not an event (opinion / explainer / cheat sheet / what to
+#      watch / analysis headlines are skipped);
+#   3. rung-3 classes ignore copy that only references a past cycle.
+_COMMENTARY_MARKERS = ('opinion', 'op-ed', 'editorial', 'explainer', 'cheat sheet',
+                       'what to know', 'what to watch', 'how to', 'analysis:', 'perspective',
+                       'letters to the editor', 'column:', 'podcast', 'newsletter', 'preview')
+_PAST_CYCLE_RX = re.compile(r'\b(2016|2018|2020|2022|2024)\b')
+
+
+def _is_commentary(title):
+    t = (title or '').lower()
+    return any(m in t for m in _COMMENTARY_MARKERS)
+
+
+def _detect_election_administration(articles, post_election=True):
     classes = {}
     for cid, cfg in ELECTION_ADMIN_CLASSES.items():
         classes[cid] = {'label': cfg['label'], 'rung': cfg['rung'], 'count': 0,
-                        'sources': set(), 'examples': []}
+                        'sources': set(), 'examples': [],
+                        'post_election': bool(cfg.get('post_election')),
+                        'open': post_election or not cfg.get('post_election')}
+    skipped_commentary = 0
     for art in articles or []:
-        text = ((art.get('title') or '') + ' ' + (art.get('description') or '')).lower()
+        title = art.get('title') or ''
+        text = (title + ' ' + (art.get('description') or '')).lower()
         if not any(c in text for c in _ELECTION_CONTEXT):
             continue
+        if _is_commentary(title):
+            skipped_commentary += 1
+            continue
+        past_only = bool(_PAST_CYCLE_RX.search(text)) and '2026' not in text
         for cid, cfg in ELECTION_ADMIN_CLASSES.items():
+            if not classes[cid]['open']:
+                continue
+            if cfg['rung'] >= 3 and past_only:
+                continue
             if any(p in text for p in cfg['patterns']):
                 rec = classes[cid]
                 rec['count'] += 1
@@ -2007,6 +2047,7 @@ def _detect_election_administration(articles):
         rec['distinct_sources'] = len(rec['sources'])
         rec['corroborated'] = rec['count'] >= 2 and rec['distinct_sources'] >= 2
         rec['sources'] = sorted(rec['sources'])[:6]
+    classes['_meta'] = {'skipped_commentary': skipped_commentary, 'post_election': post_election}
     return classes
 
 
@@ -2021,7 +2062,9 @@ _GOV_SO_WHAT = {
                               'and slow counts feed disputes.'),
     'federal_presence':      ('Federal agents or troops near polling or counting sites would test the '
                               'federal statutes that bar them there; state officials\' response is the tell.'),
-    'recount_litigation':    ('Recounts and lawsuits are the system working as designed; they become '
+    'recounts':              ('Recounts are the system working as designed; they become stress only '
+                              'when paired with certification refusals or threats.'),
+    'election_litigation':   ('Election lawsuits are the system working as designed; they become '
                               'stress only when paired with certification refusals or threats.'),
     'results_mobilization':  ('Results-driven crowds near counting or certification sites are the '
                               'bridge between rhetoric and physical risk.'),
@@ -2041,7 +2084,12 @@ def _governance_block(articles, cross_theater_fps, mobilization):
     phase = cyc.get('phase', 'unknown' if govt is None else 'regular')
     window_open = phase in ('election_day',) + _POST_ELECTION_PHASES + ('new_congress',)
     sensed = len(articles or []) >= MIN_ARTICLES_FOR_GOVERNANCE
-    classes = _detect_election_administration(articles)
+    # Post-election classes open once polls have closed: any post-election
+    # phase, or Election Day itself (counting starts that evening).
+    post_election = (phase in _POST_ELECTION_PHASES or
+                     (phase == 'election_day' and cyc.get('days_until_next_election') == 0))
+    classes = _detect_election_administration(articles, post_election=post_election)
+    _meta = classes.pop('_meta', {})
 
     level = 1 if window_open else 0
     drivers = []
@@ -2114,6 +2162,8 @@ def _governance_block(articles, cross_theater_fps, mobilization):
         'headline':          headline,
         'drivers':           drivers,
         'classes':           classes,
+        'post_election_classes_open': post_election,
+        'skipped_commentary': _meta.get('skipped_commentary', 0),
         'chambers': {
             'house':  {k: house.get(k) for k in ('majority_party', 'majority_size',
                                                   'minority_size', 'vacant', 'as_of')},
