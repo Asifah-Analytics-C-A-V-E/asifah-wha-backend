@@ -51,7 +51,7 @@ import json
 import time
 import threading
 import requests
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from flask import Flask, request, jsonify
 from flask_cors import CORS
@@ -231,7 +231,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 # CONFIGURATION
 # ========================================
 
-VERSION = '1.3.1'   # Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
+VERSION = '1.4.0'   # Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
 
 # v1.3.1 (Oct 3 2026) -- the UA now derives from VERSION above.
 # WHA was already the cleanest backend on the platform: two call sites, both
@@ -244,6 +244,23 @@ VERSION = '1.3.1'   # Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
 # bot identifier gets refused. feed_health will say so. The fix then is a
 # documented exception at that call site, not a revert.
 ASIFAH_USER_AGENT = f"Mozilla/5.0 (compatible; AsifahAnalytics-WHA/{VERSION}; +https://asifahanalytics.com)"
+
+# ── v1.4.0 (Nov 1 2026) public ?force gate ─────────────────────────────
+# ?force=true on a public endpoint ran a live scan for anyone on the internet.
+# Now: one forced rescan per endpoint path per 15 minutes (Upstash SET NX EX).
+# Inside the window the request gets the cache. No Redis -> allowed (fail-open).
+def _public_force_allowed(key):
+    _url = os.environ.get('UPSTASH_REDIS_URL')
+    _tok = os.environ.get('UPSTASH_REDIS_TOKEN')
+    if not (_url and _tok):
+        return True
+    try:
+        _r = requests.get(f"{_url}/set/force_gate:wha:{key.strip('/').replace('/', ':')}/1/NX/EX/900",
+                          headers={'Authorization': f'Bearer {_tok}'}, timeout=4)
+        return _r.json().get('result') == 'OK'
+    except Exception:
+        return True
+
 
 UPSTASH_REDIS_URL   = os.environ.get('UPSTASH_REDIS_URL')
 UPSTASH_REDIS_TOKEN = os.environ.get('UPSTASH_REDIS_TOKEN')
@@ -1263,7 +1280,7 @@ def fetch_gdelt(query, days=7, language='eng', max_records=50):
         # v2.1: Tightened timeout — GDELT either responds in 8s or it's unhealthy
         resp = requests.get(GDELT_BASE_URL, params=params, timeout=(5, 8))
         if resp.status_code == 429:
-            print(f'[WHA GDELT] 429 rate limit -- breaking circuit')
+            print('[WHA GDELT] 429 rate limit -- breaking circuit')
             _gdelt_circuit_broken = True
             return []
         if resp.status_code != 200:
@@ -1279,7 +1296,7 @@ def fetch_gdelt(query, days=7, language='eng', max_records=50):
             'feed_type': 'gdelt'
         } for a in articles]
     except requests.exceptions.Timeout:
-        print(f'[WHA GDELT] Timeout (>8s) -- breaking circuit for this scan')
+        print('[WHA GDELT] Timeout (>8s) -- breaking circuit for this scan')
         _gdelt_circuit_broken = True
         return []
     except Exception as e:
@@ -2067,7 +2084,7 @@ def api_wha_threat(country_id):
     if country_id not in WHA_COUNTRIES:
         return jsonify({'success': False, 'error': f'Unknown country: {country_id}'}), 404
 
-    force   = request.args.get('force', 'false').lower() == 'true'
+    force   = (request.args.get('force', 'false').lower() == 'true' and _public_force_allowed(request.path))
     days    = int(request.args.get('days', 7))
     cache_key = f'wha:threat:{country_id}'
 
@@ -2106,7 +2123,7 @@ def api_wha_stability(country_id):
     if country_id not in WHA_COUNTRIES:
         return jsonify({'success': False, 'error': f'Unknown country: {country_id}'}), 404
 
-    force = request.args.get('force', 'false').lower() == 'true'
+    force = (request.args.get('force', 'false').lower() == 'true' and _public_force_allowed(request.path))
     cache_key = f'wha:threat:{country_id}'
 
     cached = cache_get(cache_key)
@@ -2327,7 +2344,7 @@ def _scrape_travel_advisory(country_id):
     if not url:
         return None
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (compatible; AsifahAnalytics/1.0)'}
+        headers = {'User-Agent': ASIFAH_USER_AGENT}   # Nov 1 2026: was hardcoded /1.0
         resp = requests.get(url, headers=headers, timeout=(5, 15))
         if resp.status_code != 200:
             return None
@@ -2377,7 +2394,7 @@ def api_wha_travel_advisories():
         return '', 200
 
     cache_key = 'wha:travel_advisories'
-    force = request.args.get('force', 'false').lower() == 'true'
+    force = (request.args.get('force', 'false').lower() == 'true' and _public_force_allowed(request.path))
 
     if not force:
         cached = cache_get(cache_key)
@@ -2441,6 +2458,16 @@ if US_STABILITY_AVAILABLE:
 # the card also goes blank ~14h after any manual ?refresh=true&nyse=true.
 if US_STABILITY_AVAILABLE:
     start_nyse_scheduler()
+
+
+# ── Airspace Watch (shared module, Nov 1 2026) ─────────────────────────
+# Replaces the old FAA NOTAM code (dead: none -- WHA had no airspace sensor before). Same file on all five
+# backends; this backend sees only its own regions.
+try:
+    from airspace_watch import register_airspace_endpoints
+    register_airspace_endpoints(app, 'wha')
+except Exception as _e:
+    print(f"[WHA] ⚠️ Airspace Watch unavailable: {_e}")
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=5000)
