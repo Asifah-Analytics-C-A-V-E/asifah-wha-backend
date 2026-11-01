@@ -1,6 +1,8 @@
 """
 ========================================
-U.S. SIGNAL INTERPRETER (v1.2.0 -- September 7, 2026)
+U.S. SIGNAL INTERPRETER (v1.3.0 -- November 1, 2026; v1.2.0 Sep 7 2026)
+v1.3.0: stale facts removed from user-facing text (DHS 'funding constraints',
+'v1.1 release' placeholder, Powell); Mojtaba Khamenei in Iran cadence terms.
 ========================================
 Analytical layer for the US Rhetoric Tracker. Where the engine collects raw
 signals, this module makes them MEAN something.
@@ -451,8 +453,8 @@ def compute_top_signals(actor_results, articles, cross_theater_fps, capability=N
             'long_text': (
                 f"Immigration enforcement rhetoric is at L{dhs.get('tier','0')[1:]} ({dhs.get('tier_name','')}). "
                 f"Currently the highest-volatility US domestic signal vector and a leading indicator for "
-                f"protests + civil unrest + midterm voter mobilization. Watch for operational tempo changes "
-                f"as DHS funding situation evolves."
+                f"protests + civil unrest + midterm voter mobilization. Watch for operational tempo changes, "
+                f"and for any enforcement activity near polling or counting sites."
             ),
             'severity': sev,
             'category': 'civil_social',
@@ -462,8 +464,9 @@ def compute_top_signals(actor_results, articles, cross_theater_fps, capability=N
         signals.append({
             'short_text': f"ICE/DHS rhetoric in normal range ({dhs_count} statements)",
             'long_text': (
-                "Immigration enforcement signals at baseline. Operational tempo currently low due to "
-                "DHS funding constraints. Worth continuing to track as midterm dynamics evolve."
+                "Immigration enforcement signals in the normal range this period. During the "
+                "election window, enforcement near polling or counting sites is tracked in the "
+                "governance block."
             ),
             'severity': 'low',
             'category': 'civil_social',
@@ -496,8 +499,8 @@ def compute_top_signals(actor_results, articles, cross_theater_fps, capability=N
             'long_text': (
                 f"Executive branch (Trump + WH + cabinet) rhetoric is running "
                 f"{exec_data.get('baseline_ratio',1.0)}x normal pace. {exec_trip} tripwires hit. "
-                f"In the v1.1 release this will be cross-referenced against the historical "
-                f"statement-follow-through record."
+                f"Tempo is volume, not intent: read it against the capability-rhetoric join "
+                f"and the governance block."
             ),
             'severity': 'high' if exec_trip > 0 else 'medium',
             'category': 'domestic',
@@ -552,7 +555,7 @@ def compute_top_signals(actor_results, articles, cross_theater_fps, capability=N
             'short_text': "Federal Reserve rhetoric elevated -- independence pressure?",
             'long_text': (
                 f"Fed activity at L{actor_results.get('us_federal_reserve', {}).get('tier','L0')[1:]}. "
-                f"Could indicate FOMC dissent, Powell-WH friction, or major rate decision week. "
+                f"Could indicate FOMC dissent, Fed chair-White House friction, or major rate decision week. "
                 f"Markets-stability proxy."
             ),
             'severity': 'medium',
@@ -754,11 +757,11 @@ def compute_so_what_factor(actor_results, composite, outbound_targets,
             f"Immigration enforcement (DHS/ICE) at L{dhs.get('tier','L0')[1:]} -- "
             f"highest-volatility domestic vector, midterm-driver indicator."
         )
-    else:
-        bullets.append(
-            "DHS/ICE rhetoric at baseline despite usual elevated profile -- "
-            "operational tempo constrained by recent shutdown / DHS funding situation."
-        )
+    elif dhs.get('statement_count', 0) > 0:
+        # v1.3.0: was "constrained by recent shutdown / DHS funding situation",
+        # printed on every quiet scan including zero-data ones. A cause the
+        # data does not show is not ours to state.
+        bullets.append("DHS/ICE rhetoric in the normal range this period.")
 
     # Bullet 2: top actor
     if top_actor_key and top_actor_score > 30:
@@ -860,7 +863,7 @@ _KINETIC_PRECURSOR_TARGETS = {
     'iran': {
         'label': 'Iran',
         'flag': '🇮🇷',
-        'target_official_terms': ['khamenei', 'iranian government', 'irgc'],
+        'target_official_terms': ['khamenei', 'mojtaba', 'iranian government', 'irgc'],
         'intel_official_terms':  ['cia director iran', 'mossad iran'],
         'intel_visit_locations': ['tehran'],
         'capability_terms':      ['iran nuclear breakout', 'iran enrichment', 'iran missile cache'],
@@ -1083,4 +1086,4 @@ def compute_kinetic_precursor_targets(actor_results, articles):
     return elevated
 
 
-print("[US Signal Interpreter] Module loaded -- v1.2.0 (capability-rhetoric join)")
+print("[US Signal Interpreter] Module loaded -- v1.3.0 (capability-rhetoric join)")

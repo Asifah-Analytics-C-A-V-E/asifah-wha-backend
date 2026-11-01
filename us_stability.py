@@ -1,6 +1,26 @@
 """
-Asifah Analytics — U.S. Stability Index v1.0.0
-May 11, 2026
+Asifah Analytics — U.S. Stability Index v1.2.0
+Nov 1, 2026  (v1.0.0 May 11, 2026)
+
+v1.2.0 (Nov 1 2026, Rachel's ruling Nov 1):
+  * THE ELECTION-CYCLE MODIFIER NO LONGER MULTIPLIES THE WHOLE SCORE.
+    It used to scale the composite -- economics, military and cyber
+    included -- so a raw 32 published as 51 "Fractured" in election week,
+    then dropped mechanically on Nov 4 and again on Jan 3: trend moves
+    manufactured by the calendar. A calendar factor amplifies SIGNALS; it
+    is never a signal (Black Swan doctrine). The composite is now the raw
+    weighted score. The modifier applies only to ACTIVE electoral-integrity
+    and election-administration signals, and only when they fire.
+  * Election-administration patterns (certification refusals, recounts,
+    threats to election officials, federal agents at polling places,
+    results-driven mobilisation) added to electoral_integrity.
+  * NewsAPI through newsapi_gateway (the old key was deleted 18 Oct; this
+    module had been silently skipping NewsAPI since). GDELT through
+    gdelt_gateway (it called the API directly with no health record).
+  * Coverage block: what each source returned. A keyword dimension with
+    almost no articles reports 'not sensed', not 'Resilient'.
+  * Crash guards (None title/description); link-less items no longer dropped.
+  * Cache hits refresh the election phase (it is a function of today).
 
 THE SCORING ENGINE for the U.S. Stability page. This is sister-module to
 china_stability.py, russia_stability.py, lebanon_stability.py, but with
@@ -42,10 +62,9 @@ Apolitical, structural — not rhetoric-delta-based (unlike older trackers).
 This means scores are directly comparable across time periods and
 administrations.
 
-ELECTION-CYCLE AWARENESS:
-The composite score is multiplied by election_cycle.stability_modifier
-(1.0 to 1.6) to reflect that certain phases (lame duck, election week,
-late campaign) amplify political stress signals' relevance.
+ELECTION-CYCLE AWARENESS (v1.2.0):
+election_cycle.stability_modifier (1.0 to 1.6) amplifies ACTIVE electoral
+signals only. The composite itself is never multiplied by the calendar.
 
 CROSS-TRACKER WRITES (for Global Pressure Index consumption):
   - stability:us:fingerprint   (12h TTL, full payload)
@@ -132,7 +151,23 @@ UPSTASH_REDIS_URL = (os.environ.get('UPSTASH_REDIS_URL') or
                      os.environ.get('UPSTASH_REDIS_REST_URL'))
 UPSTASH_REDIS_TOKEN = (os.environ.get('UPSTASH_REDIS_TOKEN') or
                        os.environ.get('UPSTASH_REDIS_REST_TOKEN'))
-NEWSAPI_KEY = os.environ.get('NEWSAPI_KEY')
+NEWSAPI_KEY = os.environ.get('NEWSAPI_KEY')   # legacy; deleted from Render 18 Oct 2026
+MODULE_VERSION = '1.2.0'
+try:
+    from newsapi_gateway import newsapi_fetch_probed as _newsapi_gw
+except Exception:
+    _newsapi_gw = None
+try:
+    from gdelt_gateway import gdelt_fetch as _gdelt_gw
+except Exception:
+    _gdelt_gw = None
+# Per-scan source tally (absence-honest coverage block).
+_COVERAGE = {}
+# Election-cycle modifier for the CURRENT scan, applied to electoral signals
+# only (set at the top of run_stability_scan).
+_CYCLE_MODIFIER = {'value': 1.0, 'phase': 'regular'}
+# Categories the calendar is allowed to amplify.
+CYCLE_AMPLIFIED_CATEGORIES = ('electoral_integrity', 'election_administration')
 BRAVE_API_KEY = os.environ.get('BRAVE_API_KEY')
 ALPHA_VANTAGE_KEY = os.environ.get('ALPHA_VANTAGE_KEY')
 
@@ -498,6 +533,29 @@ DEMOCRATIC_INSTITUTIONS_KEYWORDS = {
         'base_weight': 8,
         'baseline_modifier_key': 'civil_service_purge_weight',
     },
+    # v1.2.0 Nov 1 2026: ELECTION ADMINISTRATION -- the counting and
+    # certification window. Institutional EVENTS only (refusals, threats,
+    # federal presence, results-driven mobilisation), never partisan claims.
+    'election_administration': {
+        'patterns': [
+            'refuse to certify', 'refused to certify', 'refuses to certify',
+            'declined to certify', 'vote against certifying', 'certification delayed',
+            'delay certification', 'certification deadline missed',
+            'recount requested', 'automatic recount', 'recount ordered',
+            'hand recount', 'contested race', 'too close to call',
+            'refuses to concede', 'will not concede', "won't concede",
+            'election official threatened', 'threats against election officials',
+            'election workers threatened', 'poll worker threatened',
+            'election office evacuated', 'bomb threat polling', 'polling place threat',
+            'federal agents at polling', 'ice at polling', 'ice agents polling',
+            'troops at polling', 'national guard polling',
+            'seized ballots', 'seize voting machines', 'voting machines seized',
+            'stop the count', 'count every vote', 'protest election results',
+            'election lawsuit', 'sue to stop count', 'ballot counting lawsuit',
+        ],
+        'base_weight': 9,
+        'baseline_modifier_key': None,
+    },
     # Electoral Integrity Signals
     'electoral_integrity': {
         'patterns': [
@@ -810,6 +868,26 @@ def _fetch_gdelt(query, max_records=30):
     latencies past 10s under load. Connect timeout still tight at 5s to fail
     fast if the host itself is unreachable.
     """
+    if _gdelt_gw is not None:
+        # v1.2.0: shared gateway (pacing, breaker, cache). An empty answer
+        # is recorded as such -- never read as "no news".
+        try:
+            raw = _gdelt_gw(f'{query} sourcecountry:US', language='eng',
+                            timespan='7d', maxrecords=max_records,
+                            label='us_stability/eng') or []
+        except Exception as e:
+            print(f"[US Stability GDELT] gateway error {str(e)[:100]}")
+            raw = []
+        out = [{
+            'title':       a.get('title', '') or '',
+            'description': '',
+            'link':        a.get('url', '') or '',
+            'published':   a.get('published', '') or '',
+            'source':      f"GDELT/{a.get('source') or 'unknown'}",
+            'source_type': 'gdelt',
+        } for a in raw]
+        _COVERAGE['gdelt'] = _COVERAGE.get('gdelt', 0) + len(out)
+        return out
     try:
         url = "https://api.gdeltproject.org/api/v2/doc/doc"
         params = {
@@ -888,8 +966,31 @@ def _fetch_brave(query, max_records=20):
         return []
 
 
-def _fetch_newsapi(query, max_records=30):
-    """Fetch NewsAPI articles for a query. Returns list of articles."""
+def _fetch_newsapi(query, max_records=30, have=None):
+    """Fetch NewsAPI articles for a query. Returns list of articles.
+
+    v1.2.0: through the shared newsapi_gateway (budget, cache, stand-down,
+    status logging). The probe reason is kept so a skip is not "no news"."""
+    if _newsapi_gw is not None:
+        try:
+            raw, probe = _newsapi_gw(query, days=7, page_size=max_records,
+                                     label='us_stability/' + query.split()[0].strip('"').lower(),
+                                     have=have)
+        except Exception as e:
+            raw, probe = [], {'reason': 'exception:' + type(e).__name__}
+        reasons = _COVERAGE.setdefault('newsapi_reasons', {})
+        r = probe.get('reason') or 'unknown'
+        reasons[r] = reasons.get(r, 0) + 1
+        out = [{
+            'title':       a.get('title', '') or '',
+            'description': a.get('description', '') or '',
+            'link':        a.get('url', '') or '',
+            'published':   a.get('publishedAt', '') or '',
+            'source':      f"NewsAPI/{(a.get('source') or {}).get('name', 'unknown')}",
+            'source_type': 'newsapi',
+        } for a in (raw or []) if a.get('title')]
+        _COVERAGE['newsapi'] = _COVERAGE.get('newsapi', 0) + len(out)
+        return out
     if not NEWSAPI_KEY:
         return []
     try:
@@ -1196,7 +1297,7 @@ def _detect_signals(articles, keyword_dimension):
     """
     matches = []
     for art in articles:
-        haystack = (art.get('title', '') + ' ' + art.get('description', '')).lower()
+        haystack = ((art.get('title') or '') + ' ' + (art.get('description') or '')).lower()
         if not haystack.strip():
             continue
         for category, cfg in keyword_dimension.items():
@@ -1309,6 +1410,9 @@ def score_economic_dimension():
     }
 
 
+MIN_ARTICLES_SENSED = 40
+
+
 def _score_keyword_dimension(dimension_id, keyword_set, articles, baseline_modifiers):
     """Generic scorer for keyword-based dimensions (Political, Civil, Democratic, Cyber).
 
@@ -1344,7 +1448,7 @@ def _score_keyword_dimension(dimension_id, keyword_set, articles, baseline_modif
             })
         # Aggregate state mentions
         states_in_article = _extract_states(
-            m['article'].get('title', '') + ' ' + m['article'].get('description', ''))
+            (m['article'].get('title') or '') + ' ' + (m['article'].get('description') or ''))
         category_data[cat]['states'].update(states_in_article)
 
     # Compute dimension score
@@ -1352,6 +1456,10 @@ def _score_keyword_dimension(dimension_id, keyword_set, articles, baseline_modif
     # Capped at 100; aggregated cumulatively but with diminishing returns
     raw_score = 0.0
     for cat, data in category_data.items():
+        # v1.2.0: the calendar amplifies ACTIVE electoral signals only.
+        if cat in CYCLE_AMPLIFIED_CATEGORIES and data['count'] > 0:
+            data['cycle_modifier'] = _CYCLE_MODIFIER['value']
+            data['modifier'] = data['modifier'] * _CYCLE_MODIFIER['value']
         category_contribution = data['count'] * data['weight'] * data['modifier']
         # Diminishing returns: cap individual category at 35 points
         raw_score += min(35, category_contribution)
@@ -1389,6 +1497,9 @@ def _score_keyword_dimension(dimension_id, keyword_set, articles, baseline_modif
             'states': sorted(data['states']),
         }
 
+    # v1.2.0: absence-honest. A keyword dimension scanned against almost no
+    # articles has not SENSED calm; it has not sensed anything.
+    sensed = len(articles) >= MIN_ARTICLES_SENSED
     return {
         'dimension':       dimension_id,
         'score':           final_score,
@@ -1397,6 +1508,11 @@ def _score_keyword_dimension(dimension_id, keyword_set, articles, baseline_modif
         'category_data':   cat_data_serializable,
         'signals_detected': len(matches),
         'articles_scanned': len(articles),
+        'sensed':          sensed,
+        'sensed_note':     (None if sensed else
+                            f'Only {len(articles)} articles reached this scan (minimum '
+                            f'{MIN_ARTICLES_SENSED}). The score is a coverage gap, not a '
+                            f'finding of calm.'),
     }
 
 
@@ -1502,8 +1618,10 @@ def score_military_posture():
 def compute_composite_score(dimension_scores, election_cycle):
     """Compute weighted composite score from 6 dimensions.
 
-    Applies election-cycle stability_modifier as final multiplier.
-    Capped at 100.
+    v1.2.0 (Nov 1 2026): NO calendar multiplier on the composite. The cycle
+    modifier is applied inside the electoral categories when they fire (see
+    CYCLE_AMPLIFIED_CATEGORIES). 'cycle_modifier' is still reported, with
+    its scope, so the page can say what it did and did not touch.
     """
     composite_raw = 0.0
     for dim_id, weight in DIMENSION_WEIGHTS.items():
@@ -1512,12 +1630,14 @@ def compute_composite_score(dimension_scores, election_cycle):
         composite_raw += score * weight
 
     cycle_modifier = (election_cycle or {}).get('stability_modifier', 1.0)
-    composite_final = min(100, round(composite_raw * cycle_modifier))
+    composite_final = min(100, round(composite_raw))
 
     return {
         'score':            composite_final,
         'raw_score':        round(composite_raw, 1),
         'cycle_modifier':   cycle_modifier,
+        'cycle_modifier_scope': 'electoral signals only (since v1.2.0, Nov 1 2026)',
+        'method':           'v1.2-raw',
         'band':             score_to_band(composite_final),
         'weights_applied':  DIMENSION_WEIGHTS,
     }
@@ -1545,6 +1665,9 @@ def update_history(composite_score):
         'date':  today_str,
         'score': composite_score['score'],
         'band':  composite_score['band']['band'],
+        # v1.2.0: snapshots without 'method' were calendar-multiplied
+        # (x1.05-x1.6). The page marks the method change on the trendline.
+        'method': composite_score.get('method', 'v1.2-raw'),
     })
 
     # Sort by date and keep only last 30 days
@@ -1697,6 +1820,9 @@ def run_stability_scan():
     structural_baseline = govt.get('structural_baseline', {})
     baseline_modifiers = structural_baseline.get('baseline_modifiers', {})
     election_cycle = govt.get('election_cycle', {})
+    _CYCLE_MODIFIER['value'] = float(election_cycle.get('stability_modifier', 1.0) or 1.0)
+    _CYCLE_MODIFIER['phase'] = election_cycle.get('phase', 'regular')
+    _COVERAGE.clear()
 
     # ── Aggregate articles from all sources ──
     print("[US Stability] Phase 1: fetching articles...")
@@ -1709,6 +1835,7 @@ def run_stability_scan():
         time.sleep(0.2)    # gentle pacing
 
     print(f"[US Stability] RSS: {len(all_articles)} articles")
+    _COVERAGE['rss'] = len(all_articles)
 
     # GDELT queries (one per dimension to avoid hammering)
     gdelt_queries = [
@@ -1716,20 +1843,26 @@ def run_stability_scan():
         '("mass shooting" OR "active shooter" OR "protest")',
         '("cabinet" OR "secretary resigns" OR "shutdown")',
         '("ransomware" OR "cyberattack" OR "infrastructure")',
+        # v1.2.0: counting / certification window
+        '("certify" OR "recount" OR "election officials" OR "concede")',
     ]
     for q in gdelt_queries:
         gdelt_articles = _fetch_gdelt(q, max_records=15)
         all_articles.extend(gdelt_articles)
         time.sleep(0.5)
 
-    # NewsAPI fallback
-    if NEWSAPI_KEY:
-        for q in ['"court order" defied United States',
-                  '"mass shooting" United States',
-                  '"cabinet" OR "secretary fired" United States',
-                  '"ransomware" United States']:
-            na = _fetch_newsapi(q, max_records=10)
+    # NewsAPI fallback -- v1.2.0 through the gateway (it decides whether to
+    # spend budget: GDELT blind, or this caller thin). Three queries, not four:
+    # the gateway's per-backend cap (9/12h) is shared with every WHA tracker.
+    if _newsapi_gw is not None or NEWSAPI_KEY:
+        _have = _COVERAGE.get('gdelt', 0)
+        for q in ['"refuse to certify" OR recount OR "election officials" United States',
+                  '"court order" OR "inspector general" United States',
+                  '"mass shooting" OR "political violence" United States']:
+            na = _fetch_newsapi(q, max_records=10, have=_have)
             all_articles.extend(na)
+    else:
+        _COVERAGE['newsapi_reasons'] = {'not_configured': 1}
 
     pre_social_count = len(all_articles)
     print(f"[US Stability] Pre-social article pool: {pre_social_count}")
@@ -1752,6 +1885,7 @@ def run_stability_scan():
                     'source_type': 'bluesky',
                 })
             all_articles.extend(bluesky_articles)
+            _COVERAGE['bluesky'] = len(bluesky_articles)
             print(f"[US Stability] Bluesky: +{len(bluesky_articles)} posts")
         except Exception as e:
             print(f"[US Stability] Bluesky fetch error: {str(e)[:200]}")
@@ -1793,6 +1927,7 @@ def run_stability_scan():
                     'source_type': 'telegram',
                 })
             all_articles.extend(telegram_articles)
+            _COVERAGE['telegram'] = len(telegram_articles)
             print(f"[US Stability] Telegram: +{len(telegram_articles)} posts")
         except Exception as e:
             print(f"[US Stability] Telegram fetch error: {str(e)[:200]}")
@@ -1814,6 +1949,7 @@ def run_stability_scan():
                 all_articles.extend(brave_results)
                 time.sleep(1.1)   # respect 1 req/sec rate limit
             brave_added = len(all_articles) - pre_brave_count
+            _COVERAGE['brave'] = brave_added
             print(f"[US Stability] Brave fallback: +{brave_added} articles "
                   f"(across {len(brave_queries)} queries)")
         except Exception as e:
@@ -1825,6 +1961,7 @@ def run_stability_scan():
         try:
             reddit_articles = fetch_reddit_signals_us(days=7, max_per_sub=25)
             all_articles.extend(reddit_articles)
+            _COVERAGE['reddit'] = len(reddit_articles)
             print(f"[US Stability] Reddit: +{len(reddit_articles)} posts")
         except Exception as e:
             print(f"[US Stability] Reddit fetch error: {str(e)[:200]}")
@@ -1837,9 +1974,11 @@ def run_stability_scan():
     seen_links = set()
     unique_articles = []
     for a in all_articles:
-        link = a.get('link', '')
-        if link and link not in seen_links:
-            seen_links.add(link)
+        # v1.2.0: link-less items (some social posts) were silently dropped.
+        # Dedupe on link when present, else on title.
+        key = a.get('link') or ('title:' + (a.get('title') or '').strip().lower())
+        if key and key != 'title:' and key not in seen_links:
+            seen_links.add(key)
             unique_articles.append(a)
     all_articles = unique_articles
 
@@ -1917,10 +2056,17 @@ def run_stability_scan():
         'government_data_freshness': govt.get('data_freshness'),
         'staleness_warning':    govt.get('staleness_warning'),
         'articles_scanned':     len(all_articles),
+        # v1.2.0: what each source actually returned this scan.
+        'coverage':             {**{k: v for k, v in _COVERAGE.items()},
+                                 'total_after_dedupe': len(all_articles),
+                                 'thin': len(all_articles) < MIN_ARTICLES_SENSED,
+                                 'newsapi_via_gateway': _newsapi_gw is not None,
+                                 'gdelt_via_gateway': _gdelt_gw is not None},
+        'acting_officials':     govt.get('acting_officials', []),
         'nyse':                 nyse_payload,
         'scan_time_seconds':    elapsed,
         'last_updated':         datetime.now(timezone.utc).isoformat(),
-        'version':              '1.1.0',
+        'version':              MODULE_VERSION,
     }
 
     # ── Update 30-day history ──
@@ -1940,10 +2086,19 @@ def run_stability_scan():
 
 
 def get_stability_data(force_refresh=False):
-    """Get current US stability data (cache-aware)."""
+    """Get current US stability data (cache-aware).
+
+    v1.2.0: the election phase is refreshed on every cache hit -- it is a
+    function of today, and the score no longer depends on it."""
     if not force_refresh:
         cached = _redis_get(CACHE_KEY)
         if cached:
+            if GOVT_AVAILABLE:
+                try:
+                    from us_government_composition import determine_cycle_phase
+                    cached['election_cycle'] = determine_cycle_phase()
+                except Exception:
+                    pass
             return cached
     return run_stability_scan()
 
@@ -2139,9 +2294,11 @@ def register_us_stability_endpoints(app):
         history = _redis_get(HISTORY_KEY)
         fingerprint = _redis_get(FINGERPRINT_KEY)
         return jsonify({
-            'version':                '1.0.0',
+            'version':                MODULE_VERSION,
             'redis_configured':       bool(UPSTASH_REDIS_URL and UPSTASH_REDIS_TOKEN),
-            'newsapi_configured':     bool(NEWSAPI_KEY),
+            'newsapi_configured':     bool(NEWSAPI_KEY) or _newsapi_gw is not None,
+            'newsapi_via_gateway':    _newsapi_gw is not None,
+            'gdelt_via_gateway':      _gdelt_gw is not None,
             'brave_configured':       bool(BRAVE_API_KEY),
             'econ_module_available':  ECON_AVAILABLE,
             'govt_module_available':  GOVT_AVAILABLE,

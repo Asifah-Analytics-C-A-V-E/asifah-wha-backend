@@ -1,7 +1,17 @@
 """
 wha_regional_bluf.py
 Asifah Analytics -- Western Hemisphere Backend Module
-v1.0.0 -- April 2026
+v2.6.0 -- Nov 1 2026  (v1.0.0 April 2026)
+
+v2.6.0 (Nov 1 2026):
+  * Signals that carry only 'severity' (the US interpreter's schema) get a
+    level and priority here; every US signal used to default to priority 5,
+    so a critical cadence signal ranked with a low one.
+  * scanned_at falls back to scan_completed_at / last_updated (the US
+    timestamp was always blank).
+  * A live cache older than STALE_AFTER_HOURS is reported as stale, not
+    live -- rhetoric:us:latest has no TTL, so it could never go stale here.
+  * 'governance' is a recognised pressure_type (GPI governance axis).
 
 Western Hemisphere Regional BLUF (Bottom Line Up Front) Engine.
 
@@ -326,7 +336,8 @@ def _normalize_tracker_data(theatre, raw_data):
         'so_what':      so_what,
         'red_lines':    red_lines,
         'top_signals':  top_signals,
-        'scanned_at':   _safe_str(raw_data.get('scanned_at') or raw_data.get('timestamp', '')),
+        'scanned_at':   _safe_str(raw_data.get('scanned_at') or raw_data.get('scan_completed_at')
+                                  or raw_data.get('last_updated') or raw_data.get('timestamp', '')),
         'raw':          raw_data,
     }
 
@@ -639,6 +650,26 @@ def _synthesize_top_signals_legacy(theatre, raw_data, threat_int, score, so_what
 # ============================================================
 # TRACKER READERS
 # ============================================================
+STALE_AFTER_HOURS = 36
+
+
+def _age_hours(ts):
+    """Hours since an ISO timestamp, or None if it cannot be read."""
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(ts).replace('Z', '+00:00'))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0)
+    except (TypeError, ValueError):
+        return None
+
+
+_SEV_TO_LEVEL    = {'critical': 4, 'high': 3, 'medium': 2, 'low': 1}
+_SEV_TO_PRIORITY = {'critical': 12, 'high': 10, 'medium': 7, 'low': 4}
+
+
 def _read_all_trackers():
     """Read all WHA tracker caches and normalize via shim.
 
@@ -657,6 +688,15 @@ def _read_all_trackers():
         if raw:
             normalized = _normalize_tracker_data(theatre, raw)
             if normalized:
+                _age = _age_hours(normalized.get('scanned_at'))
+                if _age is not None and _age > STALE_AFTER_HOURS:
+                    # v2.6.0: a no-TTL cache can be days old and still "live".
+                    normalized['freshness'] = 'stale'
+                    normalized['age_hours'] = round(_age, 1)
+                    trackers[theatre] = normalized
+                    stale.append(theatre)
+                    print(f'[WHA BLUF] {theatre}: cache is {_age:.0f}h old -- marked STALE')
+                    continue
                 normalized['freshness'] = 'live'
                 trackers[theatre] = normalized
                 _redis_set(_lastgood_key(theatre), raw, ttl=BLUF_LASTGOOD_TTL)
@@ -1271,6 +1311,12 @@ def _build_signals(posture, trackers):
     all_signals = []
     for theatre, data in trackers.items():
         for sig in data.get('top_signals', []):
+            # v2.6.0: severity-only signals (US interpreter schema) get a real
+            # level/priority instead of the flat default of 5.
+            _sev = str(sig.get('severity') or '').lower()
+            if _sev in _SEV_TO_LEVEL:
+                sig.setdefault('level', _SEV_TO_LEVEL[_sev])
+                sig.setdefault('priority', _SEV_TO_PRIORITY[_sev])
             sig.setdefault('priority', 5)
             sig.setdefault('category', 'unknown')
             sig.setdefault('theatre', theatre)
@@ -1311,6 +1357,10 @@ def _build_signals(posture, trackers):
     for s in all_signals:
         theatre = s.get('theatre', '')
         key     = f'{theatre}:{s.get("category", "")}'
+        if s.get('severity'):
+            # v2.6.0: the US schema uses broad categories ('foreign') for
+            # distinct signals (cadence, capability gap, DoD posture).
+            key += ':' + str(s.get('short_text', ''))[:40]
         if key in seen:
             continue
         if theatre != 'regional' and theatre_counts.get(theatre, 0) >= MAX_PER_THEATRE:
@@ -1363,10 +1413,10 @@ def _wha_axes_for_signal(sig):
     cat = str(sig.get('category') or '').lower()
     if cat in _WHA_REGIONAL_AXIS_SETS:
         axes = list(_WHA_REGIONAL_AXIS_SETS[cat])
-        if pt and pt in ('kinetic','economic','diplomatic','humanitarian') and pt not in axes:
+        if pt and pt in ('kinetic','economic','diplomatic','humanitarian','governance') and pt not in axes:
             axes.insert(0, pt)
         return axes
-    if pt and pt in ('kinetic','economic','diplomatic','humanitarian'):
+    if pt and pt in ('kinetic','economic','diplomatic','humanitarian','governance'):
         return [pt]
     blob = (cat + ' ' + str(sig.get('short_text') or '') + ' ' + str(sig.get('long_text') or '')).lower()
     for axis, kws in _WHA_AXIS_KEYWORD_HINTS:

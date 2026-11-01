@@ -1,7 +1,34 @@
 """
 ========================================
-U.S. RHETORIC TRACKER (v1.0.0)
+U.S. RHETORIC TRACKER (v1.4.0 -- Nov 1 2026; v1.0.0 May 2026)
 ========================================
+v1.4.0 (Nov 1 2026, two days before the midterms):
+  * GOVERNANCE BLOCK + SIGNAL for the GPI governance axis (same contract as
+    Israel's government_formation): election phase from
+    us_government_composition, chamber control, acting officials, and an
+    ELECTION-ADMINISTRATION lane (certification refusals, recounts,
+    concession refusals, threats to election officials, federal agents at
+    polling places, results-driven mobilization). Institutional EVENTS only;
+    corroboration (2+ reports, 2+ sources) required above L2; L5 is never
+    asserted from keywords (L5 assertion rule).
+  * us_civil_mobilization: a TWO-SIDED civil-society actor (Rachel, Nov 1):
+    left-leaning (No Kings, Indivisible, MoveOn, Lincoln Project) and
+    right-leaning (Turning Point Action/USA, MAGA Inc., Heritage Action,
+    Americans for Prosperity), counted per side. Before Election Day it is
+    campaign context; after, results-driven mobilization is the signal.
+    "lincoln project" / "never trump" removed from the Congress-opposition
+    actor: outside groups inflated a CONGRESS score, and the majority side
+    had no equivalent. "never trump" is a label, not an organisation.
+  * Canonical signal fields (level, priority, theatre, pressure_type) on
+    every top_signal -- the WHA BLUF defaulted all US signals to priority 5.
+  * NewsAPI through newsapi_gateway (old key deleted 18 Oct; this tracker
+    had been reporting 'not_configured' since). GDELT None guard.
+  * Stale facts: Powell (Fed chair is Warsh since May 2026), Noem (DHS is
+    Mullin), departed spokespeople/governors, the DHS "shutdown" note,
+    generic MOU tripwires anchored to Iran. us_taco_index_v0 placeholder
+    removed from the fingerprint.
+  * Absence-honest: a scan with almost no articles reports NOT SENSED,
+    never "Quiet Week".
 Multi-actor rhetoric monitoring for the United States — the only tracker
 in the Asifah corpus where every other tracker reads from us, and we read
 from every other tracker.
@@ -83,11 +110,22 @@ DEFAULT_MAX_ARTICLES   = 25
 # Try both so the tracker works regardless of which one is configured on Render.
 UPSTASH_URL   = os.environ.get('UPSTASH_REDIS_URL', '') or os.environ.get('UPSTASH_REDIS_REST_URL', '')
 UPSTASH_TOKEN = os.environ.get('UPSTASH_REDIS_TOKEN', '') or os.environ.get('UPSTASH_REDIS_REST_TOKEN', '')
-NEWSAPI_KEY   = os.environ.get('NEWSAPI_KEY', '')
+NEWSAPI_KEY   = os.environ.get('NEWSAPI_KEY', '')   # legacy; deleted from Render 18 Oct 2026
+TRACKER_VERSION = '1.4.0'
+# v1.4.0: NewsAPI through the shared gateway (budget, cache, stand-down).
+try:
+    from newsapi_gateway import newsapi_fetch_probed as _newsapi_gw
+except Exception:
+    _newsapi_gw = None
+# v1.4.0: government composition + election phase (governance block).
+try:
+    from us_government_composition import get_government_composition as _get_govt
+except Exception:
+    _get_govt = None
 BRAVE_API_KEY = os.environ.get('BRAVE_API_KEY', '')
 
 REDIS_AVAILABLE  = bool(UPSTASH_URL and UPSTASH_TOKEN)
-NEWSAPI_AVAILABLE = bool(NEWSAPI_KEY)
+NEWSAPI_AVAILABLE = bool(NEWSAPI_KEY) or (_newsapi_gw is not None)
 BRAVE_AVAILABLE  = bool(BRAVE_API_KEY)
 
 # Diagnostic logging — show which env vars resolved at module load
@@ -243,7 +281,9 @@ ACTORS = {
             # ── Cabinet principals, attribution forms ──
             'rubio said', 'rubio statement', 'secretary rubio',
             'hegseth said', 'hegseth statement', 'secretary hegseth',
-            'noem said', 'noem statement', 'secretary noem',
+            # v1.4.0: DHS is Mullin (confirmed Mar 2026); AG acting Blanche.
+            'mullin said', 'secretary mullin', 'dhs secretary said',
+            'blanche said', 'acting attorney general',
             'bessent said', 'bessent treasury', 'lutnick commerce',
             'kennedy hhs statement',
             # ── Frozen event vocabulary (May-Jun 2026 cycles) ──
@@ -309,7 +349,7 @@ ACTORS = {
             'state dept human rights', 'state dept democracy',
             'us treaty', 'us withdraws from treaty', 'us suspends agreement',
             'us sanctions waiver', 'us travel advisory',
-            'briefing at state department', 'matt miller', 'tammy bruce',
+            'briefing at state department',   # v1.4.0: named past spokespeople removed
             # ── v1.5.0 (May 24, 2026) — Iran deal envoy diplomacy ──
             'witkoff envoy', 'steve witkoff', 'witkoff islamabad',
             'witkoff tehran', 'witkoff iran shuttle', 'witkoff mediation',
@@ -355,7 +395,8 @@ ACTORS = {
             'iran us framework signed', 'iran nuclear deal signed',
             'iran ceasefire deal signed', 'iran hormuz reopening agreement',
             # ── v1.6.0 Jun 14 2026 — Islamabad MOU milestones ──
-            'mou signed', 'memorandum signed', 'cessation of hostilities signed',
+            # v1.4.0: anchored to Iran -- bare 'mou signed' fired on any MOU.
+            'iran mou signed', 'iran memorandum signed', 'cessation of hostilities signed',
             'hormuz open to all', 'naval blockade lifted', 'iran war ends',
         ],
         'baseline_statements_per_week': 30,
@@ -430,7 +471,10 @@ ACTORS = {
         'flag':  '🇺🇸',
         'icon':  '🏛️',
         'color': '#b91c1c',
-        'role':  'House R Majority + Senate Leadership Rhetoric',
+        # v1.4.0: ROLE-labelled. Party control as of Nov 2026 is R in both
+        # chambers; after Jan 3 2027 the keyword lists below must follow the
+        # new majority (Phase 2: role-coded lists from the composition module).
+        'role':  'Majority-party leadership, House + Senate (Republican as of Nov 2026)',
         'layer': 'legislative',
         'weight': 0.95,
         'description': (
@@ -449,7 +493,7 @@ ACTORS = {
             'house republicans pass', 'gop bill',
             'congressional republicans', 'gop senators',
             # Specific committee chairs
-            'jim jordan', 'mark green homeland', 'mike rogers armed services',
+            'jim jordan', 'mike rogers armed services',   # v1.4.0: departed member removed
         ],
         'tripwires': [
             'house gop blocks', 'house impeaches', 'gop impeachment',
@@ -465,7 +509,7 @@ ACTORS = {
         'flag':  '🇺🇸',
         'icon':  '🏛️',
         'color': '#1d4ed8',
-        'role':  'House Dem Minority + Senate Dem + Opposition Rhetoric',
+        'role':  'Minority-party leadership, House + Senate (Democratic as of Nov 2026)',
         'layer': 'legislative',
         'weight': 0.95,
         'description': (
@@ -485,8 +529,7 @@ ACTORS = {
             'rep aoc', 'aoc statement', 'rep ocasio-cortez',
             'sen warren', 'sen sanders', 'sen warnock',
             'sen booker', 'sen padilla', 'sen ossoff',
-            # Opposition-aligned
-            'lincoln project', 'never trump',
+            # v1.4.0: outside groups moved to us_civil_mobilization (two-sided).
         ],
         'tripwires': [
             'dems file impeachment', 'dems walk out',
@@ -555,8 +598,8 @@ ACTORS = {
             'DHS Secretary, ICE Director, CBP, and immigration enforcement rhetoric. '
             'Currently the highest-volatility domestic signal vector and a leading '
             'indicator for protests + civil unrest + midterm voter mobilization. '
-            'Note: operational tempo currently low due to partial shutdown / DHS budget '
-            'constraints, but rhetoric remains active. Watch for: ICE raids announcements, '
+            'Election window (Nov 2026): enforcement near polling or counting sites is '
+            'tracked in the governance block. Watch for: ICE raids announcements, '
             'mass deportation language, sanctuary city rhetoric, CBP enforcement actions, '
             'DHS funding clips.'
         ),
@@ -564,7 +607,7 @@ ACTORS = {
             'ice raid', 'ice raids', 'ice enforcement', 'ice operation',
             'ice arrests', 'ice detention', 'ice deportation',
             'mass deportation', 'mass roundup',
-            'dhs announces', 'dhs secretary noem', 'dhs statement',
+            'dhs announces', 'dhs secretary', 'secretary mullin', 'dhs statement',
             'cbp announces', 'border patrol', 'border enforcement',
             'sanctuary city', 'sanctuary jurisdiction',
             'immigration enforcement', 'immigration raid',
@@ -598,31 +641,31 @@ ACTORS = {
         'flag':  '🇺🇸',
         'icon':  '💵',
         'color': '#059669',
-        'role':  'Powell + FOMC -- Markets-Stability Rhetoric',
+        'role':  'Fed Chair + FOMC -- Markets-Stability Rhetoric',
         'layer': 'institutional',
         'weight': 0.85,
         'description': (
-            'Fed Chair Powell, FOMC statements, and Federal Reserve regional bank '
+            'Fed Chair (Kevin Warsh since May 2026), FOMC statements, and Federal Reserve regional bank '
             'commentary. Distinct economic-stability signal because Fed independence '
             'rhetoric (vs executive pressure to cut rates) is a key institutional '
             'integrity indicator. Watch for: FOMC press conferences, dissent in FOMC '
-            'votes, Powell-Trump rhetoric, regional Fed statements.'
+            'votes, Fed chair-White House rhetoric, regional Fed statements.'
         ),
         'keywords': [
-            'fed chair powell', 'powell statement', 'jerome powell',
+            'fed chair', 'fed chairman', 'kevin warsh', 'warsh said', 'chair warsh',
             'fomc statement', 'fomc decision', 'fomc minutes',
             'federal reserve announces', 'fed rate decision',
             'fed press conference', 'fed governors',
             'st louis fed', 'new york fed', 'kansas city fed',
             'fed independence', 'fed pressure',
-            'trump powell', 'trump fed', 'wh pressures fed',
-            'powell defends fed', 'fed dissent vote',
+            'trump fed', 'trump warsh', 'wh pressures fed',
+            'fed dissent vote',
             'fed minutes show', 'fomc minutes',
             'rate cut', 'rate hike', 'rate hold',
             'beige book', 'fed beige book',
         ],
         'tripwires': [
-            'powell resigns', 'fed chair fired', 'trump fires powell',
+            'fed chair resigns', 'fed chair fired', 'fed chair ousted',
             'fed independence threatened', 'fomc mass dissent',
             'fed governor resigns', 'emergency fomc meeting',
             'fed cuts emergency rate',
@@ -647,9 +690,12 @@ ACTORS = {
         ),
         'keywords': [
             'governor newsom', 'governor abbott', 'governor desantis',
-            'governor hochul', 'governor pritzker', 'governor inslee',
-            'governor whitmer', 'governor youngkin', 'governor shapiro',
-            'governor lee tennessee', 'governor murphy', 'governor walz',
+            # v1.4.0: departed governors removed; generic state-office forms added
+            # so turnover (more in Jan 2027) does not silently blind this actor.
+            'governor hochul', 'governor pritzker', 'governor whitmer',
+            'governor shapiro', 'governor lee tennessee', 'governor walz',
+            'virginia governor', 'new jersey governor', 'washington governor',
+            'governor said', 'governor says', 'governor signs', 'governor orders',
             'state attorney general', 'state ag sues',
             'state files lawsuit', 'state sues federal',
             'state national guard', 'governor federalize',
@@ -668,7 +714,53 @@ ACTORS = {
         ],
         'baseline_statements_per_week': 20,
     },
+
+    # ⭐ NEW v1.4.0 (Nov 1 2026, Rachel's ruling): TWO-SIDED civil-society
+    # mobilization. Outside organisations that drive turnout, rallies and
+    # pressure campaigns, counted PER SIDE so the reading is symmetric by
+    # construction. Feeds the composite like any actor; the per-side split
+    # is reported in 'mobilization'. Before Election Day this is campaign
+    # context; after it, results-driven mobilization is the signal.
+    'us_civil_mobilization': {
+        'name':  'Civil-Society Mobilization (two-sided)',
+        'flag':  '🇺🇸',
+        'icon':  '📣',
+        'color': '#0f766e',
+        'role':  'Left- and right-leaning movements and advocacy groups -- turnout, rallies, pressure',
+        'layer': 'institutional',
+        'weight': 0.8,
+        'description': (
+            'Influential outside organisations on both sides, counted separately. '
+            'Left-leaning: No Kings, Indivisible, MoveOn, Lincoln Project. '
+            'Right-leaning: Turning Point Action/USA, MAGA Inc., Heritage Action, '
+            'Americans for Prosperity. Campaign-season volume is normal democracy; '
+            'after Election Day, mobilization about the RESULTS is what matters.'
+        ),
+        'keywords_left': [
+            'no kings', 'indivisible group', 'indivisible organizers', 'indivisible activists',
+            'indivisible chapters', 'indivisible protest', 'ezra levin', 'leah greenberg',
+            'moveon', 'lincoln project',
+        ],
+        'keywords_right': [
+            'turning point action', 'turning point usa', 'tpusa', 'maga inc',
+            'heritage action', 'americans for prosperity',
+        ],
+        'keywords_unsided': [
+            'nationwide protests', 'nationwide protest', 'mass rally', 'march on washington',
+            'protesters gathered', 'rally outside the capitol',
+        ],
+        'keywords': [],   # filled below from the three lists
+        'tripwires': [
+            'protesters storm', 'clashes at rally', 'rally turns violent',
+            'protest at election office', 'protest at counting center',
+        ],
+        'baseline_statements_per_week': 15,
+    },
 }
+ACTORS['us_civil_mobilization']['keywords'] = (
+    ACTORS['us_civil_mobilization']['keywords_left'] +
+    ACTORS['us_civil_mobilization']['keywords_right'] +
+    ACTORS['us_civil_mobilization']['keywords_unsided'])
 
 
 # Layer ordering for frontend display
@@ -679,6 +771,7 @@ ACTOR_DISPLAY_ORDER = [
     'us_executive', 'us_state_dept', 'us_defense',
     'us_congress_majority', 'us_congress_opposition',
     'us_judicial', 'us_dhs_ice', 'us_federal_reserve', 'us_states',
+    'us_civil_mobilization',
 ]
 
 
@@ -723,6 +816,11 @@ US_RHETORIC_RSS = [
     ('BBC US & Canada',  'https://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml',   'eng', 0.95),
     ('Guardian US',      'https://www.theguardian.com/us-news/rss',                     'eng', 0.95),
 
+    # ── v1.4.0: election administration (counting / certification window) ──
+    ('Election certification (via Google News)', 'https://news.google.com/rss/search?q=%22certify%22+OR+%22certification%22+OR+recount+election+when:3d&hl=en-US&gl=US&ceid=US:en', 'eng', 1.0),
+    ('Election officials (via Google News)', 'https://news.google.com/rss/search?q=%22election+officials%22+OR+%22poll+workers%22+OR+%22polling+place%22+when:3d&hl=en-US&gl=US&ceid=US:en', 'eng', 0.95),
+    ('Civil mobilization (via Google News)', 'https://news.google.com/rss/search?q=%22No+Kings%22+OR+Indivisible+OR+%22Turning+Point+Action%22+OR+%22Heritage+Action%22+OR+MoveOn+OR+%22Americans+for+Prosperity%22+when:7d&hl=en-US&gl=US&ceid=US:en', 'eng', 0.9),
+
     # ── Spanish-language US-focused ──
     ('Spanish-language US Politics (via Google News)', 'https://news.google.com/rss/search?q=Estados+Unidos+pol%C3%ADtica+OR+Trump+OR+Casa+Blanca&hl=es-419&gl=US&ceid=US:es-419', 'spa', 0.85),
 ]
@@ -739,7 +837,7 @@ GDELT_QUERIES = [
     # Cabinet
     ('"secretary rubio" OR "state department" OR "rubio statement"',           'eng', 0.95),
     ('"secretary hegseth" OR "pentagon" OR "defense secretary"',               'eng', 0.95),
-    ('"secretary noem" OR "dhs secretary" OR "homeland security"',             'eng', 1.0),
+    ('"secretary mullin" OR "dhs secretary" OR "homeland security"',           'eng', 1.0),
     # Legislative
     ('"speaker johnson" OR "house republicans" OR "senate gop"',               'eng', 0.9),
     ('"hakeem jeffries" OR "senate democrats" OR "house democrats"',           'eng', 0.9),
@@ -750,7 +848,9 @@ GDELT_QUERIES = [
     ('"ice raids" OR "ice arrests" OR "mass deportation"',                     'eng', 1.05),
     ('"sanctuary city" OR "sanctuary state" OR "immigration enforcement"',     'eng', 1.0),
     # Federal Reserve
-    ('"jerome powell" OR "federal reserve" OR "fomc"',                         'eng', 0.85),
+    ('"fed chair" OR "federal reserve" OR "fomc"',                             'eng', 0.85),
+    # v1.4.0: election administration + two-sided mobilization
+    ('"certify" OR "recount" OR "election officials" OR "concede"',            'eng', 1.0),
     # State pushback
     ('"governor" sues OR defies OR "state attorney general"',                  'eng', 0.85),
     # Spanish
@@ -1123,7 +1223,7 @@ def _fetch_gdelt(query, language='eng', days=3, max_records=25, weight=0.95):
             'source_type': 'gdelt',
             'language':    language,
             'weight':      weight,
-        } for a in raw]
+        } for a in (raw or [])]
 
     try:
         params = {
@@ -1176,8 +1276,35 @@ def _fetch_gdelt(query, language='eng', days=3, max_records=25, weight=0.95):
         return []
 
 
-def _fetch_newsapi(query, max_records=15, weight=0.9):
-    """Fetch from NewsAPI as fallback when GDELT struggles."""
+def _fetch_newsapi(query, max_records=15, weight=0.9, have=None):
+    """Fetch from NewsAPI as fallback when GDELT struggles.
+
+    v1.4.0: through newsapi_gateway when present. The gateway decides whether
+    to spend budget (GDELT blind, or this caller thin) and says why when it
+    does not -- recorded as a note, so a deliberate skip is not 'empty'."""
+    if _newsapi_gw is not None:
+        _t0 = time.time()
+        try:
+            raw, probe = _newsapi_gw(query, days=3, page_size=max_records,
+                                     label='us/' + query.split()[0].strip('"').lower(),
+                                     have=have)
+        except Exception as e:
+            _health_note('newsapi', error=e, duration_ms=(time.time() - _t0) * 1000)
+            return []
+        arts = [{
+            'title':       a.get('title', '') or '',
+            'description': a.get('description', '') or '',
+            'link':        a.get('url', '') or '',
+            'published':   a.get('publishedAt', '') or '',
+            'source':      f"newsapi/{(a.get('source') or {}).get('name', 'unknown')}",
+            'source_type': 'newsapi',
+            'language':    'eng',
+            'weight':      weight,
+        } for a in (raw or [])]
+        _health_note('newsapi', http_status=probe.get('http_status') or (200 if probe.get('sensed') else None),
+                     articles=len(arts), duration_ms=(time.time() - _t0) * 1000,
+                     note=f"gateway: {probe.get('reason')}")
+        return arts
     if not NEWSAPI_AVAILABLE:
         _health_note('newsapi', configured=False)
         return []
@@ -1319,11 +1446,10 @@ def _fetch_all_articles():
         pre_newsapi = len(all_articles)
         for q in [
             '"trump statement" OR "white house"',
-            '"ice raids" OR "mass deportation"',
+            '"certify" OR "recount" OR "election officials"',
             '"supreme court ruling" united states',
-            '"congress" democrats republicans',
         ]:
-            articles = _fetch_newsapi(q, max_records=10)
+            articles = _fetch_newsapi(q, max_records=10, have=gdelt_count)
             all_articles.extend(articles)
         newsapi_count = len(all_articles) - pre_newsapi
         print(f"[US Rhetoric] NewsAPI fallback: {newsapi_count} articles")
@@ -1347,7 +1473,8 @@ def _fetch_all_articles():
             'ice raids deportation',
             'supreme court ruling united states',
             'congress democrats republicans',
-            'federal reserve powell',
+            'federal reserve chair',
+            'election certification recount',
             'state governor lawsuit federal',
         ]:
             articles = _fetch_brave(q, max_records=10)
@@ -1666,7 +1793,8 @@ def _detect_outbound_targets(actor_results, fingerprints):
     return targets[:10]
 
 
-def _write_us_fingerprint(actor_results, composite, branch_div, fracture, outbound_targets):
+def _write_us_fingerprint(actor_results, composite, branch_div, fracture, outbound_targets,
+                          governance=None):
     """Write the US cross-theater fingerprint that all other trackers will read."""
     fingerprint = {
         'us_active':                    composite >= 26,
@@ -1681,7 +1809,12 @@ def _write_us_fingerprint(actor_results, composite, branch_div, fracture, outbou
         'us_branch_divergence_score':   branch_div,
         'us_domestic_fracture_score':   fracture,
         'us_outbound_targets':          outbound_targets,
-        'us_taco_index_v0':             0,  # placeholder for v1.1
+        # v1.4.0: us_taco_index_v0 (a permanent 0 placeholder) removed --
+        # consumers read 0 as "no signal". Governance window fields added
+        # (Lane B hook: other theatres can read the US political calendar).
+        'us_cycle_phase':               (governance or {}).get('phase'),
+        'us_political_window_open':     bool((governance or {}).get('window_open')),
+        'us_governance_level':          (governance or {}).get('level'),
         'updated_at':                   datetime.now(timezone.utc).isoformat(),
     }
     _redis_set('fingerprint:us:current', fingerprint)
@@ -1694,6 +1827,335 @@ def _write_us_fingerprint(actor_results, composite, branch_div, fracture, outbou
 
 _scan_lock    = threading.Lock()
 _scan_running = False
+
+
+# ════════════════════════════════════════════════════════════════════
+# v1.4.0 -- CANONICAL SIGNAL FIELDS
+# ════════════════════════════════════════════════════════════════════
+# The interpreter emits severity/category/actor_key. The WHA BLUF and the GPI
+# sort and band on level/priority/theatre/pressure_type; without them every
+# US signal defaulted to priority 5 and a critical cadence signal ranked with
+# a low one. Severity is mapped once, here.
+_SEV_TO_LEVEL    = {'critical': 4, 'high': 3, 'medium': 2, 'low': 1}
+_SEV_TO_PRIORITY = {'critical': 12, 'high': 10, 'medium': 7, 'low': 4}
+_SEV_ICON        = {'critical': '🚨', 'high': '🔶', 'medium': '🔸', 'low': '·'}
+_KINETIC_HINTS   = ('cadence', 'capability', 'dod posture', 'pre-kinetic', 'the gap',
+                    'quiet preparation', 'credible buildup')
+
+
+def _canonicalize_signals(signals):
+    out = []
+    for sig in signals or []:
+        if not isinstance(sig, dict):
+            continue
+        s2 = dict(sig)
+        sev = str(s2.get('severity') or 'low').lower()
+        s2.setdefault('level', _SEV_TO_LEVEL.get(sev, 1))
+        s2.setdefault('priority', _SEV_TO_PRIORITY.get(sev, 4))
+        s2.setdefault('theatre', 'us')
+        s2.setdefault('icon', _SEV_ICON.get(sev, '·'))
+        if 'pressure_type' not in s2:
+            cat = str(s2.get('category') or '')
+            txt = (str(s2.get('short_text') or '')).lower()
+            if cat == 'economic':
+                s2['pressure_type'] = 'economic'
+            elif cat == 'foreign':
+                s2['pressure_type'] = ('kinetic' if any(h in txt for h in _KINETIC_HINTS)
+                                       else 'diplomatic')
+            else:   # domestic / institutional / civil_social
+                s2['pressure_type'] = 'governance'
+        out.append(s2)
+    return out
+
+
+# ════════════════════════════════════════════════════════════════════
+# v1.4.0 -- TWO-SIDED MOBILISATION READING
+# ════════════════════════════════════════════════════════════════════
+_POST_ELECTION_PHASES = ('counting', 'certification', 'lame_duck')
+
+
+def _mobilization_reading(articles, phase):
+    a = ACTORS['us_civil_mobilization']
+    left = right = unsided = 0
+    examples = {'left': [], 'right': [], 'unsided': []}
+    for art in articles or []:
+        text = ((art.get('title') or '') + ' ' + (art.get('description') or '')).lower()
+        hit = None
+        if any(k in text for k in a['keywords_left']):
+            left += 1; hit = 'left'
+        if any(k in text for k in a['keywords_right']):
+            right += 1; hit = hit or 'right'
+        if hit is None and any(k in text for k in a['keywords_unsided']):
+            unsided += 1; hit = 'unsided'
+        if hit and len(examples[hit]) < 3:
+            examples[hit].append({'title': (art.get('title') or '')[:200],
+                                  'link': art.get('link', ''), 'source': art.get('source', '')})
+    window = 'results' if phase in _POST_ELECTION_PHASES else 'campaign'
+    total = left + right + unsided
+    if total == 0:
+        read = 'No organised mobilization coverage this scan.'
+    elif window == 'campaign':
+        read = (f'Campaign-season mobilization: {left} left-leaning, {right} right-leaning, '
+                f'{unsided} unaffiliated reports. Normal democratic activity -- context, not stress.')
+    else:
+        lead = ('both sides' if left and right and max(left, right) <= 2 * min(left, right)
+                else 'left-leaning groups' if left > right else
+                'right-leaning groups' if right > left else 'unaffiliated crowds')
+        read = (f'Post-election mobilization: {left} left-leaning, {right} right-leaning, '
+                f'{unsided} unaffiliated reports; carried mainly by {lead}. After Election Day, '
+                f'mobilization about the results is the signal to watch near counting and '
+                f'certification sites.')
+    return {'left': left, 'right': right, 'unsided': unsided, 'total': total,
+            'window': window, 'reading': read, 'examples': examples,
+            'groups': {'left': ['No Kings', 'Indivisible', 'MoveOn', 'Lincoln Project'],
+                       'right': ['Turning Point Action/USA', 'MAGA Inc.', 'Heritage Action',
+                                 'Americans for Prosperity']}}
+
+
+# ════════════════════════════════════════════════════════════════════
+# v1.4.0 -- ELECTION-ADMINISTRATION LANE + GOVERNANCE BLOCK
+# ════════════════════════════════════════════════════════════════════
+# Institutional EVENTS, never partisan claims. Each class names what it is,
+# the rung it can support, and its patterns. An article counts only if it
+# also carries election context. Rungs above L2 need corroboration: 2+
+# reports from 2+ distinct sources. L5 is never asserted from keywords.
+_ELECTION_CONTEXT = ('election', 'ballot', 'vote', 'voting', 'polling', 'certif', 'canvass',
+                     'midterm', 'county board', 'secretary of state', 'recount', 'concede')
+ELECTION_ADMIN_CLASSES = {
+    'race_calls': {
+        'label': 'Race calls / concessions', 'rung': 1,
+        'patterns': ['projected winner', 'race called', 'declared the winner', 'concedes',
+                     'conceded', 'concession speech', 'wins reelection', 'wins re-election',
+                     'flips the seat', 'flipped the seat', 'control of the house',
+                     'control of the senate'],
+    },
+    'counting': {
+        'label': 'Counts still open', 'rung': 1,
+        'patterns': ['too close to call', 'votes still being counted', 'ballots left to count',
+                     'counting continues', 'uncalled races', 'outstanding ballots'],
+    },
+    'recount_litigation': {
+        'label': 'Recounts / election litigation', 'rung': 2,
+        'patterns': ['recount', 'election lawsuit', 'sue to stop', 'ballot challenge',
+                     'lawsuit over ballots', 'challenge to ballots', 'contested race',
+                     'provisional ballots dispute', 'cure ballots'],
+    },
+    'results_mobilization': {
+        'label': 'Results-driven mobilization', 'rung': 2,
+        'patterns': ['stop the count', 'count every vote', 'protest election results',
+                     'protesters outside election', 'protest at counting',
+                     'rally over election results'],
+    },
+    'certification_refusal': {
+        'label': 'Certification refused or delayed', 'rung': 3,
+        'patterns': ['refuse to certify', 'refused to certify', 'refuses to certify',
+                     'declined to certify', 'vote against certifying', 'voted not to certify',
+                     'certification delayed', 'delay certification', 'missed certification deadline',
+                     'ordered to certify'],
+    },
+    'concession_refusal': {
+        'label': 'Concession refused', 'rung': 3,
+        'patterns': ['refuses to concede', 'refused to concede', 'will not concede',
+                     "won't concede", 'not conceding'],
+    },
+    'threats_violence': {
+        'label': 'Threats or violence against election officials / sites', 'rung': 3,
+        'patterns': ['election official threatened', 'election officials threatened',
+                     'threats against election officials', 'threats to election officials',
+                     'election workers face threats', 'officials receive threats',
+                     'election workers threatened', 'poll worker threatened',
+                     'poll workers threatened', 'election office evacuated',
+                     'bomb threat at polling', 'bomb threats', 'polling place shooting',
+                     'attack on election office', 'swatting election'],
+    },
+    'federal_presence': {
+        'label': 'Federal agents or troops at polling / counting sites', 'rung': 3,
+        'patterns': ['ice at polling', 'ice agents at polling', 'federal agents at polling',
+                     'federal agents polling', 'troops at polling', 'national guard at polling',
+                     'agents at counting', 'seized ballots', 'seize voting machines',
+                     'voting machines seized', 'federal agents seized'],
+    },
+}
+GOV_LEVEL_LABELS = {0: 'No transition window', 1: 'Transition window -- routine',
+                    2: 'Contested counts', 3: 'Governing authority contested',
+                    4: 'Multiple institutional challenges', 5: 'Transfer-of-power crisis'}
+MIN_ARTICLES_FOR_GOVERNANCE = 60
+
+
+def _detect_election_administration(articles):
+    classes = {}
+    for cid, cfg in ELECTION_ADMIN_CLASSES.items():
+        classes[cid] = {'label': cfg['label'], 'rung': cfg['rung'], 'count': 0,
+                        'sources': set(), 'examples': []}
+    for art in articles or []:
+        text = ((art.get('title') or '') + ' ' + (art.get('description') or '')).lower()
+        if not any(c in text for c in _ELECTION_CONTEXT):
+            continue
+        for cid, cfg in ELECTION_ADMIN_CLASSES.items():
+            if any(p in text for p in cfg['patterns']):
+                rec = classes[cid]
+                rec['count'] += 1
+                rec['sources'].add(art.get('source') or 'unknown')
+                if len(rec['examples']) < 3:
+                    rec['examples'].append({'title': (art.get('title') or '')[:200],
+                                            'link': art.get('link', ''),
+                                            'source': art.get('source', '')})
+    for rec in classes.values():
+        rec['distinct_sources'] = len(rec['sources'])
+        rec['corroborated'] = rec['count'] >= 2 and rec['distinct_sources'] >= 2
+        rec['sources'] = sorted(rec['sources'])[:6]
+    return classes
+
+
+_GOV_SO_WHAT = {
+    'certification_refusal': ('A certification refusal moves a dispute from campaign rhetoric into '
+                              'the machinery of government; courts have so far compelled certification '
+                              '(the 2022 Cochise County precedent), so watch for court orders and compliance.'),
+    'concession_refusal':    ('A refused concession in a decided race is a legitimacy signal, not a '
+                              'count signal: watch whether party leadership echoes or isolates it.'),
+    'threats_violence':      ('Threats against election officials are the leading indicator of '
+                              'administrative strain -- resignations and evacuations slow counts, '
+                              'and slow counts feed disputes.'),
+    'federal_presence':      ('Federal agents or troops near polling or counting sites would test the '
+                              'federal statutes that bar them there; state officials\' response is the tell.'),
+    'recount_litigation':    ('Recounts and lawsuits are the system working as designed; they become '
+                              'stress only when paired with certification refusals or threats.'),
+    'results_mobilization':  ('Results-driven crowds near counting or certification sites are the '
+                              'bridge between rhetoric and physical risk.'),
+}
+
+
+def _governance_block(articles, cross_theater_fps, mobilization):
+    """The US governance block -- GPI governance-axis contract (cf. Israel
+    government_formation). Never raises; absent inputs are reported."""
+    govt = None
+    if _get_govt is not None:
+        try:
+            govt = _get_govt()
+        except Exception as e:
+            print(f"[US Rhetoric] composition read failed: {str(e)[:120]}")
+    cyc = (govt or {}).get('election_cycle') or {}
+    phase = cyc.get('phase', 'unknown' if govt is None else 'regular')
+    window_open = phase in ('election_day',) + _POST_ELECTION_PHASES + ('new_congress',)
+    sensed = len(articles or []) >= MIN_ARTICLES_FOR_GOVERNANCE
+    classes = _detect_election_administration(articles)
+
+    level = 1 if window_open else 0
+    drivers = []
+    for cid, rec in classes.items():
+        if rec['rung'] == 2 and rec['count'] >= 2:
+            level = max(level, 2); drivers.append(cid)
+    l3 = [cid for cid, rec in classes.items() if rec['rung'] == 3 and rec['corroborated']]
+    l3_single = [cid for cid, rec in classes.items() if rec['rung'] == 3 and rec['count'] >= 1
+                 and not rec['corroborated']]
+    if l3:
+        level = max(level, 3); drivers = l3 + drivers
+    elif l3_single:
+        level = max(level, 2); drivers = l3_single + drivers
+    if len(l3) >= 2:
+        level = 4
+    # L5 (transfer-of-power crisis) is never asserted from keyword counts.
+
+    cong = (govt or {}).get('congress') or {}
+    house, senate = cong.get('house') or {}, cong.get('senate') or {}
+    acting = (govt or {}).get('acting_officials') or []
+
+    if not sensed:
+        headline = (f'Election-administration lane NOT SENSED ({len(articles or [])} articles; '
+                    f'minimum {MIN_ARTICLES_FOR_GOVERNANCE}) -- absence of reports is not calm')
+    elif level >= 3:
+        headline = GOV_LEVEL_LABELS.get(level, 'Governing authority contested') + ': ' + ', '.join(
+            ELECTION_ADMIN_CLASSES[c]['label'].lower() for c in drivers[:2])
+    elif level == 2:
+        headline = 'Contested counts: ' + ', '.join(
+            ELECTION_ADMIN_CLASSES[c]['label'].lower() for c in drivers[:2])
+    elif window_open:
+        headline = (f"{cyc.get('phase_label', 'Transition window')} -- no certification, "
+                    f"security or federal-presence incidents corroborated")
+    else:
+        headline = 'No election transition window open'
+
+    so_what = [_GOV_SO_WHAT[c] for c in drivers if c in _GOV_SO_WHAT][:3]
+    # LANE B hook (cross-read): the post-election window as an input to the
+    # Iran ceasefire read. Context only -- never scored here.
+    cross_read = None
+    ir = (cross_theater_fps or {}).get('iran') if isinstance(cross_theater_fps, dict) else None
+    lean = (((ir or {}).get('ceasefire_trajectory') or {}).get('lean')
+            if isinstance(ir, dict) else None)
+    if phase in _POST_ELECTION_PHASES and lean:
+        cross_read = (f'The post-election window (until the new Congress is sworn in) is open while '
+                      f'the Iran ceasefire reads "{lean}". Historically the lame duck is the period '
+                      f'of least legislative constraint on the executive; read the two together.')
+        if lean in ('strained', 'fraying', 'breach_risk'):
+            so_what.append(cross_read)
+    if acting:
+        so_what.append(f'{len(acting)} senior post(s) held in an acting capacity or unverified '
+                       f'({", ".join(a["role"] for a in acting[:3])}): Senate control decides how '
+                       f'fast they are filled.')
+    watch = ['State certification deadlines and any county-level refusals',
+             'Concessions in the races that decide chamber control',
+             'Threats or evacuations at election offices',
+             'Speaker election on Jan 3 2027 (first vote of the new House)']
+    return {
+        'version':           TRACKER_VERSION,
+        'phase':             phase,
+        'phase_label':       cyc.get('phase_label'),
+        'window_open':       window_open,
+        'days_since_election': cyc.get('days_since_election'),
+        'next_milestone':    cyc.get('next_milestone'),
+        'next_milestone_date': cyc.get('next_milestone_date'),
+        'days_to_milestone': cyc.get('days_to_milestone'),
+        'level':             level,
+        'level_label':       GOV_LEVEL_LABELS.get(level),
+        'sensed':            sensed,
+        'headline':          headline,
+        'drivers':           drivers,
+        'classes':           classes,
+        'chambers': {
+            'house':  {k: house.get(k) for k in ('majority_party', 'majority_size',
+                                                  'minority_size', 'vacant', 'as_of')},
+            'senate': {k: senate.get(k) for k in ('majority_party', 'majority_size',
+                                                   'minority_size', 'as_of')},
+            'configuration': ((govt or {}).get('structural_baseline') or {}).get('configuration'),
+            'data_freshness': (govt or {}).get('data_freshness'),
+            'staleness_warning': (govt or {}).get('staleness_warning'),
+        },
+        'acting_officials':  acting,
+        'mobilization':      {k: mobilization.get(k) for k in ('left', 'right', 'unsided',
+                                                               'window', 'reading')},
+        'cross_read_iran':   cross_read,
+        'so_what':           so_what,
+        'watch':             watch,
+        'composition_available': govt is not None,
+        'disclaimer':        ('Institutional events only, corroborated above L2. Not a forecast of '
+                              'any race and not a judgement on any party.'),
+        'computed_at':       datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _governance_signal(gov):
+    """Canonical GPI governance-axis signal. Category tokens 'election' /
+    'governance' route it to the governance axis (GOVERNANCE_CATEGORY_HINTS)."""
+    if not gov or (not gov.get('window_open') and gov.get('level', 0) < 2):
+        return None
+    lvl = int(gov.get('level') or 0)
+    cat = 'us_election_certification' if lvl >= 2 else 'us_governance_transition'
+    if not gov.get('sensed'):
+        cat = 'us_governance_transition'
+    return {
+        'category':      cat,
+        'pressure_type': 'governance',
+        'theatre':       'us',
+        'level':         lvl if gov.get('sensed') else 1,
+        'priority':      8 + lvl,
+        'severity':      {0: 'low', 1: 'low', 2: 'medium', 3: 'high', 4: 'critical'}.get(lvl, 'low'),
+        'icon':          '🏛️',
+        'color':         '#0d9488',
+        'actor_key':     'us_governance',
+        'short_text':    ('🇺🇸 US: ' + gov.get('headline', ''))[:120],
+        'long_text':     ' '.join([gov.get('headline', '') + '.'] + (gov.get('so_what') or [])[:2])[:480],
+        'source_link':   '/rhetoric-us.html#governance',
+    }
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -2000,8 +2462,38 @@ def run_us_rhetoric_scan(force=False):
         else:
             print("[US Rhetoric] Phase 5.5: jawboning primitive unavailable — skipping")
 
+        # ── v1.4.0: governance block + two-sided mobilization ──
+        try:
+            from us_government_composition import determine_cycle_phase as _dcp
+            _phase_now = _dcp().get('phase')
+        except Exception:
+            _phase_now = None
+        mobilization = _mobilization_reading(articles, _phase_now)
+        governance = _governance_block(articles, cross_theater_fps, mobilization)
+        _gsig = _governance_signal(governance)
+        if _gsig:
+            top_signals = [_gsig] + list(top_signals or [])
+        # Absence-honest: almost no articles is NOT a quiet week.
+        sensed = len(articles) >= MIN_ARTICLES_FOR_GOVERNANCE
+        if not sensed:
+            so_what = dict(so_what or {})
+            so_what['factor'] = 'Not Sensed'
+            so_what['description'] = (
+                f'Only {len(articles)} articles reached this scan. The scores below are a '
+                f'coverage gap, not a reading of calm. Check source health before using them.')
+            top_signals = [{
+                'short_text': f'Coverage gap: {len(articles)} articles this scan (not sensed)',
+                'long_text':  'Too few articles to read US rhetoric. Absence of signals here is '
+                              'not evidence of calm.',
+                'severity': 'low', 'category': 'institutional', 'actor_key': 'us_executive',
+            }] + list(top_signals or [])
+        top_signals = _canonicalize_signals(top_signals)
+        top_signals.sort(key=lambda s: -int(s.get('priority', 0) or 0))
+        _redis_set('us:governance_transition', governance, ttl=7 * 24 * 3600)
+
         # Phase 6: write fingerprint
-        fingerprint = _write_us_fingerprint(actor_results, composite, branch_div, fracture, outbound_targets)
+        fingerprint = _write_us_fingerprint(actor_results, composite, branch_div, fracture,
+                                            outbound_targets, governance)
 
         # ── L5 Reservation Contract: build signal text now that branch_div + fracture exist ──
         signal_text = _build_us_signal_text(
@@ -2043,6 +2535,13 @@ def run_us_rhetoric_scan(force=False):
             'article_count':           len(articles),
             'scan_seconds':            elapsed,
             'scan_completed_at':       datetime.now(timezone.utc).isoformat(),
+            # v1.4.0: the WHA BLUF reads 'scanned_at'; it was always blank.
+            'scanned_at':              datetime.now(timezone.utc).isoformat(),
+            'version':                 TRACKER_VERSION,
+            'success':                 True,
+            'sensed':                  sensed,
+            'governance':              governance,
+            'mobilization':            mobilization,
             'source_counts':           _compute_source_counts(articles),
             # v1.3 - what each fetcher actually did, as opposed to whether
             # a key for it exists. See the *_available flags below, which
@@ -2292,8 +2791,12 @@ def register_us_rhetoric_endpoints(app):
                 # whenever a key or module import succeeded, whether or not
                 # the source returns anything. Read 'source_health' above
                 # for what actually happened. Kept for UI compatibility.
+                'version':             TRACKER_VERSION,
                 'redis_available':     REDIS_AVAILABLE,
                 'newsapi_available':   NEWSAPI_AVAILABLE,
+                'newsapi_via_gateway': _newsapi_gw is not None,
+                'composition_available': _get_govt is not None,
+                'governance':          cache.get('governance'),
                 'brave_available':     BRAVE_AVAILABLE,
                 'bluesky_available':   BLUESKY_AVAILABLE,
                 'telegram_available':  TELEGRAM_AVAILABLE,

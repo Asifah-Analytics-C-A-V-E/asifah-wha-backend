@@ -1,6 +1,22 @@
 """
-Asifah Analytics — U.S. Government Composition v1.0.0
-May 11, 2026
+Asifah Analytics — U.S. Government Composition v1.1.0
+Nov 1, 2026  (v1.0.0 May 11, 2026)
+
+v1.1.0 (Nov 1 2026, two days before the midterms):
+  * Static data refreshed and DATE-STAMPED per entry (House 218-214-1 with
+    two vacancies; DHS Mullin; acting AG Blanche; DNI vacancy; Fed chair
+    Warsh). Every person entry carries 'as_of', and 'status' where it is not
+    a plain confirmed holder ('acting', 'verify').
+  * Election phases the docstring promised but the code never produced:
+    'counting' (Election Day +7) and 'certification' (to the cycle's
+    certification_window_end), then 'lame_duck', then 'new_congress'.
+  * next_milestone / days_to_milestone: in the lame duck the old
+    days_until_next_election pointed at 2028 ("735 days").
+  * The election cycle is RECOMPUTED on every call, including cache hits --
+    a 24h cache used to freeze the phase on the day it changed.
+  * After a new Congress is sworn in, a static fallback that predates it is
+    flagged (it used to fall silent on Jan 3).
+  * acting_officials list for the governance block.
 
 Single source of truth for U.S. federal government composition + election
 cycle awareness. Consumed by:
@@ -79,7 +95,8 @@ CACHE_TTL_SECONDS = 24 * 3600    # 24h
 DEFAULT_TIMEOUT = 12
 
 # Static fallback "as of" date — UPDATE WHEN STATIC DATA IS REFRESHED
-STATIC_DATA_AS_OF = '2026-05-10'
+STATIC_DATA_AS_OF = '2026-10-31'
+MODULE_VERSION = '1.1.0'
 
 if CONGRESS_API_KEY:
     print("[US Govt Composition] ✅ Congress.gov API key configured")
@@ -101,11 +118,15 @@ CONGRESS_119_FALLBACK = {
     'data_as_of':       STATIC_DATA_AS_OF,
 
     'house': {
+        # v1.1.0: Wikipedia, 2026 House elections page (read Oct 31 2026):
+        # R 218 / D 214 / I 1 (Kevin Kiley, CA-6) / vacant 2 (FL-20, TX-23).
         'total_seats':      435,
         'majority_party':   'Republican',
-        'majority_size':    220,
-        'minority_size':    213,
+        'majority_size':    218,
+        'minority_size':    214,
+        'independents':     1,
         'vacant':           2,
+        'as_of':            '2026-10-31',
         'speaker':          {'name': 'Mike Johnson', 'state': 'LA', 'party': 'R'},
         'majority_leader':  {'name': 'Steve Scalise', 'state': 'LA', 'party': 'R'},
         'minority_leader':  {'name': 'Hakeem Jeffries', 'state': 'NY', 'party': 'D'},
@@ -118,6 +139,7 @@ CONGRESS_119_FALLBACK = {
         'majority_party':   'Republican',
         'majority_size':    53,
         'minority_size':    47,
+        'as_of':            '2026-10-31',
         'majority_leader':  {'name': 'John Thune', 'state': 'SD', 'party': 'R'},
         'minority_leader':  {'name': 'Chuck Schumer', 'state': 'NY', 'party': 'D'},
         'majority_whip':    {'name': 'John Barrasso', 'state': 'WY', 'party': 'R'},
@@ -162,16 +184,21 @@ EXECUTIVE_2025_FALLBACK = {
          'party': 'R', 'department': 'Treasury'},
         {'role': 'Secretary of Defense',         'name': 'Pete Hegseth',
          'party': 'R', 'department': 'Defense'},
-        {'role': 'Attorney General',             'name': 'Pam Bondi',
-         'party': 'R', 'department': 'Justice'},
+        # v1.1.0: Bondi out Apr 2 2026; Blanche acting (ABC/AP Apr 2 2026).
+        # VERIFY whether a nominee has since been confirmed.
+        {'role': 'Attorney General',             'name': 'Todd Blanche',
+         'party': 'R', 'department': 'Justice', 'status': 'acting',
+         'since': '2026-04-02', 'as_of': '2026-10-31', 'verify': True},
         {'role': 'Secretary of the Interior',    'name': 'Doug Burgum',
          'party': 'R', 'department': 'Interior'},
         {'role': 'Secretary of Agriculture',     'name': 'Brooke Rollins',
          'party': 'R', 'department': 'Agriculture'},
         {'role': 'Secretary of Commerce',        'name': 'Howard Lutnick',
          'party': 'R', 'department': 'Commerce'},
-        {'role': 'Secretary of Labor',           'name': 'Lori Chavez-DeRemer',
-         'party': 'R', 'department': 'Labor'},
+        # v1.1.0: Chavez-DeRemer out (reported 2026). Successor not verified.
+        {'role': 'Secretary of Labor',           'name': 'Unverified (post Chavez-DeRemer)',
+         'party': 'R', 'department': 'Labor', 'status': 'verify',
+         'as_of': '2026-10-31', 'verify': True},
         {'role': 'Secretary of Health and Human Services', 'name': 'Robert F. Kennedy Jr.',
          'party': 'R', 'department': 'HHS'},
         {'role': 'Secretary of Housing and Urban Development', 'name': 'Scott Turner',
@@ -184,14 +211,18 @@ EXECUTIVE_2025_FALLBACK = {
          'party': 'R', 'department': 'Education'},
         {'role': 'Secretary of Veterans Affairs', 'name': 'Doug Collins',
          'party': 'R', 'department': 'VA'},
-        {'role': 'Secretary of Homeland Security', 'name': 'Kristi Noem',
-         'party': 'R', 'department': 'DHS'},
+        # v1.1.0: Noem out; Markwayne Mullin confirmed March 2026 (NPR Jun 16 2026).
+        {'role': 'Secretary of Homeland Security', 'name': 'Markwayne Mullin',
+         'party': 'R', 'department': 'DHS', 'since': '2026-03', 'as_of': '2026-10-31'},
 
         # Cabinet-rank officials beyond the 15 statutory secretaries
         {'role': 'White House Chief of Staff',   'name': 'Susie Wiles',
          'party': 'R', 'department': 'White House'},
-        {'role': 'Director of National Intelligence', 'name': 'Tulsi Gabbard',
-         'party': 'R', 'department': 'ODNI'},
+        # v1.1.0: Gabbard resigned May 2026 (Fortune May 26 2026). An acting
+        # DNI has been reported; name not verified here -- shown as acting.
+        {'role': 'Director of National Intelligence', 'name': 'Acting (unverified)',
+         'party': 'R', 'department': 'ODNI', 'status': 'acting',
+         'since': '2026-05', 'as_of': '2026-10-31', 'verify': True},
         {'role': 'Director of CIA',              'name': 'John Ratcliffe',
          'party': 'R', 'department': 'CIA'},
         {'role': 'EPA Administrator',            'name': 'Lee Zeldin',
@@ -208,9 +239,11 @@ EXECUTIVE_2025_FALLBACK = {
 
     # Independent agency leaders (not cabinet but stability-relevant)
     'independent_agencies': [
-        {'role': 'Federal Reserve Chair',        'name': 'Jerome Powell',
-         'party': 'Independent', 'term_ends': '2026-05-15',
-         'note': 'Chair term ends mid-2026; reappointment/replacement is major signal'},
+        # v1.1.0: Senate confirmed Kevin Warsh May 13 2026 (Powell's chair
+        # term ended May 15 2026).
+        {'role': 'Federal Reserve Chair',        'name': 'Kevin Warsh',
+         'party': 'Independent', 'since': '2026-05', 'as_of': '2026-10-31',
+         'note': 'Fed independence vs executive pressure remains the watch item'},
         {'role': 'Federal Reserve Vice Chair',   'name': 'Philip Jefferson',
          'party': 'Independent'},
         {'role': 'FBI Director',                 'name': 'Kash Patel',
@@ -268,6 +301,10 @@ ELECTION_CYCLE_DATES = {
         'last_primary_date':          '2026-09-08',    # MA, NH, RI, DE typically last
         'general_election_day':       '2026-11-03',
         'state_certification_window': '2026-11-15',    # most states
+        # v1.1.0: end of the 'certification' phase. State deadlines vary;
+        # several run into December. APPROXIMATE -- a phase boundary, not a
+        # legal deadline.
+        'certification_window_end':   '2026-12-11',
         'electoral_count':            None,            # midterm has no electoral count
         'congress_120_starts':        '2027-01-03',
         'lame_duck_window_start':     '2026-11-03',
@@ -282,6 +319,7 @@ ELECTION_CYCLE_DATES = {
         'last_primary_date':          '2028-06-06',
         'general_election_day':       '2028-11-07',
         'state_certification_window': '2028-11-19',
+        'certification_window_end':   '2028-12-11',    # approximate (safe-harbor era)
         'electoral_count':            '2029-01-06',
         'inauguration_day':           '2029-01-20',
         'congress_121_starts':        '2029-01-03',
@@ -371,12 +409,32 @@ def determine_cycle_phase(today=None):
                     last_congress_start = (datetime.fromisoformat(cs).date()
                                            if cs else None)
 
-    # Are we in lame duck?
+    # v1.1.0 -- post-election phases, in order:
+    #   counting       Election Day +1 .. +7      race calls, recounts, concessions
+    #   certification  .. certification_window_end  canvass / state certification
+    #   lame_duck      .. new Congress sworn in
+    #   new_congress   first 30 days (Speaker vote, organising, oversight start)
+    last_cycle = None
+    for cycle_id, cycle in ELECTION_CYCLE_DATES.items():
+        ged = cycle.get('general_election_day')
+        if ged and datetime.fromisoformat(ged).date() == last_election_date:
+            last_cycle = cycle
     if (last_election_date and last_congress_start and
-            last_election_date <= today < last_congress_start):
-        phase = 'lame_duck'
-        phase_label = 'Lame Duck / Transition Window'
-        stability_modifier = 1.4    # appointments + late legislation more stress-relevant
+            last_election_date < today < last_congress_start):
+        cert_end_s = (last_cycle or {}).get('certification_window_end')
+        cert_end = datetime.fromisoformat(cert_end_s).date() if cert_end_s else None
+        days_since = (today - last_election_date).days
+        if days_since <= 7:
+            phase, phase_label, stability_modifier = 'counting', 'Counting / Race Calls', 1.6
+            milestone, milestone_label = cert_end, 'Certification window closes (approx.)'
+        elif cert_end and today <= cert_end:
+            phase, phase_label, stability_modifier = 'certification', 'Certification Window', 1.5
+            milestone, milestone_label = cert_end, 'Certification window closes (approx.)'
+        else:
+            phase, phase_label, stability_modifier = 'lame_duck', 'Lame Duck / Transition Window', 1.4
+            milestone, milestone_label = last_congress_start, 'New Congress sworn in'
+        if milestone is None or milestone < today:
+            milestone, milestone_label = last_congress_start, 'New Congress sworn in'
         return {
             'phase':                    phase,
             'phase_label':              phase_label,
@@ -384,7 +442,25 @@ def determine_cycle_phase(today=None):
             'next_election_label':      next_cycle.get('cycle_name', next_cycle_id),
             'next_election_date':       next_election_date.isoformat(),
             'current_cycle':            next_cycle,
+            'last_election_date':       last_election_date.isoformat(),
+            'days_since_election':      days_since,
+            'next_milestone':           milestone_label,
+            'next_milestone_date':      milestone.isoformat(),
+            'days_to_milestone':        (milestone - today).days,
             'stability_modifier':       stability_modifier,
+        }
+    if last_congress_start and 0 <= (today - last_congress_start).days < 30:
+        return {
+            'phase':                    'new_congress',
+            'phase_label':              'New Congress (first 30 days)',
+            'days_until_next_election': days_until,
+            'next_election_label':      next_cycle.get('cycle_name', next_cycle_id),
+            'next_election_date':       next_election_date.isoformat(),
+            'current_cycle':            next_cycle,
+            'next_milestone':           'Next general election',
+            'next_milestone_date':      next_election_date.isoformat(),
+            'days_to_milestone':        days_until,
+            'stability_modifier':       1.15,
         }
 
     # Are we close to election day?
@@ -426,8 +502,25 @@ def determine_cycle_phase(today=None):
         'next_election_label':      next_cycle.get('cycle_name', next_cycle_id),
         'next_election_date':       next_election_date.isoformat(),
         'current_cycle':            next_cycle,
+        'next_milestone':           next_cycle.get('cycle_name', 'Next general election'),
+        'next_milestone_date':      next_election_date.isoformat(),
+        'days_to_milestone':        days_until,
         'stability_modifier':       stability_modifier,
     }
+
+
+def list_acting_officials(executive_data=None):
+    """Roles held in an acting capacity, or flagged for verification.
+    Governance-block input: a growing acting list is itself a stress signal
+    (confirmation capacity), and a 'verify' entry is an admitted data gap."""
+    ex = executive_data or EXECUTIVE_2025_FALLBACK
+    out = []
+    for p in (ex.get('cabinet') or []) + (ex.get('independent_agencies') or []):
+        st = p.get('status')
+        if st in ('acting', 'verify'):
+            out.append({'role': p.get('role'), 'name': p.get('name'), 'status': st,
+                        'since': p.get('since'), 'as_of': p.get('as_of')})
+    return out
 
 
 # ============================================================
@@ -763,6 +856,11 @@ def get_government_composition(force_refresh=False):
                 if age < CACHE_TTL_SECONDS:
                     cached['data_freshness'] = 'cached'
                     cached['cache_age_hours'] = round(age / 3600, 2)
+                    # v1.1.0: the phase is a function of TODAY, not of when
+                    # the composition was fetched. Recompute on every call.
+                    cached['election_cycle'] = determine_cycle_phase()
+                    cached['acting_officials'] = list_acting_officials(cached.get('executive'))
+                    cached['version'] = MODULE_VERSION
                     return cached
             except Exception:
                 pass
@@ -820,6 +918,14 @@ def get_government_composition(force_refresh=False):
                                      f'{cs_date}. Live API unavailable — composition shown '
                                      f'reflects pre-election state.')
                 break
+            # v1.1.0: after swearing-in, a static file older than the new
+            # Congress is WRONG, not merely old. It used to go silent here.
+            if (data_freshness == 'static_fallback' and cs_date <= today and
+                    datetime.fromisoformat(STATIC_DATA_AS_OF).date() < cs_date):
+                staleness_warning = (f'⚠️ Static composition ({STATIC_DATA_AS_OF}) predates the '
+                                     f'Congress sworn in {cs_date}. Chamber control and '
+                                     f'leadership shown may be wrong until the static data '
+                                     f'or the live API is refreshed.')
 
     result = {
         'success':                True,
@@ -833,7 +939,8 @@ def get_government_composition(force_refresh=False):
         'static_fallback_as_of':  STATIC_DATA_AS_OF,
         'congress_api_configured': bool(CONGRESS_API_KEY),
         'redis_configured':       bool(UPSTASH_REDIS_URL and UPSTASH_REDIS_TOKEN),
-        'version':                '1.0.0',
+        'acting_officials':       list_acting_officials(executive_data),
+        'version':                MODULE_VERSION,
     }
 
     # ── Write to cache (only successful live fetches) ──
@@ -912,7 +1019,7 @@ def register_government_composition_endpoints(app):
         cached = _redis_get(CACHE_KEY)
         cycle_now = determine_cycle_phase()
         return jsonify({
-            'version':                  '1.0.0',
+            'version':                  MODULE_VERSION,
             'congress_api_configured':  bool(CONGRESS_API_KEY),
             'redis_configured':         bool(UPSTASH_REDIS_URL and UPSTASH_REDIS_TOKEN),
             'static_data_as_of':        STATIC_DATA_AS_OF,
