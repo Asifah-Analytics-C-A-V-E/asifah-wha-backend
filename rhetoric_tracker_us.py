@@ -281,9 +281,12 @@ ACTORS = {
             # ── Cabinet principals, attribution forms ──
             'rubio said', 'rubio statement', 'secretary rubio',
             'hegseth said', 'hegseth statement', 'secretary hegseth',
-            # v1.4.0: DHS is Mullin (confirmed Mar 2026); AG acting Blanche.
+            # v1.4.0: DHS Mullin (Mar 2026); AG Blanche (sworn in Aug 10 2026);
+            # Labor Sonderling (Sep 30 2026); acting DNI Pulte (Jun 2 2026).
             'mullin said', 'secretary mullin', 'dhs secretary said',
-            'blanche said', 'acting attorney general',
+            'blanche said', 'attorney general blanche', 'ag blanche',
+            'sonderling said', 'labor secretary sonderling',
+            'pulte said', 'acting dni', 'acting director of national intelligence',
             'bessent said', 'bessent treasury', 'lutnick commerce',
             'kennedy hhs statement',
             # ── Frozen event vocabulary (May-Jun 2026 cycles) ──

@@ -95,8 +95,8 @@ CACHE_TTL_SECONDS = 24 * 3600    # 24h
 DEFAULT_TIMEOUT = 12
 
 # Static fallback "as of" date — UPDATE WHEN STATIC DATA IS REFRESHED
-STATIC_DATA_AS_OF = '2026-10-31'
-MODULE_VERSION = '1.1.0'
+STATIC_DATA_AS_OF = '2026-11-01'
+MODULE_VERSION = '1.1.1'   # Nov 1: AG Blanche (sworn in Aug 10), Labor Sonderling (Sep 30), acting DNI Pulte (Jun 2)
 
 if CONGRESS_API_KEY:
     print("[US Govt Composition] ✅ Congress.gov API key configured")
@@ -184,21 +184,22 @@ EXECUTIVE_2025_FALLBACK = {
          'party': 'R', 'department': 'Treasury'},
         {'role': 'Secretary of Defense',         'name': 'Pete Hegseth',
          'party': 'R', 'department': 'Defense'},
-        # v1.1.0: Bondi out Apr 2 2026; Blanche acting (ABC/AP Apr 2 2026).
-        # VERIFY whether a nominee has since been confirmed.
+        # v1.1.1: Bondi out Apr 2 2026; Blanche acting from Apr 2, confirmed
+        # and SWORN IN Aug 10 2026 (AP, Aug 10 2026; Rachel, Nov 1).
         {'role': 'Attorney General',             'name': 'Todd Blanche',
-         'party': 'R', 'department': 'Justice', 'status': 'acting',
-         'since': '2026-04-02', 'as_of': '2026-10-31', 'verify': True},
+         'party': 'R', 'department': 'Justice',
+         'since': '2026-08-10', 'as_of': '2026-11-01'},
         {'role': 'Secretary of the Interior',    'name': 'Doug Burgum',
          'party': 'R', 'department': 'Interior'},
         {'role': 'Secretary of Agriculture',     'name': 'Brooke Rollins',
          'party': 'R', 'department': 'Agriculture'},
         {'role': 'Secretary of Commerce',        'name': 'Howard Lutnick',
          'party': 'R', 'department': 'Commerce'},
-        # v1.1.0: Chavez-DeRemer out (reported 2026). Successor not verified.
-        {'role': 'Secretary of Labor',           'name': 'Unverified (post Chavez-DeRemer)',
-         'party': 'R', 'department': 'Labor', 'status': 'verify',
-         'as_of': '2026-10-31', 'verify': True},
+        # v1.1.1: Chavez-DeRemer out; Keith Sonderling confirmed Sep 2026,
+        # sworn in Sep 30 2026 (Rachel, Nov 1; Senate roll call / DOL release).
+        {'role': 'Secretary of Labor',           'name': 'Keith Sonderling',
+         'party': 'R', 'department': 'Labor',
+         'since': '2026-09-30', 'as_of': '2026-11-01'},
         {'role': 'Secretary of Health and Human Services', 'name': 'Robert F. Kennedy Jr.',
          'party': 'R', 'department': 'HHS'},
         {'role': 'Secretary of Housing and Urban Development', 'name': 'Scott Turner',
@@ -218,11 +219,11 @@ EXECUTIVE_2025_FALLBACK = {
         # Cabinet-rank officials beyond the 15 statutory secretaries
         {'role': 'White House Chief of Staff',   'name': 'Susie Wiles',
          'party': 'R', 'department': 'White House'},
-        # v1.1.0: Gabbard resigned May 2026 (Fortune May 26 2026). An acting
-        # DNI has been reported; name not verified here -- shown as acting.
-        {'role': 'Director of National Intelligence', 'name': 'Acting (unverified)',
+        # v1.1.1: Gabbard resigned May 2026; Bill Pulte named ACTING DNI
+        # Jun 2 2026 (AP/Gray TV, Jun 2 2026; Rachel, Nov 1).
+        {'role': 'Director of National Intelligence', 'name': 'Bill Pulte',
          'party': 'R', 'department': 'ODNI', 'status': 'acting',
-         'since': '2026-05', 'as_of': '2026-10-31', 'verify': True},
+         'since': '2026-06-02', 'as_of': '2026-11-01'},
         {'role': 'Director of CIA',              'name': 'John Ratcliffe',
          'party': 'R', 'department': 'CIA'},
         {'role': 'EPA Administrator',            'name': 'Lee Zeldin',
