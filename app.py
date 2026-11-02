@@ -231,7 +231,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 # CONFIGURATION
 # ========================================
 
-VERSION = '1.4.0'   # Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
+VERSION = '1.5.0'   # Nov 1 2026: Flight Watch (first flight sensor) | Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
 
 # v1.3.1 (Oct 3 2026) -- the UA now derives from VERSION above.
 # WHA was already the cleanest backend on the platform: two call sites, both
@@ -2468,6 +2468,17 @@ try:
     register_airspace_endpoints(app, 'wha')
 except Exception as _e:
     print(f"[WHA] ⚠️ Airspace Watch unavailable: {_e}")
+
+
+# ── Flight Watch (shared module, Nov 1 2026) ───────────────────────────
+# Live airline suspensions / cancellations / declared end dates / resumptions from
+# Google News, leader-only every 6 h. Same file on all five backends; this backend
+# sees only its own destinations. Requests only ever read the Redis cache.
+try:
+    from flight_watch import register_flight_endpoints
+    register_flight_endpoints(app, 'wha', legacy_routes=['/flight-cancellations', '/api/wha/flights'])
+except Exception as _e:
+    print(f"[WHA] ⚠️ Flight Watch unavailable: {_e}")
 
 if __name__ == '__main__':
     app.run(debug=False, host='0.0.0.0', port=5000)
