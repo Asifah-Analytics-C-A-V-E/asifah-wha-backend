@@ -44,7 +44,10 @@ from datetime import datetime, timezone
 
 import requests
 
-AIRSPACE_VERSION = '3.0.0'
+AIRSPACE_VERSION = '3.0.1'
+# v3.0.1 (Nov 3 2026): WHA region set gains Argentina, Paraguay and Canada (bulletins only,
+# traffic=False -- no extra OpenSky credits). Other backends are unaffected; the file can be
+# copied to them at any time.
 # v2.1.0 (Nov 1 2026): the standard crawler form "Mozilla/5.0 (compatible; Name/ver; +url)"
 # -- the convention Googlebot/Bingbot use. It names us truthfully (no browser is
 # impersonated) but passes WAFs that reject anything not starting "Mozilla/5.0".
@@ -191,6 +194,9 @@ REGION_SETS = {
             'peru':      _R('Peru', '🇵🇪', 'SPIM', (-18.4, 0.0, -81.3, -68.7), ['peru']),
             'chile':     _R('Chile', '🇨🇱', 'SCEZ', (-56.0, -17.5, -75.7, -66.4), ['chile']),
             'brazil':    _R('Brazil', '🇧🇷', 'SBBS', (-33.8, 5.3, -73.9, -34.8), ['brazil'], traffic=False),
+            'argentina': _R('Argentina', '🇦🇷', 'SAEF', (-55.1, -21.8, -73.6, -53.6), ['argentina'], traffic=False),
+            'paraguay':  _R('Paraguay', '🇵🇾', 'SGFA', (-27.6, -19.3, -62.7, -54.2), ['paraguay'], traffic=False),
+            'canada':    _R('Canada', '🇨🇦', 'CZUL', (41.7, 83.1, -141.0, -52.6), ['canada'], traffic=False),
         },
         'neighbours': {'venezuela': ['colombia'], 'haiti': ['cuba']},
     },

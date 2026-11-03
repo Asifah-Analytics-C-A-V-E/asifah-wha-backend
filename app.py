@@ -1,4 +1,12 @@
 """
+Asifah Analytics -- Western Hemisphere Backend v1.6.0
+Nov 3 2026 (v1.6.0): Argentina, Paraguay and Canada added to the scanned set;
+  /api/notams wired to Airspace Watch (the landing page called a route that
+  never existed -> 404); military read fixed (ME writes 'military_tracker_cache'
+  with actors under 'actor_summaries' -- WHA read 'military_cache'/'actors', so
+  every military pressure boost silently read 'normal'); travel advisories
+  scraped by a background thread instead of on the page-load path, with a
+  per-country /debug route that says WHY a country is missing.
 Asifah Analytics -- Western Hemisphere Backend v1.3.0
 March 2026 (v1.2.0: May 2026 -- Chile + Peru added)
 v1.3.0: Sep 27 2026 -- the last backend routed through the shared GDELT and
@@ -231,7 +239,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 # CONFIGURATION
 # ========================================
 
-VERSION = '1.5.0'   # Nov 1 2026: Flight Watch (first flight sensor) | Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
+VERSION = '1.6.0'   # Nov 3 2026: Argentina/Paraguay/Canada, NOTAM route, military key, advisories | Nov 1 2026: Flight Watch (first flight sensor) | Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
 
 # v1.3.1 (Oct 3 2026) -- the UA now derives from VERSION above.
 # WHA was already the cleanest backend on the platform: two call sites, both
@@ -277,6 +285,7 @@ WHA_COUNTRIES = [
     'venezuela', 'cuba', 'haiti', 'panama',
     'colombia', 'mexico', 'brazil', 'us',
     'chile', 'peru',  # v1.2.0 (May 2026) -- copper convergence anchors
+    'argentina', 'paraguay', 'canada',  # v1.6.0 (Nov 2026) -- China/BRI, Tri-Border, US-Canada rupture
 ]
 
 # ========================================
@@ -327,6 +336,10 @@ WHA_PRESSURE_SOURCES = {
     # v1.2.0: Chile + Peru (copper convergence anchors)
     'chile':     {'external': None,     'internal': None},      # stable democracy; no military pressure vector yet
     'peru':      {'external': None,     'internal': 'peru'},    # mining-region militarization, VRAEM ops
+    # v1.6.0: the ME military tracker has no actors for these yet -> boosts read 0 (honest, not quiet)
+    'argentina': {'external': None,     'internal': None},
+    'paraguay':  {'external': None,     'internal': None},
+    'canada':    {'external': None,     'internal': None},
     # haiti: handled separately via gang-control signals (future work)
 }
 
@@ -386,19 +399,25 @@ def _redis_set(key, value, ttl_seconds=None):
 # ========================================
 
 def _wha_read_actor_level(actor_id):
-    """Read a single actor's alert_level from ME's military_cache in Redis."""
+    """Read a single actor's alert_level from the ME military tracker's cache.
+
+    v1.6.0 FIX: ME writes 'military_tracker_cache' (military_tracker.py
+    MILITARY_REDIS_KEY) with per-actor data under 'actor_summaries'. This
+    function read 'military_cache' / 'actors' -- a key nobody writes -- so every
+    WHA military boost has read 'normal' since April. The partial match was
+    also unsafe: 'us' is a substring of 'russia', so it is now prefix-only."""
     if not actor_id:
         return 'normal'
     try:
-        data = _redis_get('military_cache')
+        data = _redis_get('military_tracker_cache') or _redis_get('military_cache')
         if not data:
             return 'normal'
-        actors = data.get('actors', {})
+        actors = data.get('actor_summaries') or data.get('actors') or {}
         actor = actors.get(actor_id, {})
         if not actor:
-            # Try partial match (e.g. 'us' might be stored as 'us_centcom')
+            # Prefix match only (e.g. 'us' -> 'us_southcom'), never substring
             for k, v in actors.items():
-                if actor_id in k or k in actor_id:
+                if k.startswith(actor_id + '_'):
                     actor = v
                     break
         return actor.get('alert_level', 'normal')
@@ -1175,7 +1194,146 @@ COUNTRY_CONFIG = {
             'mining_agreement':       +6,
             'political_stabilization': +6,
         }
-    }
+    },
+
+    # ── v1.6.0 (Nov 3 2026) ──────────────────────────────────────────────
+    'argentina': {
+        'name': 'Argentina',
+        'flag': '🇦🇷',
+        'base_conflict_pct': 22,
+        'context': ('Milei government between two patrons: a US$20bn US Treasury swap line and a US$19bn China '
+                    'swap renewed for five years (Aug 2026). China\'s Neuquén deep-space station, lithium, Patagonian '
+                    'fishing fleets. Tri-Border Area (Puerto Iguazú). 1992 embassy and 1994 AMIA bombings.'),
+        'labels': {'low': 'Stable', 'medium': 'Stressed', 'high': 'Unstable', 'surge': 'Crisis'},
+        'gdelt_queries_en': [
+            'argentina milei protest strike',
+            'argentina china swap investment',
+            'argentina china space station neuquen',
+            'argentina peso inflation crisis',
+            'argentina hezbollah amia tri-border',
+            'argentina lithium china',
+            'argentina falklands malvinas',
+            'argentina us treasury swap',
+        ],
+        'gdelt_queries_es': [
+            'argentina milei paro protesta',
+            'argentina china swap inversion',
+            'argentina estacion espacial china neuquen',
+            'argentina hezbollah amia triple frontera',
+            'argentina crisis economica peso',
+        ],
+        'newsapi_queries': [
+            'Argentina Milei economy protest',
+            'Argentina China influence swap lithium',
+            'Argentina United States Treasury swap',
+            'Argentina AMIA Hezbollah Iran',
+        ],
+        'rss_feeds': [
+            'https://news.google.com/rss/search?q=argentina+milei+OR+china+argentina+OR+argentina+economy&hl=en&gl=US&ceid=US:en',
+            'https://news.google.com/rss/search?q=argentina+china+OR+milei+protesta+OR+triple+frontera&hl=es-419&gl=AR&ceid=AR:es-419',
+        ],
+        'keywords_escalation': [
+            'general strike argentina', 'paro general', 'argentina protests', 'argentina riot',
+            'argentina state of siege', 'peso collapse', 'argentina default', 'capital controls argentina',
+            'cepo', 'argentina hyperinflation', 'chinese military argentina', 'neuquen station',
+            'chinese fishing fleet argentina', 'hezbollah argentina', 'amia', 'triple frontera',
+            'tri-border area', 'falklands tension', 'malvinas', 'argentina impeachment',
+            'milei corruption', 'argentina crackdown',
+        ],
+        'keywords_stability': [
+            'argentina imf agreement', 'argentina inflation falls', 'argentina reform passed',
+            'argentina investment', 'argentina recovery', 'argentina bond rally',
+        ],
+        'score_modifiers': {},
+    },
+
+    'paraguay': {
+        'name': 'Paraguay',
+        'flag': '🇵🇾',
+        'base_conflict_pct': 20,
+        'context': ('Peña government; one of the last states recognising Taiwan, so a target of Beijing\'s courtship. '
+                    'Ciudad del Este anchors the Tri-Border Area with Brazil and Argentina -- smuggling, money laundering, '
+                    'and long-reported Hizballah-linked finance. Organised crime (PCC) on the Brazil border.'),
+        'labels': {'low': 'Stable', 'medium': 'Stressed', 'high': 'Unstable', 'surge': 'Crisis'},
+        'gdelt_queries_en': [
+            'paraguay tri-border area hezbollah',
+            'ciudad del este money laundering',
+            'paraguay taiwan china recognition',
+            'paraguay pcc organized crime',
+            'paraguay pena government',
+            'paraguay drug trafficking cocaine',
+        ],
+        'gdelt_queries_es': [
+            'paraguay triple frontera hezbollah',
+            'ciudad del este lavado de dinero',
+            'paraguay taiwan china',
+            'paraguay pcc crimen organizado',
+            'paraguay narcotrafico',
+        ],
+        'newsapi_queries': [
+            'Paraguay Tri-Border Area Hezbollah',
+            'Paraguay Taiwan China recognition',
+            'Paraguay organized crime PCC cocaine',
+        ],
+        'rss_feeds': [
+            'https://news.google.com/rss/search?q=paraguay+OR+%22ciudad+del+este%22+OR+%22tri-border+area%22&hl=en&gl=US&ceid=US:en',
+            'https://news.google.com/rss/search?q=paraguay+OR+%22ciudad+del+este%22+OR+%22triple+frontera%22&hl=es-419&gl=PY&ceid=PY:es-419',
+        ],
+        'keywords_escalation': [
+            'hezbollah paraguay', 'hezbollah ciudad del este', 'tri-border area', 'triple frontera',
+            'terror financing paraguay', 'ofac paraguay', 'money laundering paraguay', 'lavado de dinero',
+            'pcc paraguay', 'cartel paraguay', 'cocaine seizure paraguay', 'paraguay prison riot',
+            'paraguay protests', 'paraguay impeachment', 'juicio politico', 'paraguay drops taiwan',
+            'paraguay recognizes china', 'assassination paraguay', 'sicario',
+        ],
+        'keywords_stability': [
+            'paraguay taiwan reaffirm', 'paraguay us cooperation', 'paraguay investment',
+            'paraguay extradition', 'paraguay arrests traffickers',
+        ],
+        'score_modifiers': {},
+    },
+
+    'canada': {
+        'name': 'Canada',
+        'flag': '🇨🇦',
+        'base_conflict_pct': 10,
+        'context': ('Carney government in an open trade rupture with Washington: 50% US tariffs on some Canadian goods '
+                    'since Aug 22 2026, Canadian counter-tariffs since Sep 8, auto/steel threat for Jan 1 2027 and a USMCA '
+                    'review. Alberta voted 74.95% to remain in Canada on Oct 19 2026; Quebec sovereigntism and Arctic '
+                    'sovereignty are the other unity files.'),
+        'labels': {'low': 'Stable', 'medium': 'Stressed', 'high': 'Strained', 'surge': 'Rupture'},
+        'gdelt_queries_en': [
+            'canada us tariffs trade war carney',
+            'canada usmca cusma review',
+            'alberta separatism independence',
+            'quebec sovereignty referendum parti quebecois',
+            'canada arctic sovereignty',
+            'canada 51st state trump',
+            'canada china relations',
+        ],
+        'gdelt_queries_es': [],
+        'newsapi_queries': [
+            'Canada US tariffs Carney Trump',
+            'Alberta separatism referendum',
+            'Quebec sovereignty Parti Quebecois',
+            'Canada Arctic sovereignty',
+        ],
+        'rss_feeds': [
+            'https://news.google.com/rss/search?q=canada+tariffs+OR+carney+trump+OR+usmca&hl=en&gl=CA&ceid=CA:en',
+            'https://news.google.com/rss/search?q=alberta+separatism+OR+quebec+sovereignty+OR+canada+arctic&hl=en&gl=CA&ceid=CA:en',
+        ],
+        'keywords_escalation': [
+            'tariff', 'trade war', 'retaliatory tariffs', 'counter-tariffs', '51st state',
+            'annexation', 'usmca withdrawal', 'cusma', 'alberta independence', 'alberta separatism',
+            'quebec referendum', 'quebec sovereignty', 'parti quebecois', 'arctic sovereignty',
+            'border closure canada', 'boycott american', 'canada recession', 'canada layoffs',
+        ],
+        'keywords_stability': [
+            'canada us trade deal', 'tariffs lifted', 'tariff exemption', 'usmca renewed',
+            'alberta remain', 'canada unity', 'carney trump agreement',
+        ],
+        'score_modifiers': {},
+    },
 }
 
 
@@ -2323,6 +2481,9 @@ WHA_TRAVEL_ADVISORY_URLS = {
     'brazil':     'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/brazil-travel-advisory.html',
     'chile':      'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/chile-travel-advisory.html',
     'peru':       'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/peru-travel-advisory.html',
+    'argentina':  'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/argentina-travel-advisory.html',
+    'paraguay':   'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/paraguay-travel-advisory.html',
+    'canada':     'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/canada-travel-advisory.html',
     'us':         None,
 }
 ADVISORY_LEVEL_COLORS = {
@@ -2339,87 +2500,136 @@ ADVISORY_LEVEL_SHORT = {
     4: 'Do Not Travel',
 }
 
+_TA_DIAG = {}   # country -> last scrape outcome (served by /api/wha/travel-advisories/debug)
+
+
 def _scrape_travel_advisory(country_id):
+    """v1.6.0: parse order -- (1) <title>/meta description, (2) 'Level N -' dash
+    headline, (3) 'Level N:' colon headline followed by the level's own words.
+    The old version fell back to 'the lowest Level number anywhere on the page',
+    which a site-wide legend would satisfy with a wrong Level 1. Every outcome is
+    recorded in _TA_DIAG so a missing card says why."""
+    import re as _re
     url = WHA_TRAVEL_ADVISORY_URLS.get(country_id)
     if not url:
         return None
+    diag = {'url': url, 'at': datetime.now(timezone.utc).isoformat()}
     try:
         headers = {'User-Agent': ASIFAH_USER_AGENT}   # Nov 1 2026: was hardcoded /1.0
         resp = requests.get(url, headers=headers, timeout=(5, 15))
+        diag['http'] = resp.status_code
         if resp.status_code != 200:
+            diag['outcome'] = f'HTTP {resp.status_code}'
+            _TA_DIAG[country_id] = diag
             return None
         text = resp.text
-
-        # State Dept page structure:
-        #   Country headline: "Level 2 - Exercise Increased Caution"  <- dash
-        #   Sub-region label: "International Borders – Level 4:"      <- colon, reversed word order
-        # Match ONLY "Level X -" (dash) which is exclusively the country-wide
-        # headline format. Sub-region headers use "Level X:" with a colon
-        # and never appear with the dash format, so this cleanly separates
-        # countries like Brazil (Level 2 overall, Level 4 sub-regions).
-        import re as _re
-        level = 0
-        m = _re.search(r'Level\s+([1-4])\s+-', text)
+        level, how = 0, ''
+        head = ' '.join(_re.findall(r'<title>(.*?)</title>', text, _re.S | _re.I)[:1]
+                        + _re.findall(r'<meta[^>]+(?:name|property)="(?:description|og:description)"[^>]+content="([^"]*)"', text, _re.I)[:2])
+        m = _re.search(r'Level\s+([1-4])', head)
         if m:
-            level = int(m.group(1))
-        else:
-            # Fallback: lowest level found (country level is always the base;
-            # sub-regions are equal or higher, never lower)
-            for lvl in [1, 2, 3, 4]:
-                if f'Level {lvl}' in text:
-                    level = lvl
-                    break
-
+            level, how = int(m.group(1)), 'title/meta'
+        if not level:
+            m = _re.search(r'Level\s+([1-4])\s+[-–—]\s*(?:Exercise|Reconsider|Do Not)', text)
+            if m:
+                level, how = int(m.group(1)), 'dash headline'
+        if not level:
+            m = _re.search(r'Level\s+([1-4])\s*:\s*(?:Exercise|Reconsider|Do Not)', text)
+            if m:
+                level, how = int(m.group(1)), 'colon headline (first on page)'
+        diag['parsed_by'] = how or None
         if level == 0:
+            diag['outcome'] = 'page fetched, no level pattern found (page layout changed?)'
+            _TA_DIAG[country_id] = diag
             return None
-
+        diag['outcome'] = f'ok: Level {level}'
+        _TA_DIAG[country_id] = diag
         return {
             'level': level,
             'level_short': ADVISORY_LEVEL_SHORT.get(level, 'See Advisory'),
             'level_color': ADVISORY_LEVEL_COLORS.get(level, '#6b7280'),
             'link': url,
-            'recently_changed': 'recently changed' in text.lower() or 'updated' in text.lower(),
+            'recently_changed': 'recently changed' in text.lower(),
             'change_description': '',
             'country': country_id,
+            'parsed_by': how,
             'scraped_at': datetime.now(timezone.utc).isoformat()
         }
     except Exception as e:
+        diag['outcome'] = f'{type(e).__name__}: {str(e)[:100]}'
+        _TA_DIAG[country_id] = diag
         print(f'[WHA TA] Scrape error for {country_id}: {e}')
         return None
 
 
+_TA_CACHE_KEY = 'wha:travel_advisories'
+_ta_refresh_lock = threading.Lock()
+
+
+def _refresh_travel_advisories():
+    """Scrape every country once and cache. Runs in a background thread -- never on
+    a page request. Keeps the last good reading for a country that fails this time."""
+    if not _ta_refresh_lock.acquire(blocking=False):
+        return
+    try:
+        prev = (cache_get(_TA_CACHE_KEY) or {}).get('advisories', {})
+        advisories, failed = {}, []
+        for country_id in WHA_COUNTRIES:
+            if country_id == 'us':
+                continue
+            result = _scrape_travel_advisory(country_id)
+            if result:
+                advisories[country_id] = result
+            elif country_id in prev:
+                kept = dict(prev[country_id])
+                kept['stale'] = True
+                advisories[country_id] = kept
+                failed.append(country_id)
+            else:
+                failed.append(country_id)
+            time.sleep(0.5)
+        cache_set(_TA_CACHE_KEY, {
+            'success': True, 'advisories': advisories, 'count': len(advisories),
+            'failed': failed, 'last_updated': datetime.now(timezone.utc).isoformat(), 'cached': False,
+        })
+        print(f'[WHA TA] refreshed: {len(advisories)} ok, failed={failed}')
+    finally:
+        _ta_refresh_lock.release()
+
+
+def _travel_advisory_loop():
+    time.sleep(45)
+    while True:
+        try:
+            _refresh_travel_advisories()
+        except Exception as e:
+            print(f'[WHA TA] loop error: {str(e)[:120]}')
+        time.sleep(6 * 3600)
+
+
 @app.route('/api/wha/travel-advisories', methods=['GET', 'OPTIONS'])
 def api_wha_travel_advisories():
+    """v1.6.0: reads the cache only. A cold cache returns pending=True (and kicks
+    one background refresh) instead of scraping 12 pages while the visitor waits."""
     if request.method == 'OPTIONS':
         return '', 200
-
-    cache_key = 'wha:travel_advisories'
     force = (request.args.get('force', 'false').lower() == 'true' and _public_force_allowed(request.path))
+    cached = cache_get(_TA_CACHE_KEY)
+    if force or not cached or not is_cache_fresh(cached, max_hours=12):
+        threading.Thread(target=_refresh_travel_advisories, daemon=True).start()
+    if cached:
+        cached['cached'] = True
+        return jsonify(cached)
+    return jsonify({'success': True, 'advisories': {}, 'count': 0, 'pending': True,
+                    'message': 'Travel advisories are being fetched; refresh in a minute.'})
 
-    if not force:
-        cached = cache_get(cache_key)
-        if cached and is_cache_fresh(cached, max_hours=6):
-            cached['cached'] = True
-            return jsonify(cached)
 
-    advisories = {}
-    for country_id in WHA_COUNTRIES:
-        if country_id == 'us':
-            continue
-        result = _scrape_travel_advisory(country_id)
-        if result:
-            advisories[country_id] = result
-        time.sleep(0.5)
-
-    result = {
-        'success': True,
-        'advisories': advisories,
-        'count': len(advisories),
-        'last_updated': datetime.now(timezone.utc).isoformat(),
-        'cached': False
-    }
-    cache_set(cache_key, result)
-    return jsonify(result)
+@app.route('/api/wha/travel-advisories/debug', methods=['GET'])
+def api_wha_travel_advisories_debug():
+    """Why is a card missing its advisory? One row per country: HTTP status and
+    which parser matched. Reads only -- never scrapes."""
+    return jsonify({'version': VERSION, 'countries': _TA_DIAG,
+                    'note': 'Empty until the background refresh has run once (~45s after boot).'})
 
 
 # ========================================
@@ -2427,6 +2637,9 @@ def api_wha_travel_advisories():
 # ========================================
 
 _start_background_refresh()
+
+# v1.6.0 -- travel advisories refresh off the request path (6h cycle, 45s boot delay)
+threading.Thread(target=_travel_advisory_loop, daemon=True).start()
 
 # Start Cuba rhetoric tracker background refresh (12h cycle, 90s boot delay)
 if CUBA_RHETORIC_AVAILABLE:
@@ -2465,7 +2678,9 @@ if US_STABILITY_AVAILABLE:
 # backends; this backend sees only its own regions.
 try:
     from airspace_watch import register_airspace_endpoints
-    register_airspace_endpoints(app, 'wha')
+    # v1.6.0: legacy_route='/api/notams' -- the landing page has always called this
+    # path, and nothing served it (404). Airspace Watch now answers it.
+    register_airspace_endpoints(app, 'wha', legacy_route='/api/notams')
 except Exception as _e:
     print(f"[WHA] ⚠️ Airspace Watch unavailable: {_e}")
 
