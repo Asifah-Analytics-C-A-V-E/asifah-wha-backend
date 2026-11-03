@@ -239,7 +239,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 # CONFIGURATION
 # ========================================
 
-VERSION = '1.6.1'   # Nov 3 2026: advisories from the State Dept JSON feed (matches ME) | Argentina/Paraguay/Canada, NOTAM route, military key, advisories | Nov 1 2026: Flight Watch (first flight sensor) | Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
+VERSION = '1.6.2'   # Nov 3 2026: WHA market quotes (6 pulses) | advisories from the State Dept JSON feed (matches ME) | Argentina/Paraguay/Canada, NOTAM route, military key, advisories | Nov 1 2026: Flight Watch (first flight sensor) | Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
 
 # v1.3.1 (Oct 3 2026) -- the UA now derives from VERSION above.
 # WHA was already the cleanest backend on the platform: two call sites, both
@@ -2116,6 +2116,14 @@ if MEXICO_STABILITY_AVAILABLE:
 # Synthesizes top_signals[] for downstream Global Pressure Index consumption.
 if WHA_BLUF_AVAILABLE:
     register_wha_bluf_routes(app)
+
+# Nov 3 2026 -- Market Watch: six Western Hemisphere financial pulses
+# (/api/wha/market/<argentina|brazil|chile|colombia|peru|canada>, /debug/wha-market)
+try:
+    from wha_market_quotes import register_wha_market_endpoints
+    register_wha_market_endpoints(app, force_gate=_public_force_allowed)
+except Exception as _wmq_err:
+    print(f'[WHA Backend] WARNING: WHA market quotes unavailable ({_wmq_err})')
 
 
 @app.route('/health', methods=['GET'])
