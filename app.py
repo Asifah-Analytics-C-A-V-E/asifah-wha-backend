@@ -239,7 +239,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 # CONFIGURATION
 # ========================================
 
-VERSION = '1.6.0'   # Nov 3 2026: Argentina/Paraguay/Canada, NOTAM route, military key, advisories | Nov 1 2026: Flight Watch (first flight sensor) | Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
+VERSION = '1.6.1'   # Nov 3 2026: advisories from the State Dept JSON feed (matches ME) | Argentina/Paraguay/Canada, NOTAM route, military key, advisories | Nov 1 2026: Flight Watch (first flight sensor) | Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
 
 # v1.3.1 (Oct 3 2026) -- the UA now derives from VERSION above.
 # WHA was already the cleanest backend on the platform: two call sites, both
@@ -247,10 +247,10 @@ VERSION = '1.6.0'   # Nov 3 2026: Argentina/Paraguay/Canada, NOTAM route, milita
 # they announced version 1.0 while VERSION said 1.3.0 -- three releases of
 # drift in a string nobody reads until a publisher asks who we are.
 #
-# _scrape_travel_advisory() is the one to watch after deploy: it scrapes
-# state.gov HTML rather than reading a feed, and scrapers are where an honest
-# bot identifier gets refused. feed_health will say so. The fix then is a
-# documented exception at that call site, not a revert.
+# Travel advisories (v1.6.1) now read the State Dept JSON feed exactly as the
+# ME backend does. They used to scrape travel.state.gov HTML pages, which is
+# where an honest bot identifier gets refused -- the likely reason WHA cards
+# never showed a level while ME's always did.
 ASIFAH_USER_AGENT = f"Mozilla/5.0 (compatible; AsifahAnalytics-WHA/{VERSION}; +https://asifahanalytics.com)"
 
 # ── v1.4.0 (Nov 1 2026) public ?force gate ─────────────────────────────
@@ -2471,94 +2471,140 @@ print('[WHA Backend] ✅ Military tracker proxy endpoints registered (v1.1.0 wit
 # TRAVEL ADVISORY ENDPOINT
 # ========================================
 
+# v1.6.1 (Nov 3 2026): same source as the ME and Africa pages -- the State
+# Dept's own JSON feed (cadataapi.state.gov), one request for every country.
+# The old WHA code scraped each country's HTML page, which is why WHA was the
+# odd one out. Category codes are FIPS (Chile = CI, Paraguay = PA, Panama = PM).
+# Each match must ALSO name the country in its title, so a FIPS/ISO mix-up
+# (ISO PA = Panama, ISO CI = Cote d'Ivoire) can never put the wrong level on a card.
+TRAVEL_ADVISORY_API = 'https://cadataapi.state.gov/api/TravelAdvisories'
+
+WHA_TRAVEL_ADVISORY_CODES = {
+    'venezuela': (['VE'], 'venezuela'),
+    'cuba':      (['CU'], 'cuba'),
+    'haiti':     (['HA'], 'haiti'),
+    'panama':    (['PM'], 'panama'),
+    'colombia':  (['CO'], 'colombia'),
+    'mexico':    (['MX'], 'mexico'),
+    'brazil':    (['BR'], 'brazil'),
+    'chile':     (['CI'], 'chile'),
+    'peru':      (['PE'], 'peru'),
+    'argentina': (['AR'], 'argentina'),
+    'paraguay':  (['PA'], 'paraguay'),
+    'canada':    (['CA'], 'canada'),
+}
+
+# Fallback link per country (used when the feed has no Link field).
 WHA_TRAVEL_ADVISORY_URLS = {
-    'venezuela':  'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/venezuela-travel-advisory.html',
-    'cuba':       'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/cuba-travel-advisory.html',
-    'haiti':      'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/haiti-travel-advisory.html',
-    'panama':     'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/panama-travel-advisory.html',
-    'colombia':   'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/colombia-travel-advisory.html',
-    'mexico':     'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/mexico-travel-advisory.html',
-    'brazil':     'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/brazil-travel-advisory.html',
-    'chile':      'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/chile-travel-advisory.html',
-    'peru':       'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/peru-travel-advisory.html',
-    'argentina':  'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/argentina-travel-advisory.html',
-    'paraguay':   'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/paraguay-travel-advisory.html',
-    'canada':     'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/canada-travel-advisory.html',
-    'us':         None,
-}
-ADVISORY_LEVEL_COLORS = {
-    1: '#2563eb',
-    2: '#d97706',
-    3: '#ea580c',
-    4: '#dc2626',
+    c: f'https://travel.state.gov/content/travel/en/traveladvisories/traveladvisories/{c}-travel-advisory.html'
+    for c in WHA_TRAVEL_ADVISORY_CODES
 }
 
-ADVISORY_LEVEL_SHORT = {
-    1: 'Exercise Normal Precautions',
-    2: 'Exercise Increased Caution',
-    3: 'Reconsider Travel',
-    4: 'Do Not Travel',
+# Same labels and colours as the ME backend, so every regional page matches.
+TRAVEL_ADVISORY_LEVELS = {
+    1: {'label': 'Exercise Normal Precautions', 'short': 'Normal Precautions', 'color': '#10b981'},
+    2: {'label': 'Exercise Increased Caution',  'short': 'Increased Caution',  'color': '#f59e0b'},
+    3: {'label': 'Reconsider Travel',           'short': 'Reconsider Travel',  'color': '#f97316'},
+    4: {'label': 'Do Not Travel',               'short': 'Do Not Travel',      'color': '#ef4444'},
 }
 
-_TA_DIAG = {}   # country -> last scrape outcome (served by /api/wha/travel-advisories/debug)
+_TA_DIAG = {}   # last fetch outcome (served by /api/wha/travel-advisories/debug)
 
 
-def _scrape_travel_advisory(country_id):
-    """v1.6.0: parse order -- (1) <title>/meta description, (2) 'Level N -' dash
-    headline, (3) 'Level N:' colon headline followed by the level's own words.
-    The old version fell back to 'the lowest Level number anywhere on the page',
-    which a site-wide legend would satisfy with a wrong Level 1. Every outcome is
-    recorded in _TA_DIAG so a missing card says why."""
+def _parse_advisory(country_id, advisory):
+    """Turn one feed record into the ME-shaped card payload."""
     import re as _re
-    url = WHA_TRAVEL_ADVISORY_URLS.get(country_id)
-    if not url:
-        return None
-    diag = {'url': url, 'at': datetime.now(timezone.utc).isoformat()}
+    title = advisory.get('Title', '') or ''
+    m = _re.search(r'Level\s+([1-4])', title)
+    level = int(m.group(1)) if m else 0
+    info = TRAVEL_ADVISORY_LEVELS.get(level, {})
+    summary_html = advisory.get('Summary', '') or ''
+    first_p = _re.search(r'<p[^>]*>(.*?)</p>', summary_html, _re.S | _re.I)
+    short = _re.sub(r'<[^>]+>', '', first_p.group(1)).strip()[:300] if first_p else ''
+    if not short:
+        short = _re.sub(r'<[^>]+>', '', summary_html).strip()[:300]
+    short = _re.sub(r'\s+', ' ', short.replace('&nbsp;', ' '))
+    updated = advisory.get('Updated', '') or ''
+    recently_changed, change = False, ''
     try:
-        headers = {'User-Agent': ASIFAH_USER_AGENT}   # Nov 1 2026: was hardcoded /1.0
-        resp = requests.get(url, headers=headers, timeout=(5, 15))
+        dt = datetime.fromisoformat(updated.replace('Z', '+00:00'))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        days = (datetime.now(timezone.utc) - dt).days
+        if days <= 30:
+            recently_changed = True
+            low = summary_html.lower()
+            if 'advisory level was increased' in low or 'upgraded' in low:
+                change = f'Advisory level INCREASED (updated {days} days ago)'
+            elif 'advisory level was decreased' in low or 'downgraded' in low:
+                change = f'Advisory level DECREASED (updated {days} days ago)'
+            else:
+                change = f'Updated {days} days ago'
+    except Exception:
+        pass
+    cats = advisory.get('Category', []) or []
+    return {
+        'country': country_id,
+        'country_code': cats[0] if cats else '',
+        'title': title,
+        'level': level,
+        'level_label': info.get('label', 'Unknown'),
+        'level_short': info.get('short', 'See Advisory'),
+        'level_color': info.get('color', '#6b7280'),
+        'short_summary': short,
+        'link': advisory.get('Link') or WHA_TRAVEL_ADVISORY_URLS.get(country_id),
+        'published': advisory.get('Published', ''),
+        'updated': updated,
+        'recently_changed': recently_changed,
+        'change_description': change,
+    }
+
+
+def _fetch_travel_advisories():
+    """One request to the State Dept feed. Returns {country: payload} or None."""
+    diag = {'source': TRAVEL_ADVISORY_API, 'at': datetime.now(timezone.utc).isoformat()}
+    try:
+        # Request made exactly as the ME backend makes it (no custom headers): that
+        # call is proven live, so WHA copies it rather than improving on it.
+        resp = requests.get(TRAVEL_ADVISORY_API, timeout=(5, 20))
         diag['http'] = resp.status_code
         if resp.status_code != 200:
             diag['outcome'] = f'HTTP {resp.status_code}'
-            _TA_DIAG[country_id] = diag
+            _TA_DIAG.update(diag)
             return None
-        text = resp.text
-        level, how = 0, ''
-        head = ' '.join(_re.findall(r'<title>(.*?)</title>', text, _re.S | _re.I)[:1]
-                        + _re.findall(r'<meta[^>]+(?:name|property)="(?:description|og:description)"[^>]+content="([^"]*)"', text, _re.I)[:2])
-        m = _re.search(r'Level\s+([1-4])', head)
-        if m:
-            level, how = int(m.group(1)), 'title/meta'
-        if not level:
-            m = _re.search(r'Level\s+([1-4])\s+[-–—]\s*(?:Exercise|Reconsider|Do Not)', text)
-            if m:
-                level, how = int(m.group(1)), 'dash headline'
-        if not level:
-            m = _re.search(r'Level\s+([1-4])\s*:\s*(?:Exercise|Reconsider|Do Not)', text)
-            if m:
-                level, how = int(m.group(1)), 'colon headline (first on page)'
-        diag['parsed_by'] = how or None
-        if level == 0:
-            diag['outcome'] = 'page fetched, no level pattern found (page layout changed?)'
-            _TA_DIAG[country_id] = diag
-            return None
-        diag['outcome'] = f'ok: Level {level}'
-        _TA_DIAG[country_id] = diag
-        return {
-            'level': level,
-            'level_short': ADVISORY_LEVEL_SHORT.get(level, 'See Advisory'),
-            'level_color': ADVISORY_LEVEL_COLORS.get(level, '#6b7280'),
-            'link': url,
-            'recently_changed': 'recently changed' in text.lower(),
-            'change_description': '',
-            'country': country_id,
-            'parsed_by': how,
-            'scraped_at': datetime.now(timezone.utc).isoformat()
-        }
+        feed = resp.json() or []
+        diag['records'] = len(feed)
+        out, per = {}, {}
+        for cid, (codes, name) in WHA_TRAVEL_ADVISORY_CODES.items():
+            hit = None
+            for adv in feed:
+                cats = adv.get('Category', []) or []
+                if any(c in codes for c in cats) and name in (adv.get('Title', '') or '').lower():
+                    hit = adv
+                    break
+            if hit is None:   # code missing or changed: fall back to the title alone
+                for adv in feed:
+                    if (adv.get('Title', '') or '').lower().startswith(name):
+                        hit = adv
+                        break
+            if hit is None:
+                per[cid] = 'not in feed'
+                continue
+            parsed = _parse_advisory(cid, hit)
+            if parsed['level'] == 0:
+                per[cid] = 'in feed, no level in title'
+                continue
+            out[cid] = parsed
+            per[cid] = f"ok: Level {parsed['level']}"
+        diag['outcome'] = f'{len(out)}/{len(WHA_TRAVEL_ADVISORY_CODES)} read'
+        diag['countries'] = per
+        _TA_DIAG.clear()
+        _TA_DIAG.update(diag)
+        return out
     except Exception as e:
         diag['outcome'] = f'{type(e).__name__}: {str(e)[:100]}'
-        _TA_DIAG[country_id] = diag
-        print(f'[WHA TA] Scrape error for {country_id}: {e}')
+        _TA_DIAG.update(diag)
+        print(f'[WHA TA] feed error: {e}')
         return None
 
 
@@ -2567,30 +2613,30 @@ _ta_refresh_lock = threading.Lock()
 
 
 def _refresh_travel_advisories():
-    """Scrape every country once and cache. Runs in a background thread -- never on
-    a page request. Keeps the last good reading for a country that fails this time."""
+    """Fetch the feed once and cache. Background thread only -- never on a page
+    request. Keeps the last good reading for any country missing this time."""
     if not _ta_refresh_lock.acquire(blocking=False):
         return
     try:
         prev = (cache_get(_TA_CACHE_KEY) or {}).get('advisories', {})
+        fresh = _fetch_travel_advisories()
         advisories, failed = {}, []
-        for country_id in WHA_COUNTRIES:
-            if country_id == 'us':
-                continue
-            result = _scrape_travel_advisory(country_id)
-            if result:
-                advisories[country_id] = result
-            elif country_id in prev:
+        for country_id in WHA_TRAVEL_ADVISORY_CODES:
+            if fresh and country_id in fresh:
+                advisories[country_id] = fresh[country_id]
+            elif country_id in prev and prev[country_id].get('level'):
                 kept = dict(prev[country_id])
                 kept['stale'] = True
                 advisories[country_id] = kept
                 failed.append(country_id)
             else:
                 failed.append(country_id)
-            time.sleep(0.5)
+        if fresh is None and not advisories:
+            return   # feed down and nothing kept: leave the cache alone
         cache_set(_TA_CACHE_KEY, {
-            'success': True, 'advisories': advisories, 'count': len(advisories),
-            'failed': failed, 'last_updated': datetime.now(timezone.utc).isoformat(), 'cached': False,
+            'success': True, 'source': 'cadataapi.state.gov', 'advisories': advisories,
+            'count': len(advisories), 'failed': failed,
+            'last_updated': datetime.now(timezone.utc).isoformat(), 'cached': False,
         })
         print(f'[WHA TA] refreshed: {len(advisories)} ok, failed={failed}')
     finally:
@@ -2626,9 +2672,9 @@ def api_wha_travel_advisories():
 
 @app.route('/api/wha/travel-advisories/debug', methods=['GET'])
 def api_wha_travel_advisories_debug():
-    """Why is a card missing its advisory? One row per country: HTTP status and
-    which parser matched. Reads only -- never scrapes."""
-    return jsonify({'version': VERSION, 'countries': _TA_DIAG,
+    """Why is a card missing its advisory? Feed HTTP status, record count, and
+    one line per country. Reads only -- never fetches."""
+    return jsonify({'version': VERSION, 'diag': _TA_DIAG,
                     'note': 'Empty until the background refresh has run once (~45s after boot).'})
 
 
