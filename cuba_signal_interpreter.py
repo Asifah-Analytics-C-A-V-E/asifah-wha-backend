@@ -1,7 +1,7 @@
 """
 cuba_signal_interpreter.py
 Asifah Analytics -- WHA Backend Module
-v1.2.0 -- Nov 4, 2026   (v1.1.0 May 17 2026)
+v1.3.0 -- Nov 4, 2026   (Venezuela-pattern checklist; v1.2.0 earlier today; v1.1.0 May 17 2026)
 
 Signal interpretation engine for the Cuba Rhetoric Tracker: red lines,
 So What, historical matches, top signals, top indicator, RUMINT.
@@ -458,6 +458,16 @@ def build_top_signals(result):
         sigs.append(_sig('red_line_' + r['id'], lvl, 'Cuba: ' + r['label'] + ' -- confirmed by 2+ outlets',
                          r.get('detail', '') + ' ' + r.get('plain', ''), ptype,
                          extra={'type': 'red_line', 'evidence': 'corroborated'}))
+    vp = result.get('venezuela_pattern') or {}
+    if vp.get('read'):
+        vl = int(vp.get('level') or 2)
+        sigs.append(_sig('us_venezuela_pattern', vl, 'Cuba: ' + vp.get('short', ''),
+                         vp['read'] + ' ' + vp.get('not_implied', ''),
+                         'kinetic' if vl >= 3 else 'diplomatic',
+                         extra={'standing': vl < 3,
+                                'what_it_means': {'plain': vp['read'], 'not_implied': vp.get('not_implied', ''),
+                                                  **(vp.get('if_it_happens') or {})},
+                                'meaning': vp['read'].split('. ')[0] + '.'}))
     level = result.get('theatre_level', 0)
     sigs.append(_sig('theatre_read', level, result.get('signal_text_short') or 'Cuba: no strong signal',
                      result.get('signal_text_long') or '', 'composite'))
@@ -478,11 +488,22 @@ def build_top_indicator(result):
                 'third of demand, with 20-hour outages. The question is whether hardship turns into protest, '
                 'departures or a deal -- none is confirmed this cycle.')
     elif civ >= 2:
-        main = 'Hardship is visible -- blackouts and shortages -- but nothing high-impact is confirmed.'
+        main = 'Hardship is visible -- blackouts and shortages -- but no protest wave, defection or US military move is confirmed.'
     else:
-        main = 'Nothing high-impact is confirmed in Cuba this cycle.'
+        main = 'No protest wave, defection or US military move is confirmed in Cuba this cycle.'
     if approaching and not breached:
         main += ' Watching: ' + approaching[0]['label'] + ', reported by one outlet only.'
+    if (result.get('oil_tanker_level') or 0) >= 4:
+        main += (' Confirmed by 2+ outlets: an oil tanker reached Cuba despite the US blockade -- '
+                 'a few days of extra power, and a test of whether Washington enforces at sea.')
+    vp = result.get('venezuela_pattern') or {}
+    if vp.get('level', 0) >= 3:
+        main += ' ' + vp['read'].split(' Watch for')[0]
+    elif vp.get('short'):
+        once = len(vp.get('final_reported_once') or []) + len(vp.get('final_rumour') or [])
+        main += (' Is Cuba next? ' + str(vp.get('in_place')) + ' of ' + str(vp.get('total')) +
+                 ' steps that preceded the Maduro raid are in place, none of the final ones confirmed' +
+                 (' (' + str(once) + ' reported once or rumoured).' if once else '.'))
     if (result.get('articles_scanned') or 0) < 30:
         main += ' Coverage is thin this cycle, so quiet may be unread rather than calm.'
     return main
@@ -674,6 +695,219 @@ def _score_rumint(scan_data):
 # ============================================================
 # TOP-LEVEL INTERPRETER
 # ============================================================
+# ============================================================
+# THE VENEZUELA PATTERN  (v1.3.0 -- Nov 4 2026)
+# ------------------------------------------------------------
+# The reader's unasked question: "Is Cuba next?" Washington removed Maduro in a
+# raid on Jan 3 2026, and the President has said Cuba "is next". The answer is
+# not a probability -- it is a CHECKLIST: the steps that came before the Maduro
+# raid, and which of them are in place for Cuba.
+#
+# Three phases, in the order they appeared in Venezuela:
+#   pressure     -- rhetoric, indictment, economic strangulation, threat framing
+#   preparation  -- surveillance flights, contingency planning
+#   final        -- the steps of Venezuela's LAST ~7 weeks: forces massing,
+#                   deployment orders, strikes, airspace warnings, embassy
+#                   drawdown, an ultimatum
+#
+# Pressure and preparation steps that are already true are carried as STANDING
+# facts, dated and sourced (re-verify on the 45-day cycle, next ~Dec 19). The
+# FINAL steps are never standing: they must appear in this cycle's news, and
+# each is graded by outlet count (2+ outlets = confirmed; one = reported once;
+# hedged = rumour). A keyword is not a war.
+# ============================================================
+VZ_PATTERN_ASOF = 'Nov 4 2026'
+
+VZ_PATTERN = [
+    # ── pressure ──
+    {'id': 'regime_change_goal', 'phase': 'pressure',
+     'label': 'Regime change stated as the goal',
+     'precedent': 'Months of "Maduro must go" from Washington before the raid.',
+     'standing': 'The President said after the Maduro raid that Cuba "is next", and told the UN General Assembly (Sep 2026) that he seeks "fundamental change" in Cuba.',
+     'terms': []},
+    {'id': 'leader_indictment', 'phase': 'pressure',
+     'label': 'Leadership indicted in US courts',
+     'precedent': 'Maduro indicted (2020); the reward for his capture raised to $50m (Aug 2025).',
+     'standing': 'Raúl Castro has been indicted on US federal charges (2026).',
+     'terms': []},
+    {'id': 'economic_strangulation', 'phase': 'pressure',
+     'label': 'Economy strangled (oil cut off)',
+     'precedent': 'US blockade and seizure of Venezuelan oil tankers (Dec 2025).',
+     'standing': 'US oil blockade since January 2026 (Executive Order 14380, tariffs on any supplier); the grid covers about a third of demand.',
+     'terms': []},
+    {'id': 'threat_framing', 'phase': 'pressure',
+     'label': 'Cuba framed as a security threat',
+     'precedent': 'Venezuela framed as a "narco-state"; the Cartel de los Soles designated a terrorist organisation (Nov 2025).',
+     'standing': 'Defense Secretary Hegseth (May 2026) and Secretary Rubio (Apr-Jun 2026) call Cuba a national-security threat that hosts Chinese and Russian intelligence sites. Havana and Beijing deny it.',
+     'terms': []},
+    # ── preparation ──
+    {'id': 'surveillance_flights', 'phase': 'preparation',
+     'label': 'US surveillance flights off the coast',
+     'precedent': 'Surveillance and bomber flights off Venezuela through autumn 2025.',
+     'standing': 'At least 25 US Navy and Air Force intelligence flights off Cuba since February 2026, mostly near Havana and Santiago (CNN, May 2026).',
+     'terms': []},
+    {'id': 'contingency_planning', 'phase': 'preparation',
+     'label': 'Military contingency planning reported',
+     'precedent': 'Reported planning and a covert-action authorisation (Oct 2025).',
+     'standing': 'The Army Reserve is reviewing which support units could serve Southern Command for 90-120 days (CBS, Sep 25 2026). No deployment orders reported.',
+     'terms': []},
+    # ── final (live only) ──
+    {'id': 'force_massing', 'phase': 'final',
+     'label': 'Forces massing near Cuba',
+     'precedent': 'An aircraft carrier group arrived in the Caribbean about seven weeks before the raid (Nov 2025).',
+     'terms': [('carrier', 'cuba'), ('carrier', 'caribbean'), ('portaaviones', 'cuba'),
+               ('amphibious', 'cuba'), ('marines', 'deploy', 'cuba'), ('troops', 'deploy', 'cuba'),
+               ('warships', 'cuba', 'buildup'), ('military buildup', 'cuba'), ('build-up', 'cuba'),
+               ('despliegue militar', 'cuba'), ('tropas', 'cuba', 'despliegue'),
+               ('bombers', 'cuba'), ('b-52', 'cuba'), ('b-1', 'cuba')]},
+    {'id': 'deployment_orders', 'phase': 'final',
+     'label': 'Deployment or mobilisation orders',
+     'precedent': 'Forces ordered forward in the weeks before the raid.',
+     'terms': [('deployment orders', 'cuba'), ('deployment order', 'southcom'), ('mobiliz', 'reserv', 'southcom'),
+               ('mobilis', 'reserv', 'southcom'), ('call-up', 'cuba'), ('orden de despliegue', 'cuba'),
+               ('movilizacion', 'reserv', 'cuba')]},
+    {'id': 'kinetic_shaping', 'phase': 'final',
+     'label': 'US strikes near or on Cuba',
+     'precedent': 'US strikes on boats off Venezuela from September 2025.',
+     'terms': [('strike', 'off cuba'), ('strike', 'near cuba'), ('strikes on cuba',), ('strike on cuba',),
+               ('airstrike', 'cuba'), ('bombs', 'cuba', 'us'), ('ataque', 'estados unidos', 'cuba'),
+               ('bombardeo', 'cuba')]},
+    {'id': 'airspace_warning', 'phase': 'final',
+     'label': 'Airspace warnings or closure',
+     'precedent': 'FAA warning to airlines; the President declared Venezuelan airspace "closed" (Nov 29 2025).',
+     'terms': [('faa', 'cuba', 'warn'), ('airspace', 'cuba', 'closed'), ('cuban airspace',), ('notam', 'cuba'),
+               ('airlines', 'suspend', 'havana'), ('airlines', 'suspend', 'cuba'), ('espacio aereo', 'cuba')]},
+    {'id': 'embassy_drawdown', 'phase': 'final',
+     'label': 'US embassy drawdown or evacuation',
+     'precedent': 'Diplomatic posts and citizens told to leave before a strike.',
+     'terms': [('ordered departure', 'havana'), ('ordered departure', 'cuba'), ('embassy', 'havana', 'evacuat'),
+               ('embassy', 'havana', 'clos'), ('embassy', 'havana', 'drawdown'), ('americans', 'leave cuba'),
+               ('guantanamo', 'families', 'evacuat'), ('embajada', 'la habana', 'evacua')]},
+    {'id': 'ultimatum', 'phase': 'final',
+     'label': 'Ultimatum to Havana',
+     'precedent': 'Public deadlines and offers of exit to Maduro in the final weeks.',
+     'terms': [('ultimatum', 'cuba'), ('ultimatum', 'havana'), ('ultimatum', 'diaz-canel'),
+               ('ultimatum', 'castro'), ('ultimatum', 'cuba'), ('deadline', 'diaz-canel'),
+               ('diaz-canel', 'must leave'), ('ultimatum', 'la habana')]},
+]
+
+VZ_STATUS_TEXT = {
+    'standing':     'in place (standing fact, dated)',
+    'confirmed':    'confirmed this cycle by 2+ outlets',
+    'reported_once': 'reported by one outlet this cycle -- not yet confirmed',
+    'rumour':       'rumoured or hedged wording only',
+    'not_seen':     'not seen',
+}
+
+VZ_PURPOSE = [
+    {'label': 'Stated: foreign intelligence 90 miles from Florida',
+     'text': ('US officials say China and Russia run listening posts in Cuba (Bejucal and others, '
+              'reported since 2023). The concern is SPYING -- intercepting US military and space '
+              'communications from the Florida coast to Cape Canaveral -- not attack.')},
+    {'label': 'Stated: regime change',
+     'text': ('The White House calls Cuba a failed state and wants its leaders gone. With Caracas '
+              'now working with Washington, Havana has lost its oil lifeline and its closest ally.')},
+    {'label': 'In play, rarely said: migration',
+     'text': ('A Cuban collapse would send people to Florida by sea (Mariel 1980: 125,000 in six '
+              'months). Every option -- a deal, an operation, or waiting -- is also about controlling that.')},
+    {'label': 'What it is NOT, on current evidence: a launch pad',
+     'text': ('Nothing reported puts Russian or Iranian offensive weapons in Cuba. That is the 1962 '
+              'line, and the tracker watches it as a red line (weapons staging needs two adversaries '
+              'and 2+ outlets).')},
+]
+
+VZ_IF_IT_HAPPENS = {
+    'local':    'Fighting around Havana and the military; a grid already at a third of demand would fail further. Guantánamo becomes a base inside a war zone.',
+    'regional': 'A sea departure toward Florida and onward routes through Mexico and Central America; Caribbean shipping and tourism disrupted.',
+    'global':   ("Russia and China would protest, but neither defended Maduro. Little direct oil-price "
+                 "effect: Cuba imports oil, it does not export it. The bigger signal is to Moscow and "
+                 "Beijing about the hemisphere."),
+}
+
+
+def _vz_term_hit(text, terms):
+    return any(all(t in text for t in combo) for combo in terms)
+
+
+def build_venezuela_pattern(articles):
+    """Checklist read: which steps that preceded the Maduro raid are in place
+    for Cuba. Never a probability. Final steps must be in this cycle's news."""
+    led = TripwireLedger()
+    for a in articles or []:
+        text = _atext(a)
+        for step in VZ_PATTERN:
+            if step['terms'] and _vz_term_hit(text, step['terms']):
+                led.add(step['id'], a, text)
+    steps = []
+    for step in VZ_PATTERN:
+        r = led.result(step['id']) if step['terms'] else {'grade': 'none', 'outlets': [], 'items': []}
+        g = r.get('grade', 'none')
+        if step.get('standing'):
+            status = 'standing'
+        else:
+            status = {'corroborated': 'confirmed', 'single_source': 'reported_once',
+                      'rumint': 'rumour'}.get(g, 'not_seen')
+        steps.append({
+            'id': step['id'], 'phase': step['phase'], 'label': step['label'],
+            'status': status, 'status_text': VZ_STATUS_TEXT[status],
+            'precedent': step['precedent'],
+            'evidence': step.get('standing') or '',
+            'as_of': VZ_PATTERN_ASOF if step.get('standing') else '',
+            'outlets': r.get('outlets', [])[:4],
+            'items': r.get('items', [])[:2],
+        })
+    in_place = [s for s in steps if s['status'] in ('standing', 'confirmed')]
+    final = [s for s in steps if s['phase'] == 'final']
+    f_conf = [s for s in final if s['status'] == 'confirmed']
+    f_once = [s for s in final if s['status'] == 'reported_once']
+    f_rum = [s for s in final if s['status'] == 'rumour']
+    names = lambda xs: ', '.join(x['label'][:1].lower() + x['label'][1:] for x in xs)
+
+    if len(f_conf) >= 2:
+        level = 4
+        read = (f'{len(f_conf)} of the final steps that came right before the Maduro raid are now '
+                f'confirmed by 2+ outlets: {names(f_conf)}. In Venezuela these arrived in the last '
+                'seven weeks. This is what preparing an operation looks like -- it is not proof one '
+                'has been ordered.')
+        short = f'Venezuela pattern: {len(f_conf)} final-stage steps confirmed ({names(f_conf)})'
+    elif len(f_conf) == 1:
+        level = 3
+        read = (f'One of the final steps that came before the Maduro raid is confirmed: {names(f_conf)}. '
+                'One step is a signal, not a pattern. Watch for the others: forces massing, deployment '
+                'orders, airspace warnings, an embassy drawdown, an ultimatum.')
+        short = f'Venezuela pattern: a final-stage step is confirmed ({names(f_conf)})'
+    else:
+        level = 2
+        read = (f'{len(in_place)} of {len(steps)} steps that preceded the January raid on Maduro are in '
+                'place for Cuba -- all of them pressure and planning, standing for months. None of the '
+                'final steps from Venezuela\'s last weeks (forces massing, deployment orders, strikes, '
+                'airspace warnings, embassy drawdown, an ultimatum) is confirmed. Read: a squeeze aimed '
+                'at a deal or a collapse, with a military option being prepared -- not an operation '
+                'under way.')
+        short = (f'Venezuela pattern: {len(in_place)} of {len(steps)} steps in place; '
+                 'no final-stage step confirmed')
+    if f_once:
+        read += f' Reported by one outlet only, not yet confirmed: {names(f_once)}.'
+    if f_rum:
+        read += f' Rumoured, not reported as fact: {names(f_rum)}.'
+    return {
+        'as_of': VZ_PATTERN_ASOF,
+        'level': level,
+        'in_place': len(in_place), 'total': len(steps),
+        'final_confirmed': [s['id'] for s in f_conf],
+        'final_reported_once': [s['id'] for s in f_once],
+        'final_rumour': [s['id'] for s in f_rum],
+        'read': read, 'short': short,
+        'steps': steps,
+        'purpose': VZ_PURPOSE,
+        'if_it_happens': VZ_IF_IT_HAPPENS,
+        'not_implied': ('A checklist against one precedent, not a forecast. Cuba is 90 miles from '
+                        'Florida, so an operation might need less visible build-up than Venezuela did; '
+                        'equally, Washington is holding talks with Havana and US forces are committed to '
+                        'the Iran theatre. The final steps are the ones that would change this read.'),
+    }
+
+
 def interpret_signals(scan_data):
     actor_results = scan_data.get('actors', {})
     articles = scan_data.get('articles', [])
@@ -688,4 +922,4 @@ def interpret_signals(scan_data):
             'historical_matches': historical_matches, 'rumint': rumint}
 
 
-print('[Cuba Interpreter] Module loaded -- v1.2.0 (evidence-graded red lines, build_top_signals present)')
+print('[Cuba Interpreter] Module loaded -- v1.3.0 (evidence-graded red lines, Venezuela-pattern checklist)')

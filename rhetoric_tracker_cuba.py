@@ -1,7 +1,17 @@
 """
 Asifah Analytics -- Cuba Rhetoric & Pressure Tracker
 WHA Backend Module
-v1.4.0 -- Nov 4 2026   (v1.3.0 Jul 23 2026)
+v1.5.0 -- Nov 4 2026   (v1.4.0 earlier today; v1.3.0 Jul 23 2026)
+
+v1.5.0 (Nov 4 2026, pm) -- "IS CUBA NEXT?" + SPOKES
+  * venezuela_pattern: checklist of the steps that preceded the Jan 3 Maduro
+    raid (interpreter v1.3.0) -- which are in place for Cuba, which final
+    steps are confirmed / reported once / rumoured. Feeds a top signal, the
+    top indicator and the US spoke. Never moves the theatre level.
+  * SPOKES: writes spoke:{russia,china,iran,us}:cuba (TTL 30h) for
+    spoke_wheel_reader -- level, plain top_signal, why-it-matters line,
+    trajectory vs the previous scan. Cuba was only reachable through the
+    hub-agnostic fingerprint, so the China and Iran wheels never saw it.
 
 v1.4.0 (Nov 4 2026) -- WHA Phase 2 refresh: EVIDENCE + PLAIN LANGUAGE
   * THE INTERPRETER NEVER LOADED. This file imports build_top_signals from
@@ -230,6 +240,10 @@ try:
         MEANINGS as CUBA_MEANINGS,
     )
     _INTERPRETER_AVAILABLE = True
+    try:
+        from cuba_signal_interpreter import build_venezuela_pattern
+    except ImportError:          # older interpreter on disk: run without the checklist
+        build_venezuela_pattern = None
 except ImportError as e:
     print(f"[Cuba Rhetoric] WARNING: cuba_signal_interpreter not available ({e})")
     _INTERPRETER_AVAILABLE = False
@@ -780,6 +794,7 @@ ACTORS = {
             'russian navy caribbean', 'russian fleet cuba',
             # Energy / economic
             'russia oil cuba', 'russia tanker cuba', 'russia cuba oil shipment',
+            'russian tanker', 'russian oil tanker', 'petrolero ruso', 'tanquero ruso',
             'russia cuba financial', 'russia cuba ruble',
             'russia cuba economy', 'rosneft havana',
             'russia cuba credit', 'russia cuba loan',
@@ -1133,13 +1148,19 @@ CIVILIAN_PRESSURE_TRIGGERS = {
 # Russian/Iranian oil tanker arrivals (sharpened — feeds adversary_access vector
 # AND civilian pressure index because oil delivery directly affects blackouts)
 OIL_TANKER_TRIGGERS = {
-    5: [  # Major oil shipment / strategic delivery
+    # v1.5.0: the old rung 5 (major shipment) folded into 4 -- an oil delivery
+    # is not a war, and L5 is reserved for kinetic ladders. Under the 2026
+    # blockade a corroborated arrival is still a real event: it means the
+    # blockade was run, and it buys the grid days.
+    4: [  # Confirmed tanker arrival
         'rosneft tanker havana', 'rosneft cuba oil',
         'massive russian oil shipment cuba',
         'iran oil tanker docks havana',
-        'venezuelan oil tanker cuba', 'pdvsa cuba shipment',
-    ],
-    4: [  # Confirmed tanker arrival
+        'russian tanker reaches', 'russian tanker arrives', 'russian tanker docks',
+        'tanker reaches havana', 'tanker arrives in havana', 'tanker arrives in cuba',
+        'tanker reaches cuba', 'tanker arrives in cienfuegos', 'tanker reaches matanzas',
+        'petrolero ruso llega', 'llega a cuba un petrolero', 'llega a la habana un petrolero',
+        'buque ruso con petroleo', 'tanquero ruso llega',
         'russian tanker arrives cuba', 'russian oil cuba',
         'iranian tanker cuba', 'iran oil cuba',
         'tanker docks cienfuegos', 'tanker docks matanzas',
@@ -1151,6 +1172,8 @@ OIL_TANKER_TRIGGERS = {
         'tanker tracker cuba', 'oil shipment cuba',
         'russia cuba fuel', 'iran cuba fuel',
         'tanquero ruso cuba', 'tanquero iraní cuba',
+        'russian tanker heading to cuba', 'tanker bound for cuba', 'tanker bound for havana',
+        'petrolero ruso rumbo a cuba', 'runs the blockade', 'breaks the blockade', 'rompe el bloqueo',
     ],
     2: [  # General oil-supply context
         'russia oil cuba', 'iran oil cuba',
@@ -2244,6 +2267,110 @@ def _build_cuba_signal_text(theatre_level, vectors, civ_press_lvl, civ_press_lab
 # ============================================
 # MAIN SCAN
 # ============================================
+# ════════════════════════════════════════════════════════════════════
+# SPOKES  (v1.5.0 -- Nov 4 2026)
+# spoke:{hub}:cuba is the first convention spoke_wheel_reader resolves. Until
+# now Cuba reached the wheels only through crosstheater:cuba:fingerprint, which
+# carries no China or Iran block -- so those wheels never saw Cuba at all.
+# ════════════════════════════════════════════════════════════════════
+CUBA_SPOKE_TTL = 30 * 3600     # seconds; outlasts the scan, the reader's 24h gate judges staleness
+
+_CUBA_HUBS = {
+    'russia': {'actor': 'russia_cuba_axis', 'relationship': 'patron_ally', 'name': 'Russia',
+               'why': ("Havana's oldest patron: oil, wheat and diplomatic cover. Lourdes, the Soviet "
+                       "listening post, closed in 2002; US officials say Russian intelligence is back.")},
+    'china':  {'actor': 'china_cuba_axis', 'relationship': 'strategic_partner', 'name': 'China',
+               'why': ("Lender, solar-park builder and rice donor. US officials say China runs listening "
+                       "posts in Cuba (Bejucal and others); Beijing and Havana deny it.")},
+    'iran':   {'actor': 'iran_cuba_axis', 'relationship': 'junior_partner', 'name': 'Iran',
+               'why': ("A junior partner: diplomatic solidarity and some oil cooperation, now limited by "
+                       "Iran's own war with the US and the oil blockade.")},
+}
+
+
+def _write_cuba_spokes(actor_results, result):
+    now = datetime.now(timezone.utc).isoformat()
+    written = []
+
+    def _traj(hub, level):
+        prev = _redis_get(f'spoke:{hub}:cuba') or {}
+        try:
+            p = int(prev.get('level'))
+        except (TypeError, ValueError):
+            return {'direction': 'holding', 'level': level, 'confidence': 'no_evidence'}
+        d = 'expanding' if level > p else ('contracting' if level < p else 'holding')
+        return {'direction': d, 'level': level, 'confidence': 'reported'}
+
+    # Oil deliveries are read on their own ladder (not by the axis actors), so a
+    # corroborated Russian tanker arrival must reach the Russia spoke from here.
+    _OIL_HINTS = {'russia': ('russia', 'rusia', 'ruso', 'rosneft'), 'iran': ('iran',), 'china': ('china', 'chino')}
+    oil_by_hub = {}
+    for sig in result.get('oil_tanker_signals') or []:
+        t = (str(sig.get('article', '')) + ' ' + str(sig.get('phrase', ''))).lower()
+        lv = int(sig.get('level', 0) or 0)
+        if sig.get('evidence') != 'corroborated':
+            lv = min(lv, 2)
+        for hub, hints in _OIL_HINTS.items():
+            if any(h in t for h in hints):
+                if lv > oil_by_hub.get(hub, (0, ''))[0]:
+                    oil_by_hub[hub] = (lv, sig.get('evidence', ''))
+
+    for hub, cfg in _CUBA_HUBS.items():
+        a = actor_results.get(cfg['actor']) or {}
+        lvl = int(a.get('escalation_level', 0) or 0)
+        oil_lv, oil_ev = oil_by_hub.get(hub, (0, ''))
+        n = int(a.get('statement_count', 0) or 0)
+        no = int(a.get('outlet_count', 0) or 0)
+        tws = a.get('tripwires') or []
+        conf = [t for t in tws if t.get('grade') == 'corroborated']
+        once = [t for t in tws if t.get('grade') == 'single_source']
+        if oil_lv >= 3 and oil_ev == 'corroborated' and not conf:
+            lvl = max(lvl, 3)
+            top = (f"{cfg['name']}-Cuba: a {cfg['name']} oil tanker reached Cuba despite the US blockade "
+                   "-- confirmed by 2+ outlets.")
+            evidence = 'corroborated'
+        elif conf:
+            top = f"{cfg['name']}-Cuba: confirmed by 2+ outlets -- {conf[0]['tripwire'].replace('_', ' ')}."
+            evidence = 'corroborated'
+        elif once:
+            top = f"{cfg['name']}-Cuba: reported by one outlet, not yet confirmed -- {once[0]['tripwire'].replace('_', ' ')}."
+            evidence = 'single_source'
+        elif n:
+            top = (f"{cfg['name']}-Cuba: {n} items from {no} outlet{'s' if no != 1 else ''} -- "
+                   + ('busier than usual.' if lvl >= 2 else 'routine ties (oil, aid, visits).'))
+            evidence = 'reported'
+        else:
+            top = f"No {cfg['name']}-Cuba reporting reached the scanners this cycle -- unread, not calm."
+            evidence = 'no_evidence'
+        tj = _traj(hub, lvl)
+        if evidence in ('corroborated', 'single_source', 'no_evidence'):
+            tj['confidence'] = evidence
+        if _redis_set(f'spoke:{hub}:cuba', {
+                'ts': now, 'hub': hub, 'country': 'cuba', 'level': lvl,
+                'top_signal': top, 'why': cfg['why'], 'items': n, 'outlets': no,
+                'relationship': cfg['relationship'], 'trajectory': tj,
+                'source': 'rhetoric_tracker_cuba v1.5.0'}, ttl=CUBA_SPOKE_TTL):
+            written.append(hub)
+
+    # The US side: pressure level, raised by the Venezuela-pattern read when
+    # final-stage steps are confirmed. The top_signal answers "is Cuba next?".
+    vp = result.get('venezuela_pattern') or {}
+    us_lvl = max(int(result.get('us_pressure', 0) or 0),
+                 int(vp.get('level', 0) or 0) if vp.get('final_confirmed') else 0)
+    if _redis_set('spoke:us:cuba', {
+            'ts': now, 'hub': 'us', 'country': 'cuba', 'level': us_lvl,
+            'top_signal': vp.get('short') or 'US-Cuba: fuel blockade and regime-change pressure.',
+            'why': ('Stated US goal is regime change. The checklist tracks the steps that came before '
+                    'the Jan 2026 Maduro raid.'),
+            'relationship': 'regime_change_pressure', 'trajectory': _traj('us', us_lvl),
+            'venezuela_pattern': {k: vp.get(k) for k in ('level', 'in_place', 'total', 'final_confirmed',
+                                                         'final_reported_once', 'final_rumour')} if vp else None,
+            'source': 'rhetoric_tracker_cuba v1.5.0'}, ttl=CUBA_SPOKE_TTL):
+        written.append('us')
+    print(f'[Cuba Rhetoric] Spoke keys written: {written}')
+    return written
+
+
 def run_cuba_rhetoric_scan(force=False):
     """Full Cuba rhetoric scan. Returns result dict."""
     global _rhetoric_running
@@ -2633,7 +2760,7 @@ def run_cuba_rhetoric_scan(force=False):
             'timestamp':             datetime.now(timezone.utc).isoformat(),
             'from_cache':            False,
             'refresh_triggered':     True,
-            'version':               '1.4.0',
+            'version':               '1.5.0',
             'meanings':              CUBA_MEANINGS if _INTERPRETER_AVAILABLE else {},
             'evidence_rules': {
                 'max_article_age_days': MAX_ARTICLE_AGE_DAYS,
@@ -2644,6 +2771,14 @@ def run_cuba_rhetoric_scan(force=False):
                          'and hedged wording do not lift the level.'),
             },
         }
+
+        # v1.5.0: "Is Cuba next?" -- the Venezuela-pattern checklist
+        result['venezuela_pattern'] = None
+        if _INTERPRETER_AVAILABLE and build_venezuela_pattern:
+            try:
+                result['venezuela_pattern'] = build_venezuela_pattern(articles)
+            except Exception as e:
+                print(f"[Cuba Rhetoric] Venezuela pattern error: {str(e)[:120]}")
 
         # v2.4: Build top_signals[] AFTER result dict (needs theatre_level + so_what)
         top_signals = []
@@ -2670,6 +2805,10 @@ def run_cuba_rhetoric_scan(force=False):
         # Write cache + history + fingerprint
         _redis_set(RHETORIC_CACHE_KEY, result)
         _write_canonical_spoke_fingerprint(result)   # Rim Emission Pass
+        try:
+            result['spokes_written'] = _write_cuba_spokes(actor_results, result)
+        except Exception as e:
+            print(f"[Cuba Rhetoric] Spoke write error: {str(e)[:120]}")
         # ── Canonical history snapshot (May 22 2026 reconciled schema) ──
         # Universal fields read by wha_regional_bluf.prose_v2:
         #   theatre_level, theatre_score, scanned_at, red_lines_count
