@@ -112,7 +112,7 @@ DEFAULT_MAX_ARTICLES   = 25
 UPSTASH_URL   = os.environ.get('UPSTASH_REDIS_URL', '') or os.environ.get('UPSTASH_REDIS_REST_URL', '')
 UPSTASH_TOKEN = os.environ.get('UPSTASH_REDIS_TOKEN', '') or os.environ.get('UPSTASH_REDIS_REST_TOKEN', '')
 NEWSAPI_KEY   = os.environ.get('NEWSAPI_KEY', '')   # legacy; deleted from Render 18 Oct 2026
-TRACKER_VERSION = '1.4.1'   # Nov 1: pre-election gating, commentary + past-cycle guards
+TRACKER_VERSION = '1.5.0'   # Nov 4 2026: results phase -- hedged mentions skipped, rung-2 needs corroboration, acceptance/concession lane, reported chamber control, plain headline | 1.4.1 Nov 1: pre-election gating, commentary + past-cycle guards
 # v1.4.0: NewsAPI through the shared gateway (budget, cache, stand-down).
 try:
     from newsapi_gateway import newsapi_fetch_probed as _newsapi_gw
@@ -1928,10 +1928,22 @@ _ELECTION_CONTEXT = ('election', 'ballot', 'vote', 'voting', 'polling', 'certif'
 ELECTION_ADMIN_CLASSES = {
     'race_calls': {
         'label': 'Race calls / concessions', 'rung': 1, 'post_election': True,
-        'patterns': ['projected winner', 'race called', 'declared the winner', 'concedes',
-                     'conceded', 'concession speech', 'wins reelection', 'wins re-election',
+        'patterns': ['projected winner', 'race called', 'declared the winner',
+                     'wins reelection', 'wins re-election',
                      'flips the seat', 'flipped the seat', 'control of the house',
                      'control of the senate'],
+    },
+    # v1.5.0 (Nov 4 2026): DE-ESCALATORY. Concessions and statements accepting
+    # the results lower the governance read; they never raise it.
+    'acceptance': {
+        'label': 'Results accepted / concessions', 'rung': 0, 'post_election': True,
+        'patterns': ['accept the results', 'accepts the results', 'accepted the results',
+                     'accept the outcome', 'accepts the outcome', 'accept the election results',
+                     'accept midterm results', 'accept the midterm results', 'accepts midterm results',
+                     'accept election results',
+                     'accepts election results', 'accepted the election results',
+                     'concedes', 'conceded', 'concession speech', 'congratulated',
+                     'congratulates', 'peaceful transfer'],
     },
     'counting': {
         'label': 'Counts still open', 'rung': 1, 'post_election': True,
@@ -1987,7 +1999,7 @@ ELECTION_ADMIN_CLASSES = {
     },
 }
 GOV_LEVEL_LABELS = {0: 'No transition window', 1: 'Transition window -- routine',
-                    2: 'Contested counts', 3: 'Governing authority contested',
+                    2: 'Recounts or disputes under way', 3: 'Governing authority contested',
                     4: 'Multiple institutional challenges', 5: 'Transfer-of-power crisis'}
 MIN_ARTICLES_FOR_GOVERNANCE = 60
 
@@ -2013,6 +2025,58 @@ def _is_commentary(title):
     return any(m in t for m in _COMMENTARY_MARKERS)
 
 
+# v1.5.0 (Nov 4 2026) -- LIVE FALSE POSITIVE, the morning after: the card read
+# "Contested counts: recounts / contested races" off stories saying a race
+# "could head to a recount" or "may trigger an automatic recount". A recount
+# that has not happened is not a contested count. A pattern preceded (within
+# ~45 characters) by a hedge word is skipped and counted as hedged.
+_HEDGE_RX = re.compile(r"\b(could|may|might|possible|possibly|potential|potentially|likely|if|would|"
+                       r"whether|expected to|heading (?:to|for)|headed (?:to|for)|threat of|"
+                       r"risk of|fears? of|calls? for|ahead of|what happens)\b")
+_CONDITIONAL_RX = re.compile(r"\b(if|only if|as long as|provided|unless)\b")
+_CONTROL_RX = re.compile(
+    r"\b(democrats?|republicans?|gop)\b[^.;:]{0,40}?\b(win|wins|won|take|takes|took|flip|flips|flipped|"
+    r"keep|keeps|kept|hold|holds|held|retain|retains|retained|capture|captures|captured|seize|seizes|seized)"
+    r"\b[^.;:]{0,30}?\b(control of )?(the )?(house|senate)\b")
+
+
+def _hedged(text, idx, width=45):
+    return bool(_HEDGE_RX.search(text[max(0, idx - width):idx]))
+
+
+def _detect_chamber_control(articles):
+    """Reporting that a party WON a chamber, by distinct source. Reported,
+    not certified. Hedged copy ('could win the House') is skipped."""
+    out = {'house': {'democratic': set(), 'republican': set()},
+           'senate': {'democratic': set(), 'republican': set()}}
+    examples = {}
+    for art in articles or []:
+        title = art.get('title') or ''
+        if _is_commentary(title):
+            continue
+        text = (title + ' ' + (art.get('description') or '')).lower()
+        for m in _CONTROL_RX.finditer(text):
+            if _hedged(text, m.start(2)) or _hedged(text, m.start()):
+                continue
+            party = 'democratic' if m.group(1).startswith('democrat') else 'republican'
+            chamber = m.group(5)
+            out[chamber][party].add(art.get('source') or 'unknown')
+            examples.setdefault((chamber, party), {'title': title[:200], 'link': art.get('link', ''),
+                                                   'source': art.get('source', '')})
+    res = {}
+    for chamber, parties in out.items():
+        d, r = len(parties['democratic']), len(parties['republican'])
+        winner = None
+        if d >= 2 and d >= 2 * max(r, 1) and d > r:
+            winner = 'democratic'
+        elif r >= 2 and r >= 2 * max(d, 1) and r > d:
+            winner = 'republican'
+        res[chamber] = {'reported_winner': winner,
+                        'sources_democratic': d, 'sources_republican': r,
+                        'example': examples.get((chamber, winner)) if winner else None}
+    return res
+
+
 def _detect_election_administration(articles, post_election=True):
     classes = {}
     for cid, cfg in ELECTION_ADMIN_CLASSES.items():
@@ -2021,6 +2085,7 @@ def _detect_election_administration(articles, post_election=True):
                         'post_election': bool(cfg.get('post_election')),
                         'open': post_election or not cfg.get('post_election')}
     skipped_commentary = 0
+    hedged = 0
     for art in articles or []:
         title = art.get('title') or ''
         text = (title + ' ' + (art.get('description') or '')).lower()
@@ -2035,8 +2100,23 @@ def _detect_election_administration(articles, post_election=True):
                 continue
             if cfg['rung'] >= 3 and past_only:
                 continue
-            if any(p in text for p in cfg['patterns']):
+            hit = None
+            for p in cfg['patterns']:
+                i = text.find(p)
+                if i < 0:
+                    continue
+                if cid != 'acceptance' and _hedged(text, i):
+                    hedged += 1
+                    continue
+                hit = (p, i)
+                break
+            if hit:
                 rec = classes[cid]
+                if cid == 'acceptance':
+                    tail = text[hit[1]:hit[1] + len(hit[0]) + 40]
+                    if _CONDITIONAL_RX.search(tail[len(hit[0]):]) or _hedged(text, hit[1]):
+                        rec['conditional'] = rec.get('conditional', 0) + 1
+                        continue
                 rec['count'] += 1
                 rec['sources'].add(art.get('source') or 'unknown')
                 if len(rec['examples']) < 3:
@@ -2047,7 +2127,8 @@ def _detect_election_administration(articles, post_election=True):
         rec['distinct_sources'] = len(rec['sources'])
         rec['corroborated'] = rec['count'] >= 2 and rec['distinct_sources'] >= 2
         rec['sources'] = sorted(rec['sources'])[:6]
-    classes['_meta'] = {'skipped_commentary': skipped_commentary, 'post_election': post_election}
+    classes['_meta'] = {'skipped_commentary': skipped_commentary, 'post_election': post_election,
+                        'skipped_hedged': hedged}
     return classes
 
 
@@ -2094,7 +2175,8 @@ def _governance_block(articles, cross_theater_fps, mobilization):
     level = 1 if window_open else 0
     drivers = []
     for cid, rec in classes.items():
-        if rec['rung'] == 2 and rec['count'] >= 2:
+        # v1.5.0: rung-2 needs corroboration too (2+ reports, 2+ sources)
+        if rec['rung'] == 2 and rec['corroborated']:
             level = max(level, 2); drivers.append(cid)
     l3 = [cid for cid, rec in classes.items() if rec['rung'] == 3 and rec['corroborated']]
     l3_single = [cid for cid, rec in classes.items() if rec['rung'] == 3 and rec['count'] >= 1
@@ -2118,7 +2200,7 @@ def _governance_block(articles, cross_theater_fps, mobilization):
         headline = GOV_LEVEL_LABELS.get(level, 'Governing authority contested') + ': ' + ', '.join(
             ELECTION_ADMIN_CLASSES[c]['label'].lower() for c in drivers[:2])
     elif level == 2:
-        headline = 'Contested counts: ' + ', '.join(
+        headline = 'Recounts or disputes under way: ' + ', '.join(
             ELECTION_ADMIN_CLASSES[c]['label'].lower() for c in drivers[:2])
     elif window_open:
         headline = (f"{cyc.get('phase_label', 'Transition window')} -- no certification, "
@@ -2126,7 +2208,55 @@ def _governance_block(articles, cross_theater_fps, mobilization):
     else:
         headline = 'No election transition window open'
 
+    # v1.5.0 -- RESULTS PHASE: what the reporting says happened, in words.
+    control = _detect_chamber_control(articles) if post_election else {}
+    acc = classes.get('acceptance') or {}
+    accepted = bool(acc.get('corroborated'))
+    party_word = {'democratic': 'Democrats', 'republican': 'Republicans'}
+    results_bits = []
+    _w = {ch: (control.get(ch) or {}).get('reported_winner') for ch in ('house', 'senate')}
+    if _w['house'] and _w['house'] == _w['senate']:
+        results_bits.append(f"{party_word[_w['house']]} won the House and the Senate")
+    else:
+        for ch in ('house', 'senate'):
+            if _w[ch]:
+                results_bits.append(f'{party_word[_w[ch]]} won the {ch.capitalize()}')
+    if sensed and level <= 1 and post_election:
+        parts = []
+        if results_bits:
+            parts.append('Reporting says ' + ' and '.join(results_bits) + ' (called by the media, not yet certified)')
+        else:
+            parts.append('Results are being counted and called')
+        if accepted:
+            parts.append('the results are being accepted')
+        parts.append('no disputes, threats or federal interference corroborated')
+        headline = '; '.join(parts)
+    elif sensed and post_election and results_bits:
+        headline += ' | ' + '; '.join(results_bits)
+
     so_what = [_GOV_SO_WHAT[c] for c in drivers if c in _GOV_SO_WHAT][:3]
+    # v1.5.0 -- what a change of control MEANS (reported, not yet certified)
+    for ch in ('house', 'senate'):
+        w = (control.get(ch) or {}).get('reported_winner')
+        cur = ((house if ch == 'house' else senate).get('majority_party') or '').lower()
+        if not w:
+            continue
+        flip = bool(cur) and not cur.startswith(w[:3])
+        if ch == 'house' and flip:
+            so_what.append('A change of House majority on January 3 2027 hands the incoming side the '
+                           'committee gavels: subpoenas, investigations and the first word on spending. '
+                           'Until then the outgoing majority governs in a lame duck, the period of least '
+                           'constraint -- watch for legislation and confirmations rushed through before January.')
+        elif ch == 'senate' and flip:
+            so_what.append('A change of Senate majority decides confirmations from January: nominees, '
+                           'judges and the posts now held in an acting capacity, and treaties.')
+        elif not flip and cur:
+            so_what.append(f'The {ch.capitalize()} majority is reported unchanged.')
+    if accepted:
+        so_what.insert(0, 'Statements accepting the results and concessions are the strongest single '
+                          'de-escalation signal in the transition: they lower the odds of a certification '
+                          'fight. Watch that county and state certification then follows on schedule.')
+    so_what = so_what[:4]
     # LANE B hook (cross-read): the post-election window as an input to the
     # Iran ceasefire read. Context only -- never scored here.
     cross_read = None
@@ -2164,6 +2294,11 @@ def _governance_block(articles, cross_theater_fps, mobilization):
         'classes':           classes,
         'post_election_classes_open': post_election,
         'skipped_commentary': _meta.get('skipped_commentary', 0),
+        'skipped_hedged':    _meta.get('skipped_hedged', 0),
+        'reported_control':  control,
+        'results_accepted':  accepted,
+        'acceptance':        {'count': acc.get('count', 0), 'sources': acc.get('distinct_sources', 0),
+                              'conditional': acc.get('conditional', 0)},
         'chambers': {
             'house':  {k: house.get(k) for k in ('majority_party', 'majority_size',
                                                   'minority_size', 'vacant', 'as_of')},
@@ -2205,7 +2340,9 @@ def _governance_signal(gov):
         'icon':          '🏛️',
         'color':         '#0d9488',
         'actor_key':     'us_governance',
-        'short_text':    ('🇺🇸 US: ' + gov.get('headline', ''))[:120],
+        # v1.5.0: no flag emoji -- Windows renders the US flag as the letters
+        # "US", so the card read "us US: ...".
+        'short_text':    ('US election: ' + gov.get('headline', ''))[:230],
         'long_text':     ' '.join([gov.get('headline', '') + '.'] + (gov.get('so_what') or [])[:2])[:480],
         'source_link':   '/rhetoric-us.html#governance',
     }

@@ -1,6 +1,8 @@
 """
 ========================================
-U.S. SIGNAL INTERPRETER (v1.3.0 -- November 1, 2026; v1.2.0 Sep 7 2026)
+U.S. SIGNAL INTERPRETER (v1.4.0 -- November 4, 2026; v1.3.0 Nov 1; v1.2.0 Sep 7 2026)
+v1.4.0: top-signal cards in plain words -- no "tripwires", no "[L4] vs capability net",
+"x baseline" becomes "x their usual pace", the Fed card no longer ends in a question mark.
 v1.3.0: stale facts removed from user-facing text (DHS 'funding constraints',
 'v1.1 release' placeholder, Powell); Mojtaba Khamenei in Iran cadence terms.
 ========================================
@@ -449,12 +451,13 @@ def compute_top_signals(actor_results, articles, cross_theater_fps, capability=N
     if dhs_score >= 40 or dhs_trip > 0:
         sev = 'high' if dhs_trip > 0 else ('medium' if dhs_score >= 50 else 'low')
         signals.append({
-            'short_text': f"ICE/DHS rhetoric elevated -- {dhs_count} statements, {dhs_trip} tripwires",
+            'short_text': ("Immigration enforcement (ICE/DHS) in heavy coverage, with escalation language"
+                           if dhs_trip > 0 else "Immigration enforcement (ICE/DHS) in heavy coverage"),
             'long_text': (
-                f"Immigration enforcement rhetoric is at L{dhs.get('tier','0')[1:]} ({dhs.get('tier_name','')}). "
-                f"Currently the highest-volatility US domestic signal vector and a leading indicator for "
-                f"protests + civil unrest + midterm voter mobilization. Watch for operational tempo changes, "
-                f"and for any enforcement activity near polling or counting sites."
+                f"{dhs_count} statements on immigration enforcement this scan"
+                f"{' including escalation language' if dhs_trip > 0 else ''}. It is the most volatile "
+                f"US domestic issue and a leading indicator for protests. Watch operational tempo and any "
+                f"enforcement activity near polling, counting or certification sites."
             ),
             'severity': sev,
             'category': 'civil_social',
@@ -462,7 +465,7 @@ def compute_top_signals(actor_results, articles, cross_theater_fps, capability=N
         })
     elif dhs_score >= 25:
         signals.append({
-            'short_text': f"ICE/DHS rhetoric in normal range ({dhs_count} statements)",
+            'short_text': "Immigration enforcement (ICE/DHS) coverage in its normal range",
             'long_text': (
                 "Immigration enforcement signals in the normal range this period. During the "
                 "election window, enforcement near polling or counting sites is tracked in the "
@@ -495,12 +498,14 @@ def compute_top_signals(actor_results, articles, cross_theater_fps, capability=N
     exec_trip = exec_data.get('tripwires', 0)
     if exec_data.get('baseline_ratio', 1.0) > 1.5:
         signals.append({
-            'short_text': f"Executive rhetoric tempo elevated ({exec_data.get('baseline_ratio',1.0)}x baseline)",
+            'short_text': (f"White House statements running at {exec_data.get('baseline_ratio',1.0):.1f}x "
+                           f"their usual pace"),
             'long_text': (
-                f"Executive branch (Trump + WH + cabinet) rhetoric is running "
-                f"{exec_data.get('baseline_ratio',1.0)}x normal pace. {exec_trip} tripwires hit. "
-                f"Tempo is volume, not intent: read it against the capability-rhetoric join "
-                f"and the governance block."
+                f"The President, the White House and the cabinet are putting out statements at "
+                f"{exec_data.get('baseline_ratio',1.0):.1f} times their usual pace"
+                f"{', some with escalation language' if exec_trip else ''}. Pace is volume, not intent -- "
+                f"an election week lifts it on its own -- so read what is being said in the "
+                f"governance and foreign-policy signals."
             ),
             'severity': 'high' if exec_trip > 0 else 'medium',
             'category': 'domestic',
@@ -552,13 +557,16 @@ def compute_top_signals(actor_results, articles, cross_theater_fps, capability=N
     fed_score = actor_results.get('us_federal_reserve', {}).get('actor_score', 0)
     if fed_score >= 40:
         signals.append({
-            'short_text': "Federal Reserve rhetoric elevated -- independence pressure?",
+            'short_text': ("Pressure on the Federal Reserve's independence in the reporting"
+                           if actor_results.get('us_federal_reserve', {}).get('tripwires', 0) else
+                           "The Federal Reserve is in heavy coverage"),
             'long_text': (
-                f"Fed activity at L{actor_results.get('us_federal_reserve', {}).get('tier','L0')[1:]}. "
-                f"Could indicate FOMC dissent, Fed chair-White House friction, or major rate decision week. "
-                f"Markets-stability proxy."
+                "Heavy reporting on the Fed. The causes differ in weight: a rate-decision week is routine; "
+                "open friction between the White House and the Fed chair, or dissent inside the FOMC, is "
+                "a signal for markets and for institutional independence. The headlines behind this "
+                "card say which it is."
             ),
-            'severity': 'medium',
+            'severity': 'medium' if actor_results.get('us_federal_reserve', {}).get('tripwires', 0) else 'low',
             'category': 'economic',
             'actor_key': 'us_federal_reserve',
         })
@@ -583,7 +591,8 @@ def compute_top_signals(actor_results, articles, cross_theater_fps, capability=N
                      f"({_dod_gap.get('reason', 'unknown')}), so rhetoric cannot be "
                      f"set against movement. Coverage gap, not a finding.")
         signals.append({
-            'short_text': f"DoD posture rhetoric elevated -- {defense_trip} tripwires",
+            'short_text': ("Pentagon rhetoric running hot, with escalation language" if defense_trip
+                           else "Pentagon rhetoric running hot"),
             'long_text': (
                 f"Pentagon / combatant command rhetoric running hot. "
                 f"Rhetoric without movement is posturing; rhetoric with movement is "
@@ -614,10 +623,17 @@ def compute_top_signals(actor_results, articles, cross_theater_fps, capability=N
         if _cell != 'baseline':
             _r = gap['rhetoric']
             _c = gap['capability']
+            _plain = {
+                'credible_buildup': 'US forces are moving in line with the tough talk (credible buildup)',
+                'declaratory': 'US rhetoric is running ahead of force movements (deterrence signalling)',
+                'the_gap': 'US rhetoric is rising while military capability is being spent',
+                'quiet_preparation': 'US forces are moving without matching rhetoric (quiet preparation)',
+                'retrenchment': 'US rhetoric and force posture are both pulling back',
+            }.get(_cell, gap['label'])
             signals.append({
-                'short_text': (f"{_icon} {gap['label']} -- rhetoric {_r['score']:.0f} "
-                               f"[{_r['tier']}] vs capability net {_c['net_score']:+}"),
-                'long_text': gap['assessment'],
+                'short_text': f"{_icon} {_plain}",
+                'long_text': (gap['assessment'] + f" (Rhetoric reads {_r['score']:.0f}/100; the military "
+                              f"tracker's projection-minus-losses balance is {_c['net_score']:+}.)"),
                 'severity': _sev,
                 'category': 'foreign',
                 'actor_key': 'us_executive',
@@ -1086,4 +1102,4 @@ def compute_kinetic_precursor_targets(actor_results, articles):
     return elevated
 
 
-print("[US Signal Interpreter] Module loaded -- v1.3.0 (capability-rhetoric join)")
+print("[US Signal Interpreter] Module loaded -- v1.4.0 (capability-rhetoric join)")
