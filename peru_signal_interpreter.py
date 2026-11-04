@@ -1,29 +1,34 @@
 """
 peru_signal_interpreter.py
 =========================================================
-Peru Rhetoric Signal Interpreter v1.0.0 — Asifah Analytics
-Built: May 9, 2026
+Peru Rhetoric Signal Interpreter v1.1.0 — Asifah Analytics
+Built: May 9, 2026 · v1.1.0 Nov 4, 2026
 
 Generates analytical prose for the Peru rhetoric tracker:
-  • build_top_signals()       — canonical short_text/long_text top signals
-  • build_executive_summary() — 2-4 sentence headline narrative
+  • build_top_signals()       — canonical top signals (int level, pressure_type, meaning)
+  • build_executive_summary() — plain 2-4 sentence headline narrative
   • build_so_what_factor()    — bulleted strategic implications
+  • score_alignment_drift()   — great-power alignment-drift read (BRI writ large)
 
-Reads from scan results produced by rhetoric_tracker_peru.scan_peru_rhetoric()
-and emits prose calibrated to Peru's 4-vector framework:
-  Domestic Stability / Resource-Sector / US Alignment / China Alignment
+v1.1.0 (Nov 4 2026) -- WHA Phase 2 refresh
+  * CANONICAL LEVELS. Signals now carry an INTEGER `level` (0-4) plus
+    `level_name` ('elevated' etc.) for the page. The word 'surge' used to
+    travel downstream as a string and the GPI read it as L5 "Economic
+    Rupture" -- a news-volume count became the platform's top economic alarm.
+  * EVIDENCE. A tripwire speaks at its full severity only when 2+ separate
+    outlets report it (tracker v1.1.0 grades them). One outlet = "approaching";
+    rumour / hedged = not a top signal. Volume alone is capped at 'elevated'.
+  * MEANING. Every signal carries `what_it_means` (plain / local / regional /
+    global / economy / not_implied) and a one-sentence `meaning`. The GPI
+    writer used to receive "Las Bambas -- SURGE-level rhetoric" and could only
+    say "hits a severe rhetoric level". Now it is told what Las Bambas is,
+    who buys its copper, what a stoppage does to prices, and what is NOT
+    implied.
+  * ALIGNMENT DRIFT. Band levels lowered one step (Drifting = L3, not L4):
+    the Chancay floor is a standing structural fact, and a permanent L4 from
+    a fact that does not change was inflating Peru on every cycle.
 
-Architecture notes:
-  • Same canonical signal schema as Japan/Cuba/Greenland trackers:
-      {short_text, long_text, level, type, actor, sources}
-  • Convergence detection: when ≥2 vectors hit elevated+, surfaces as
-    a top signal of type='convergence'
-  • Commodity coupling: when commodity_pressure is present (copper/silver
-    supply risk), surfaces as a top signal of type='commodity_coupling'
-  • Diplomatic / off-ramp logic: detects de-escalatory rhetoric (consulta
-    previa dialogue, Las Bambas mesa de diálogo) and applies softening
-  • USAID is referenced ONLY as historical context (defunct 2025); no
-    current-implications language
+Facts carried here are dated; re-verify on the 45-day review cycle.
 
 COPYRIGHT (c) 2025-2026 Asifah Analytics. All rights reserved.
 """
@@ -32,47 +37,17 @@ import re
 from datetime import datetime, timezone
 
 # ============================================
-# CONFIGURATION
+# LEVELS
 # ============================================
 LEVEL_ORDER = ['low', 'normal', 'elevated', 'high', 'surge']
+LEVEL_INT = {'low': 0, 'normal': 1, 'elevated': 2, 'high': 3, 'surge': 4}
 ESCALATORY_LEVELS = {'elevated', 'high', 'surge'}
+PRIORITY_BY_LEVEL = {0: 2, 1: 4, 2: 7, 3: 10, 4: 12}
 
-# Vector display names for prose
-VECTOR_NAMES = {
-    'domestic_stability': 'domestic stability pressure',
-    'resource_sector':    'resource-sector politics',
-    'us_alignment':       'US alignment vector',
-    'china_alignment':    'China alignment vector',
-}
 
-# Actor display names for prose (cleaner than the formal `name` field)
-ACTOR_PROSE_NAMES = {
-    'presidency':     'the Presidency',
-    'cancilleria':    'Cancillería',
-    'ffaa':           'the Armed Forces',
-    'mining_sector':  'the mining sector',
-    'las_bambas':     'Las Bambas',
-    'fisheries_sector': 'the fisheries sector (anchoveta quota)',
-    'vraem_sendero':  'VRAEM / Sendero',
-    'us_peru':        'US-Peru bilateral channels',
-    'china_peru':     'China-Peru / BRI channels',
-}
-
-# Off-ramp / de-escalation patterns (lowered urgency when present)
-DEESCALATION_PATTERNS = [
-    'mesa de diálogo', 'mesa de dialogo', 'dialogue table',
-    'consulta previa', 'prior consultation',
-    'agreement reached', 'acuerdo alcanzado',
-    'tregua', 'truce', 'cese de hostilidades',
-    'reanuda operaciones', 'resumes operations',
-    'lifts blockade', 'levanta el bloqueo',
-]
-
-# ============================================
-# HELPERS
-# ============================================
 def _level_rank(level):
-    """Numeric rank for level comparison."""
+    if isinstance(level, int):
+        return level
     try:
         return LEVEL_ORDER.index(level)
     except ValueError:
@@ -80,532 +55,602 @@ def _level_rank(level):
 
 
 def _max_level(levels):
-    """Return the highest level from a list."""
     if not levels:
         return 'low'
     return max(levels, key=_level_rank)
 
 
+def _int(level):
+    return level if isinstance(level, int) else LEVEL_INT.get(level, 0)
+
+
+VECTOR_NAMES = {
+    'domestic_stability': 'domestic politics and security',
+    'resource_sector':    'mining and fisheries',
+    'us_alignment':       'US-Peru relations',
+    'china_alignment':    'China-Peru relations',
+}
+
+ACTOR_PROSE_NAMES = {
+    'presidency':       'the presidency',
+    'cancilleria':      'the foreign ministry',
+    'ffaa':             'the armed forces',
+    'mining_sector':    'the mining sector',
+    'las_bambas':       'the Las Bambas copper mine',
+    'fisheries_sector': 'the anchoveta fishery',
+    'vraem_sendero':    'the VRAEM coca valley and Shining Path remnants',
+    'us_peru':          'US-Peru relations',
+    'china_peru':       'China-Peru relations and the Chancay port',
+}
+
+DEESCALATION_PATTERNS = [
+    'mesa de diálogo', 'mesa de dialogo', 'dialogue table',
+    'consulta previa', 'prior consultation',
+    'agreement reached', 'acuerdo alcanzado',
+    'tregua', 'truce', 'cese de hostilidades',
+    'reanuda operaciones', 'resumes operations',
+    'lifts blockade', 'levanta el bloqueo', 'levantan el bloqueo',
+]
+
+
+# ============================================
+# WHAT IT MEANS  (dated Nov 4 2026 -- re-verify on the 45-day cycle)
+# ============================================
+# Sources for the figures: Peru MINEM via Mysteel (Las Bambas 410,829 t
+# copper in 2025, ~2% of world mined supply); SMM (Peru ~2.77 Mt copper in
+# concentrate in 2025); Mysteel spot TC index negative through 2026.
+MEANINGS = {
+    'copper': {
+        'plain':    ('Peru mines roughly a tenth of the world\'s copper (about 2.8 million tonnes '
+                     'in 2025) and is one of the top three producers.'),
+        'local':    ('Mining towns, workers and regional budgets depend on it; road blockades in the '
+                     'southern corridor are how communities press their demands.'),
+        'regional': ('Copper is Peru\'s biggest export and pays a large share of the state\'s '
+                     'revenue; Chile is the only bigger supplier nearby.'),
+        'global':   ('Copper goes into power grids, wiring, electric vehicles, data centres and '
+                     'buildings. In 2026 the ore market is already tight -- smelters have been '
+                     'paying miners to take their ore -- so lost Peruvian supply bites faster than usual.'),
+        'economy':  ('If supply really falls, the cost reaches cables, appliances, cars and grid '
+                     'projects over months, not at the shop next week.'),
+        'not_implied': 'More news about Peruvian mining does not mean any mine has stopped.',
+    },
+    'las_bambas': {
+        'plain':    ('Las Bambas is one Chinese-owned (MMG) mine in Peru\'s southern Andes that '
+                     'produces about 2% of the world\'s mined copper (about 411,000 tonnes in 2025).'),
+        'local':    ('Communities along the road that trucks the ore out (Chumbivilcas, '
+                     'Cotabambas) block it to press demands; each blockade is a negotiation as '
+                     'much as a protest.'),
+        'regional': ('A long stoppage dents Peru\'s exports and tax take, and tests the new '
+                     'Fujimori government\'s promise to speed up mining.'),
+        'global':   ('Almost all of its ore goes to Chinese smelters. A blockade of a few days '
+                     'rarely moves world copper prices; a stoppage lasting weeks squeezes smelters '
+                     'first and can lift prices when supply is already tight, as it is in 2026.'),
+        'economy':  ('Any price effect reaches wiring, electronics, cars and power grids '
+                     'gradually, over months.'),
+        'not_implied': ('Busier news coverage of Las Bambas is not a shutdown. Only reported '
+                        'suspended operations, confirmed by more than one outlet, is a supply event.'),
+    },
+    'silver': {
+        'plain':    'Peru is one of the world\'s two or three largest silver producers.',
+        'global':   ('Silver goes into solar panels, electronics and jewellery; Peruvian '
+                     'disruption matters most when solar demand is high.'),
+        'economy':  'Effects show up in solar-panel and electronics costs, slowly.',
+        'not_implied': 'Mining news volume is not a supply loss.',
+    },
+    'fishmeal': {
+        'plain':    ('Peru runs the world\'s largest single-species fishery (anchoveta) and is the '
+                     'biggest exporter of fishmeal.'),
+        'local':    ('Quota decisions set the income of the fishing fleet and coastal processing '
+                     'towns; cuts bring protests.'),
+        'global':   ('Fishmeal feeds farmed salmon, shrimp and pigs. A cancelled or slashed season '
+                     '(as in 2023) raises feed costs for fish farms in Norway, Chile and Asia.'),
+        'economy':  'Farmed salmon and shrimp prices rise with a lag of months.',
+        'not_implied': 'A quota debate is not a cancelled season.',
+    },
+    'chancay': {
+        'plain':    ('Chancay is a Chinese-controlled (COSCO, 60%) deep-water port north of Lima, '
+                     'open since November 2024, that cuts shipping time between South America and Asia.'),
+        'local':    'It brings jobs and traffic to a small town and makes Peru a regional shipping hub.',
+        'regional': ('Brazilian, Chilean and Ecuadorian exporters can route through it; it is the '
+                     'flagship of China\'s Belt and Road in South America.'),
+        'global':   ('Washington worries it could serve the Chinese navy; disruption would reroute '
+                     'Pacific trade and sharpen the US-China contest in the region.'),
+        'not_implied': 'Coverage of the port is not a disruption or a military deal.',
+    },
+    'state_of_emergency': {
+        'plain':    ('A state of emergency lets the government suspend some freedoms and send in '
+                     'the army. Peru uses them often -- Lima has been under rolling crime '
+                     'emergencies -- so only a new or wider declaration is news.'),
+        'not_implied': 'A renewal of an existing emergency is routine, not a new crisis.',
+    },
+    'politics': {
+        'plain':    ('Keiko Fujimori has been president since July 28 2026, Peru\'s ninth president '
+                     'in about ten years; Congress has removed presidents repeatedly.'),
+        'not_implied': 'Political news volume is not a vacancy motion or a crisis.',
+    },
+}
+
+ACTOR_MEANING_KEY = {
+    'las_bambas': 'las_bambas', 'mining_sector': 'copper', 'fisheries_sector': 'fishmeal',
+    'china_peru': 'chancay', 'presidency': 'politics',
+}
+TRIPWIRE_MEANING_KEY = {
+    'las_bambas_full_closure': 'las_bambas', 'chancay_disruption': 'chancay',
+    'anchoveta_season_cancelled': 'fishmeal', 'fishing_quota_slashed': 'fishmeal',
+    'fishing_fleet_protest': 'fishmeal', 'state_of_emergency': 'state_of_emergency',
+    'presidential_vacancy': 'politics',
+}
+COMMODITY_MEANING_KEY = {'copper': 'copper', 'silver': 'silver', 'fishmeal': 'fishmeal',
+                         'fish_meal': 'fishmeal', 'anchoveta': 'fishmeal'}
+
+
+def _meaning(key):
+    m = MEANINGS.get(key) or {}
+    return dict(m)
+
+
+def _meaning_sentence(key):
+    m = MEANINGS.get(key) or {}
+    bits = [m.get('plain'), m.get('global') or m.get('regional')]
+    return ' '.join(b for b in bits if b)
+
+
+def _sig(category, level, short, long_text, pressure_type, meaning_key=None,
+         actor=None, sources=None, kind=None, extra=None):
+    """One canonical signal. level is an int 0-4."""
+    level = max(0, min(4, int(level)))
+    s = {
+        'category':      category,
+        'type':          kind or category,
+        'theatre':       'peru',
+        'level':         level,
+        'level_name':    LEVEL_ORDER[level],
+        'priority':      PRIORITY_BY_LEVEL.get(level, 2),
+        'pressure_type': pressure_type,
+        'short_text':    short[:230],
+        'long_text':     long_text,
+        'actor':         actor,
+        'sources':       sources or [],
+    }
+    if meaning_key:
+        s['what_it_means'] = _meaning(meaning_key)
+        s['meaning'] = _meaning_sentence(meaning_key)
+    if extra:
+        s.update(extra)
+    return s
+
+
 def _has_deescalation(actor_summary):
-    """Check if an actor's articles contain de-escalation patterns."""
-    text = ''
-    for art in actor_summary.get('top_articles', []):
-        text += ' ' + (art.get('title') or '').lower()
+    text = ' '.join((a.get('title') or '').lower() for a in actor_summary.get('top_articles', []))
     return any(p in text for p in DEESCALATION_PATTERNS)
 
 
-def _top_article_for_actor(actor_summary):
-    """Get the single highest-scoring article for an actor (or None)."""
-    arts = actor_summary.get('top_articles', [])
-    return arts[0] if arts else None
-
-
-def _format_source_pill(source_name, feed_type=''):
-    """Return a tagged source string for citation."""
-    feed_type = (feed_type or '').lower()
-    if feed_type:
-        return f"{source_name} ({feed_type})"
-    return source_name
+def _sources(arts, n=3):
+    return [{'title': a.get('title', ''), 'url': a.get('url', ''),
+             'source': a.get('outlet') or a.get('source', '')} for a in (arts or [])[:n]]
 
 
 # ============================================
-# TOP SIGNALS BUILDER
+# TRIPWIRE PROSE (plain)
+# ============================================
+TRIPWIRE_PLAIN = {
+    'state_of_emergency':        ('a new state of emergency', 'domestic_stability', 'governance'),
+    'las_bambas_full_closure':   ('Las Bambas copper mine operations suspended', 'resource_sector', 'economic'),
+    'chancay_disruption':        ('disruption at the Chinese-run Chancay port', 'china_alignment', 'economic'),
+    'presidential_vacancy':      ('a move to remove the president', 'domestic_stability', 'governance'),
+    'ffaa_intervention':         ('the military stepping into politics', 'domestic_stability', 'governance'),
+    'mass_casualty_protest':     ('protesters killed', 'domestic_stability', 'humanitarian'),
+    'sendero_attack':            ('an attack by Shining Path remnants or drug gangs', 'domestic_stability', 'kinetic'),
+    'extremist_network_signal':  ('a Hizballah / Iran-linked network tied to Peru', 'domestic_stability', 'kinetic'),
+    'anchoveta_season_cancelled': ('the anchoveta fishing season cancelled', 'resource_sector', 'economic'),
+    'fishing_quota_slashed':     ('the anchoveta quota cut', 'resource_sector', 'economic'),
+    'fishing_fleet_protest':     ('a fishing-fleet protest', 'resource_sector', 'economic'),
+}
+
+
+def _tripwire_signal(tw, actor_summaries):
+    """Corroborated -> full severity. Single source -> 'approaching' at L2.
+    Rumour -> None (shown on the page as rumour, never as a top signal)."""
+    tw_id = tw.get('id')
+    grade = tw.get('grade', 'corroborated')   # pre-1.1 payloads carried no grade
+    what, _vec, ptype = TRIPWIRE_PLAIN.get(tw_id, (tw_id.replace('_', ' '), None, 'kinetic'))
+    sev = _int(tw.get('severity', 'high'))
+    outlets = tw.get('outlets') or []
+    if grade == 'corroborated':
+        level = sev
+        short = f'Peru: {what} -- reported by {len(outlets) or 2} separate outlets'
+    elif grade == 'single_source':
+        level = 2
+        short = f'Peru: one outlet reports {what} -- not yet corroborated'
+    else:
+        return None
+    mk = TRIPWIRE_MEANING_KEY.get(tw_id)
+    long_text = ' '.join(x for x in (
+        f'{what[0].upper() + what[1:]}: {"confirmed by " + ", ".join(outlets[:4]) if grade == "corroborated" else "a single report so far"}.',
+        _meaning_sentence(mk) if mk else '',
+        (MEANINGS.get(mk) or {}).get('not_implied', '') if mk and grade != 'corroborated' else '',
+    ) if x)
+    actor = tw.get('actor')
+    return _sig('tripwire_' + tw_id, level, short, long_text, ptype, mk, actor=actor,
+                sources=[{'title': i.get('title'), 'url': i.get('url'), 'source': i.get('outlet')}
+                         for i in (tw.get('items') or [])[:3]],
+                kind='tripwire', extra={'evidence': grade, 'outlets': outlets})
+
+
+# ============================================
+# TOP SIGNALS
 # ============================================
 def _commodity_story_signal(commodity_pressure):
-    """Composite pressure story signal -- mirrors the stability page's
-    commodity alert banner so both pages tell one story. None when calm."""
+    """Composite commodity pressure -- news-signal volume, NOT price. Capped at L3:
+    commodity news volume is not an economic rupture (GPI v3.16 ruling)."""
     story = (commodity_pressure or {}).get('_pressure_story') or {}
     alert = (story.get('alert') or 'normal').lower()
     if alert == 'normal':
         return None
-    LEVEL_MAP = {'elevated': 'elevated', 'high': 'high',
-                 'critical': 'surge', 'surge': 'surge'}
-    escalated = [c for c, a in (story.get('commodities') or {}).items()
-                 if a and a != 'normal']
-    esc_txt = (', '.join(sorted(escalated)) if escalated
-               else 'tracked commodities')
-    return {
-        'category':   'commodity_coupling',
-        'type':       'commodity_coupling',
-        'level':      LEVEL_MAP.get(alert, 'elevated'),
-        'icon':       '\u26cf\ufe0f',
-        'short_text': ('Composite commodity pressure: ' + alert.upper() + ' -- '
-                       + str(story.get('points', 0)) + ' pts \u00b7 '
-                       + str(story.get('profile_count', 0)) + ' commodities tracked'),
-        'long_text':  ('Composite news-signal pressure (weighted volume/severity '
-                       'of matched reporting, NOT price) is at ' + alert.upper()
-                       + ' across ' + esc_txt + '. Peru supply-risk premium is '
-                       'partly a political risk premium -- this composite and the '
-                       'runoff count are stacking on the same window.'),
-        'source_link': '/peru-stability.html#commodities',
-    }
-
-
-def _election_top_signal(actor_summaries):
-    e = build_election_watch(actor_summaries)
-    if not e:
-        return None
-    cf, cs = e['candidates']['fujimori'], e['candidates']['sanchez']
-    phase_label = {'count_in_progress': 'count in progress',
-                   'count_disputed': 'COUNT DISPUTED',
-                   'decided': 'decision signals active'}.get(e['phase'], e['phase'])
-    mom = e['momentum_signals']
-    mom_txt = ('lead-language balanced' if mom == 'balanced'
-               else 'lead-language clustering around ' + e['candidates'][mom]['display'])
-    return {
-        'category':   'election',
-        'type':       'election',
-        'level':      'high' if e['phase'] == 'count_disputed' else 'elevated',
-        'icon':       '\U0001f5f3\ufe0f',
-        'short_text': ('Runoff watch: ' + phase_label + ' -- ' + mom_txt),
-        'long_text':  (cf['display'] + ' = market-stabilizing read (mining continuity); '
-                       + cs['display'] + ' = market-volatility read (mining-policy '
-                       'uncertainty). ' + cs['display'] + ' strength: rural domestic '
-                       'late count; ' + cf['display'] + ' strength: diaspora ballots. '
-                       + e['disclaimer']),
-        'source_link': '/rhetoric-peru.html#election',
-    }
+    lvl = {'elevated': 2, 'high': 3, 'critical': 3, 'surge': 3}.get(alert, 2)
+    escalated = sorted(c for c, a in (story.get('commodities') or {}).items() if a and a != 'normal')
+    names = ', '.join(escalated) or 'its export commodities'
+    return _sig('commodity_coupling', lvl,
+                f'Peru: news about {names} is running hot -- a supply-risk signal, not a measured price move',
+                ('Asifah\'s commodity tracker sees heavier-than-usual reporting on ' + names +
+                 ' for Peru. This measures news volume and severity, not prices. ' +
+                 _meaning_sentence('copper')),
+                'economic', 'copper', kind='commodity_coupling',
+                extra={'source_link': '/peru-stability.html#commodities'})
 
 
 def build_top_signals(actor_summaries, tripwires_global, commodity_pressure, crosstheater_amplifiers):
-    """
-    Build the canonical top_signals[] array for the Peru rhetoric tracker.
-
-    Each signal has the canonical schema:
-      {
-        'short_text':  one-line headline (≤120 chars)
-        'long_text':   2-4 sentence elaboration
-        'level':       one of low/normal/elevated/high/surge
-        'type':        actor_signal | tripwire | convergence | commodity_coupling | crosstheater
-        'actor':       actor_id (or None)
-        'sources':     list of {title, url, source} (top 3)
-      }
-
-    Sorted by level (surge first), then by signal-richness.
-    """
+    """Canonical top_signals[] for Peru (v1.1.0 plain, evidence-graded, int levels)."""
     signals = []
 
-    # ── 1. Tripwire signals (highest priority) ──
-    seen_tripwires = set()
+    # 1. Tripwires -- one per id, best grade wins
+    best = {}
+    rank = {'corroborated': 0, 'single_source': 1, 'rumint': 2}
     for tw in tripwires_global or []:
-        tw_id = tw.get('id')
-        if tw_id in seen_tripwires:
-            continue
-        seen_tripwires.add(tw_id)
-        actor_id = tw.get('actor')
-        actor_data = actor_summaries.get(actor_id, {}) if actor_id else {}
-        top_art = _top_article_for_actor(actor_data) if actor_data else None
-        sources = []
-        if top_art:
-            sources.append({
-                'title':  top_art.get('title', ''),
-                'url':    top_art.get('url', ''),
-                'source': top_art.get('source', ''),
-            })
+        cur = best.get(tw.get('id'))
+        if cur is None or rank.get(tw.get('grade', 'corroborated'), 3) < rank.get(cur.get('grade', 'corroborated'), 3):
+            best[tw.get('id')] = tw
+    for tw in best.values():
+        s = _tripwire_signal(tw, actor_summaries)
+        if s:
+            signals.append(s)
 
-        short, long_text = _tripwire_prose(tw_id, actor_id)
-        signals.append({
-            'short_text': short,
-            'long_text':  long_text,
-            'level':      tw.get('severity', 'high'),
-            'type':       'tripwire',
-            'actor':      actor_id,
-            'sources':    sources,
-        })
-
-    # ── 2. Convergence signals ──
-    # When ≥2 vectors are at elevated+, signal a convergence
+    # 2. Convergence -- 2+ areas busier than usual at once
     vector_levels = {}
-    for actor_id, actor in actor_summaries.items():
-        vec = actor.get('vector')
-        lvl = actor.get('level', 'low')
-        if vec:
-            existing = vector_levels.get(vec, 'low')
-            if _level_rank(lvl) > _level_rank(existing):
-                vector_levels[vec] = lvl
-    elevated_vectors = [v for v, lv in vector_levels.items() if lv in ESCALATORY_LEVELS]
-    if len(elevated_vectors) >= 2:
-        sig = _convergence_signal(elevated_vectors, vector_levels, actor_summaries)
-        if sig:
-            signals.append(sig)
+    for a in (actor_summaries or {}).values():
+        v = a.get('vector')
+        if v and _level_rank(a.get('level', 'low')) > _level_rank(vector_levels.get(v, 'low')):
+            vector_levels[v] = a.get('level', 'low')
+    elevated = [v for v, lv in vector_levels.items() if lv in ESCALATORY_LEVELS]
+    if len(elevated) >= 2:
+        names = [VECTOR_NAMES.get(v, v) for v in elevated]
+        lvl = min(3, max(_int(vector_levels[v]) for v in elevated))
+        signals.append(_sig('convergence', lvl,
+                            'Peru: several areas are busier than usual at once -- ' + ' and '.join(names[:3]),
+                            ('More than one part of the Peru picture is active in the same week: ' +
+                             ', '.join(names) + '. Pressures that usually move separately are moving '
+                             'together, which is when a local dispute is most likely to spread.'),
+                            'composite', kind='convergence'))
 
-    # ── 3. Per-actor signals (only at elevated+) ──
-    for actor_id, actor in actor_summaries.items():
+    # 3. Actors busier than usual (volume is capped at 'elevated' upstream)
+    covered = {t.get('actor') for t in best.values() if t.get('grade') in ('corroborated', 'single_source')}
+    for actor_id, actor in (actor_summaries or {}).items():
         level = actor.get('level', 'low')
-        if level not in ESCALATORY_LEVELS:
+        if level not in ESCALATORY_LEVELS or actor_id in covered:
             continue
-        # Skip if a tripwire already covered this actor at the same/higher severity
-        actor_tw_levels = [
-            tw.get('severity') for tw in tripwires_global or []
-            if tw.get('actor') == actor_id
-        ]
-        if actor_tw_levels and _level_rank(_max_level(actor_tw_levels)) >= _level_rank(level):
+        name = ACTOR_PROSE_NAMES.get(actor_id, actor.get('name', actor_id))
+        n = actor.get('article_count', 0)
+        outlets = actor.get('outlet_count') or len(actor.get('sources') or [])
+        deesc = _has_deescalation(actor)
+        mk = ACTOR_MEANING_KEY.get(actor_id)
+        short = (f'Peru: more reporting than usual on {name} ({n} items from {outlets} outlets)'
+                 + (' -- much of it about talks or a deal' if deesc else ''))
+        long_text = ' '.join(x for x in (
+            f'Coverage of {name} is running above its usual weekly level. This counts reporting, '
+            f'not events: it says something is happening there, not how serious it is.',
+            'Several items describe dialogue or an agreement, which usually means a dispute is being settled.' if deesc else '',
+            _meaning_sentence(mk) if mk else '',
+            (MEANINGS.get(mk) or {}).get('not_implied', '') if mk else '',
+        ) if x)
+        ptype = {'resource_sector': 'economic', 'china_alignment': 'diplomatic',
+                 'us_alignment': 'diplomatic'}.get(actor.get('vector'), 'governance')
+        if actor_id == 'vraem_sendero':
+            ptype = 'kinetic'
+        signals.append(_sig('actor_volume', _int(level), short, long_text, ptype, mk,
+                            actor=actor_id, sources=_sources(actor.get('top_articles')),
+                            kind='actor_signal'))
+
+    # 4. Commodity coupling (commodity alert AND sector reporting both up)
+    for cid, risk in (commodity_pressure or {}).items():
+        if cid.startswith('_') or not isinstance(risk, dict):
             continue
-
-        sig = _actor_signal(actor_id, actor)
-        if sig:
-            signals.append(sig)
-
-    # ── 4. Commodity coupling signals ──
-    for commodity_id, risk in (commodity_pressure or {}).items():
-        if commodity_id.startswith('_'):
-            continue  # reserved keys (e.g. _pressure_story) are not commodities
-        if risk.get('alert_level') in ESCALATORY_LEVELS:
-            sig = _commodity_coupling_signal(commodity_id, risk, actor_summaries)
-            if sig:
-                signals.append(sig)
-
-    # ── 5. Cross-theater amplifier signals ──
-    for amp_label, amp_data in (crosstheater_amplifiers or {}).items():
-        if not isinstance(amp_data, dict):
+        if risk.get('alert_level') not in ESCALATORY_LEVELS:
             continue
-        if not amp_data.get('active'):
+        sector_lvl = max(_int((actor_summaries.get('mining_sector') or {}).get('level', 'low')),
+                         _int((actor_summaries.get('las_bambas') or {}).get('level', 'low')))
+        lvl = min(3, _int(risk.get('alert_level')), max(sector_lvl, 1) + 1)
+        mk = COMMODITY_MEANING_KEY.get(cid, 'copper')
+        top = risk.get('top_signal') or {}
+        signals.append(_sig('commodity_coupling', lvl,
+                            f'Peru: {cid} supply-risk reporting is up while Peruvian mining news is busy',
+                            (f'The commodity tracker reads {risk.get("alert_level")} news pressure on {cid}, '
+                             f'and Peru is a major producer. ' + _meaning_sentence(mk) + ' ' +
+                             (MEANINGS.get(mk) or {}).get('not_implied', '')),
+                            'economic', mk, actor='mining_sector', kind='commodity_coupling',
+                            sources=[{'title': top.get('title', ''), 'url': top.get('url', ''),
+                                      'source': top.get('source', '')}] if top.get('title') else []))
+
+    # 5. Cross-theater amplifiers
+    for amp, data in (crosstheater_amplifiers or {}).items():
+        if not isinstance(data, dict) or not data.get('active'):
             continue
-        sig = _crosstheater_signal(amp_label, amp_data)
-        if sig:
-            signals.append(sig)
+        text = {
+            'china_lac_active':   'China\'s Latin America messaging is active this cycle',
+            'china_bri_latam':    'China\'s Belt and Road push in Latin America is active this cycle',
+            'iran_latam_active':  'Iran\'s Latin America activity is elevated this cycle',
+            'iran_hezbollah_tba': 'Hizballah\'s Tri-Border Area network is active this cycle',
+        }.get(amp, amp.replace('_', ' '))
+        signals.append(_sig('crosstheater', 1, 'Peru context: ' + text,
+                            text + '. It raises the stakes of Peru-side signals but is not a Peru event.',
+                            'diplomatic', kind='crosstheater'))
 
-    # Sort: surge → high → elevated → normal → low; within same level, signals with sources first
-    signals.sort(
-        key=lambda s: (-_level_rank(s['level']), -len(s.get('sources', [])))
-    )
-    # Composite commodity story rides high when escalated (mirrors stability page)
-    _cs = _commodity_story_signal(commodity_pressure)
-    if _cs:
-        signals.insert(0, _cs)
-    # Election runoff watch RETIRED Jul 2026 -- Fujimori declared winner, no
-    # major upheaval. Leftist-politics + mining/commodity upheaval watches
-    # continue via the actor roster and commodity coupling. (Machinery below
-    # kept dormant for the next electoral cycle.)
-    return signals[:12]   # cap at 12 — UI shows ~8 by default
-
-
-def _tripwire_prose(tw_id, actor_id):
-    """Generate (short, long) prose for a tripwire."""
-    map_ = {
-        'state_of_emergency': (
-            "🚨 Peru state of emergency declared",
-            "A state of emergency has been declared in Peru — a domestic-stability rupture event. "
-            "Historically these declarations expand executive authority over civilian movement and "
-            "police-military deployment. Watch for renewal cycles and geographic expansion (e.g., "
-            "Apurímac corridor, Lima metropolitan area, VRAEM region)."
-        ),
-        'las_bambas_full_closure': (
-            "🔥 Las Bambas operational closure — global copper supply risk",
-            "Las Bambas mine has entered indefinite operational closure. Las Bambas alone "
-            "represents ~2% of global copper supply; sustained closure pressures LME copper "
-            "pricing and reroutes Chinese smelter inputs. Watch for community-MMG dialogue "
-            "frequency, transport-corridor blockade duration, and government mediation posture."
-        ),
-        'chancay_disruption': (
-            "🚢 Chancay megaport disruption signal",
-            "The Chancay megaport (COSCO 60% stake, opened Nov 2024) is reporting disruption. "
-            "Chancay is the central physical infrastructure of China's Belt and Road footprint "
-            "in South America; any closure or strike redirects significant Pacific trade flow. "
-            "Watch for COSCO operational statements and Peruvian-government posture."
-        ),
-        'presidential_vacancy': (
-            "🏛️ Presidential vacancy / impeachment vote in motion",
-            "An impeachment or vacancy motion has been advanced against the sitting executive. "
-            "Peru has experienced six presidents since 2018; a successful vote would trigger "
-            "constitutional succession and likely accelerate the 2026 election timeline. Watch "
-            "Congressional vote tallies and FFAA institutional posture."
-        ),
-        'ffaa_intervention': (
-            "🪖 Military intervention / institutional rupture signal",
-            "Reporting indicates Armed Forces involvement in executive-political affairs beyond "
-            "constitutional norms. This is a low-base-rate, high-impact signal; verify against "
-            "multiple independent sources before treating as confirmed. Watch Comando Conjunto "
-            "FFAA statements and OAS / inter-American responses."
-        ),
-        'mass_casualty_protest': (
-            "⚠️ Mass-casualty protest event reported",
-            "Reporting indicates protest fatalities — a domestic-stability rupture event. "
-            "Peru has prior precedent (Dec 2022–Jan 2023 southern Peru deaths). Watch human-rights "
-            "responses, IACHR statements, and government de-escalation posture."
-        ),
-        'sendero_attack': (
-            "💥 Sendero / narco-insurgent attack reported",
-            "An attack attributed to Sendero Luminoso remnants or narco-aligned actors has been "
-            "reported, likely in the VRAEM corridor. While Sendero is a residual threat (not "
-            "the 1990s organization), VRAEM operations remain a measurable security perimeter. "
-            "Watch FFAA and DEVIDA response posture."
-        ),
-        'extremist_network_signal': (
-            "🛑 External extremist-network signal detected in Peru",
-            "Reporting suggests Hezbollah / Iran-proxy / Tri-Border Area network activity with "
-            "a Peru nexus. South America has seen TBA financing networks (Argentina-Brazil-Paraguay) "
-            "but Peru is not a primary stomping ground; treat as out-of-pattern. Verify against "
-            "multiple independent sources."
-        ),
-    }
-    return map_.get(tw_id, ("⚠️ Tripwire signal", "A tripwire event has been detected. See raw signals for context."))
+    signals.sort(key=lambda s: (-s['level'], -len(s.get('sources') or [])))
+    cs = _commodity_story_signal(commodity_pressure)
+    if cs:
+        signals.append(cs)
+        signals.sort(key=lambda s: -s['level'])
+    return signals[:12]
 
 
-def _convergence_signal(elevated_vectors, vector_levels, actor_summaries):
-    """When 2+ vectors are at elevated+, build a convergence signal."""
-    vec_names = [VECTOR_NAMES.get(v, v) for v in elevated_vectors]
-    max_level = _max_level([vector_levels[v] for v in elevated_vectors])
-    short = f"⚡ Convergence: {' + '.join(vec_names[:2])}{' + …' if len(vec_names) > 2 else ''} at {max_level}"
-    long_parts = [f"Multiple analytical vectors are simultaneously elevated:"]
-    for v in elevated_vectors:
-        lvl = vector_levels[v]
-        long_parts.append(f"• {VECTOR_NAMES.get(v, v).title()} at {lvl}")
-    long_parts.append(
-        "Convergence is more analytically significant than any individual vector — when "
-        "domestic-stability pressure intersects with resource-sector or alignment vectors, "
-        "Peru's risk profile compounds across normally-independent dimensions."
-    )
-    long_text = ' '.join(long_parts) if False else '\n'.join(long_parts)
-    return {
-        'short_text': short,
-        'long_text':  long_text,
-        'level':      max_level,
-        'type':       'convergence',
-        'actor':      None,
-        'sources':    [],
-    }
-
-
-def _actor_signal(actor_id, actor):
-    """Build a per-actor signal at elevated+."""
-    name = ACTOR_PROSE_NAMES.get(actor_id, actor.get('name', actor_id))
-    level = actor.get('level', 'normal')
-    score = actor.get('score', 0)
-    article_count = actor.get('article_count', 0)
-    icon = actor.get('icon', '📊')
-
-    # Detect de-escalation
-    deescalation = _has_deescalation(actor)
-
-    # Build short_text
-    if deescalation and level in ('elevated', 'high'):
-        short = f"{icon} {name} — {level} but with de-escalatory rhetoric (dialogue / consulta previa)"
-    elif level == 'surge':
-        short = f"{icon} {name} — SURGE-level rhetoric ({article_count} signals)"
-    elif level == 'high':
-        short = f"{icon} {name} — high-level rhetoric tempo ({article_count} signals)"
+# ============================================
+# EXECUTIVE SUMMARY + TOP INDICATOR
+# ============================================
+def build_top_indicator(actor_summaries, tripwires_global, alignment_drift=None, articles_scanned=None):
+    """The one plain sentence to leave with."""
+    corro = [t for t in (tripwires_global or []) if t.get('grade', 'corroborated') == 'corroborated']
+    single = [t for t in (tripwires_global or []) if t.get('grade') == 'single_source']
+    busy = sorted(((k, a) for k, a in (actor_summaries or {}).items()
+                   if a.get('level') in ESCALATORY_LEVELS),
+                  key=lambda kv: -kv[1].get('score', 0))
+    if corro:
+        t = max(corro, key=lambda x: _int(x.get('severity', 'high')))
+        what = TRIPWIRE_PLAIN.get(t.get('id'), (t.get('id', '').replace('_', ' '),))[0]
+        mk = TRIPWIRE_MEANING_KEY.get(t.get('id'))
+        main = f'Confirmed by more than one outlet: {what}. ' + ((MEANINGS.get(mk) or {}).get('global') or '')
+    elif busy:
+        names = [ACTOR_PROSE_NAMES.get(k, k) for k, _ in busy[:2]]
+        main = ('Nothing high-impact is confirmed in Peru. Reporting is busier than usual on '
+                + ' and '.join(names) + ' -- more news, not a crisis.')
     else:
-        short = f"{icon} {name} — elevated rhetoric tempo ({article_count} signals)"
-
-    # Build long_text — actor-specific framing
-    long_text = _actor_specific_long_text(actor_id, actor, deescalation)
-
-    # Sources
-    sources = []
-    for art in actor.get('top_articles', [])[:3]:
-        sources.append({
-            'title':  art.get('title', ''),
-            'url':    art.get('url', ''),
-            'source': art.get('source', ''),
-        })
-
-    return {
-        'short_text': short,
-        'long_text':  long_text,
-        'level':      level,
-        'type':       'actor_signal',
-        'actor':      actor_id,
-        'sources':    sources,
-    }
+        main = 'Peru reads quiet: nothing high-impact is confirmed and no area is unusually busy.'
+    if single and not corro:
+        what = TRIPWIRE_PLAIN.get(single[0].get('id'), (single[0].get('id', '').replace('_', ' '),))[0]
+        main += f' Watching: one outlet reports {what}, not yet corroborated.'
+    if alignment_drift and alignment_drift.get('band') in ('Drifting', 'Realigning'):
+        main += (' Standing backdrop: Peru is drifting toward China economically, anchored by the '
+                 'Chancay port -- a long-running fact, not this week\'s news.')
+    if articles_scanned is not None and articles_scanned < 30:
+        main += ' Coverage is thin this cycle, so quiet may be unread rather than calm.'
+    return main
 
 
-def _actor_specific_long_text(actor_id, actor, deescalation):
-    """Generate actor-specific framing prose."""
-    level = actor.get('level', 'normal')
-    score = actor.get('score', 0)
-    articles = actor.get('article_count', 0)
-
-    base_map = {
-        'presidency': (
-            f"Presidential rhetoric tempo at {level} ({articles} signals). "
-            f"Peru's executive has cycled through six presidents since 2018; rhetoric volume here "
-            f"correlates with both inter-branch friction (Congress impeachment cycle) and "
-            f"electoral-cycle positioning ahead of 2026 generals."
-        ),
-        'cancilleria': (
-            f"Foreign-ministry rhetoric tempo at {level} ({articles} signals). "
-            f"Cancillería signals typically track regional disputes (Chile, Bolivia, Ecuador), "
-            f"OAS positioning, and bilateral statements with US/China — elevated tempo often "
-            f"precedes a multilateral inflection."
-        ),
-        'ffaa': (
-            f"Armed Forces rhetoric tempo at {level} ({articles} signals). "
-            f"FFAA institutional voice is normally low-volume; elevated tempo correlates with "
-            f"state-of-emergency renewals, VRAEM operations, or — at the high end — civil-military "
-            f"friction. Watch for Comando Conjunto formal statements."
-        ),
-        'mining_sector': (
-            f"Mining-sector rhetoric tempo at {level} ({articles} signals). "
-            f"Peru is the world's #1 silver producer and a top-3 copper producer; sector rhetoric "
-            f"tracks labor-strike cycles, royalty/contract disputes, and environmental rulings. "
-            f"Industry tempo typically leads price-impact by days."
-        ),
-        'las_bambas': (
-            f"Las Bambas conflict rhetoric at {level} ({articles} signals). "
-            f"Las Bambas alone affects ~2% of global copper supply. Community-MMG conflict cycles "
-            f"through blockade → dialogue → temporary resumption phases. Watch the Apurímac corridor "
-            f"and indigenous-consultation statements."
-        ),
-        'vraem_sendero': (
-            f"VRAEM / Sendero-residual rhetoric tempo at {level} ({articles} signals). "
-            f"Peru's southern coca-corridor remains a measurable security perimeter. Signal tempo "
-            f"here tracks DEVIDA operations, FFAA-police joint operations, and narco-trafficking "
-            f"interdiction announcements."
-        ),
-        'us_peru': (
-            f"US-Peru bilateral rhetoric tempo at {level} ({articles} signals). "
-            f"Channel includes Embassy Lima, INL drug-enforcement cooperation, SOUTHCOM military "
-            f"cooperation, and US-Peru FTA dynamics. (Note: USAID was dissolved in 2025; security "
-            f"and counter-narcotics cooperation is now routed through State INL and DoD.)"
-        ),
-        'china_peru': (
-            f"China-Peru / Belt-and-Road rhetoric tempo at {level} ({articles} signals). "
-            f"Anchored by Chancay megaport (COSCO 60% stake, opened Nov 2024), the BRI footprint, "
-            f"and Chinese mining-sector investment (Chinalco, Shougang, Jinzhao). Elevated tempo "
-            f"often precedes formal state-visit announcements or contract milestones."
-        ),
-    }
-    base = base_map.get(actor_id, f"{ACTOR_PROSE_NAMES.get(actor_id, actor_id)} rhetoric at {level}.")
-    if deescalation:
-        base += " Notably, current articles include de-escalatory language (dialogue / consulta previa / agreement) — softens the elevated reading."
-    return base
-
-
-def _commodity_coupling_signal(commodity_id, risk, actor_summaries):
-    """Build a commodity-coupling signal from a supply-risk fingerprint."""
-    role = risk.get('role', 'producer')
-    rank = risk.get('rank')
-    rank_str = f" (#{rank} globally)" if rank else ""
-    alert = risk.get('alert_level', 'normal')
-    sig_count = risk.get('signal_count', 0)
-    top_signal = risk.get('top_signal') or {}
-
-    short = f"⛏️ Commodity coupling: {commodity_id} {role}{rank_str} — {alert} pressure from sector signals"
-    long_text = (
-        f"The commodity tracker is reporting {alert}-level pressure on Peru's {commodity_id} "
-        f"sector (Peru is a {role}{rank_str}). {sig_count} cross-tracker signals flagged. "
-        f"This is a coupling event — what the rhetoric tracker observes in mining_sector / "
-        f"las_bambas channels has a direct supply-side implication for global {commodity_id} "
-        f"markets. Watch for sector-rhetoric and price-impact alignment."
-    )
-    sources = []
-    if top_signal.get('title'):
-        sources.append({
-            'title':  top_signal.get('title', ''),
-            'url':    top_signal.get('url', ''),
-            'source': top_signal.get('source', ''),
-        })
-
-    return {
-        'short_text': short,
-        'long_text':  long_text,
-        'level':      alert,
-        'type':       'commodity_coupling',
-        'actor':      'mining_sector',
-        'sources':    sources,
-    }
-
-
-def _crosstheater_signal(amp_label, amp_data):
-    """Build a cross-theater amplifier signal."""
-    label_map = {
-        'china_lac_active':   ('China-LAC posture active', 'China rhetoric tracker is reporting elevated Latin America-focused activity. Peru is a primary BRI anchor in South America; amplifies any Peru-side China-alignment vector signals.'),
-        'china_bri_latam':    ('China BRI-LatAm posture active', 'BRI-LatAm-specific posture is active per the China rhetoric tracker. Direct amplification for Chancay megaport and Chinese mining-investment signals.'),
-        'iran_latam_active':  ('Iran LatAm posture active', 'Iran rhetoric tracker is reporting elevated Latin America activity. Peru is not a primary Iranian theater, but amplification triggers extra vigilance on the extremist-network tripwire.'),
-        'iran_hezbollah_tba': ('Hezbollah Tri-Border Area active', 'Iran tracker is reporting Hezbollah TBA-network activity. Peru is geographically distant from the TBA but supply-chain/financing routes can reach Lima; quiet tripwire stays armed.'),
-    }
-    short_root, long_text = label_map.get(amp_label, (amp_label, 'External tracker amplification active.'))
-    short = f"🌐 Cross-theater: {short_root}"
-    return {
-        'short_text': short,
-        'long_text':  long_text,
-        'level':      amp_data.get('level', 'elevated'),
-        'type':       'crosstheater',
-        'actor':      None,
-        'sources':    [],
-    }
-
-
-# ============================================
-# EXECUTIVE SUMMARY BUILDER
-# ============================================
 def build_executive_summary(actor_summaries, vector_scores, vector_levels, tripwires_global):
-    """
-    Generate a 2-4 sentence executive summary capturing the headline narrative.
-    Calibrated to the 4-vector frame.
-    """
     parts = []
-
-    # Identify top vector + level
-    sorted_vectors = sorted(
-        vector_scores.items(),
-        key=lambda x: (-_level_rank(vector_levels.get(x[0], 'low')), -x[1])
-    )
-    top_vector_id, top_vector_score = sorted_vectors[0] if sorted_vectors else (None, 0)
-    top_vector_level = vector_levels.get(top_vector_id, 'low') if top_vector_id else 'low'
-
-    elevated_vectors = [v for v, lv in vector_levels.items() if lv in ESCALATORY_LEVELS]
-
-    # Sentence 1 — top vector framing
-    if top_vector_level == 'low':
-        parts.append(
-            "Peru's rhetoric environment is at baseline across all four analytical vectors "
-            "(domestic stability, resource-sector politics, US alignment, China alignment). "
-            "No structural pressure events detected this scan."
-        )
-    elif top_vector_level == 'normal':
-        parts.append(
-            f"Peru's rhetoric environment is normal-tempo, with {VECTOR_NAMES.get(top_vector_id, top_vector_id)} "
-            f"showing the most signal volume but no escalatory pattern."
-        )
-    else:
-        parts.append(
-            f"Peru's rhetoric environment is elevated, led by {VECTOR_NAMES.get(top_vector_id, top_vector_id)} "
-            f"at {top_vector_level} ({round(top_vector_score, 1)} weighted score)."
-        )
-
-    # Sentence 2 — convergence note
-    if len(elevated_vectors) >= 2:
-        vec_names = [VECTOR_NAMES.get(v, v) for v in elevated_vectors]
-        parts.append(
-            f"Cross-vector convergence is underway: {' + '.join(vec_names[:3])} "
-            f"are simultaneously above baseline, compounding Peru's risk profile."
-        )
-
-    # Sentence 3 — tripwire mention
-    if tripwires_global:
-        unique_tw = list({tw.get('id') for tw in tripwires_global})
-        tw_count = len(unique_tw)
-        if tw_count == 1:
-            parts.append(
-                f"One tripwire event detected this scan: {unique_tw[0].replace('_', ' ')}. "
-                f"See top signals for context."
-            )
-        else:
-            parts.append(
-                f"{tw_count} tripwire events detected this scan: {', '.join(t.replace('_', ' ') for t in unique_tw[:3])}. "
-                f"See top signals for context."
-            )
-
-    # Sentence 4 — top-actor breadcrumb
-    sorted_actors = sorted(
-        actor_summaries.items(),
-        key=lambda x: (-_level_rank(x[1].get('level', 'low')), -x[1].get('score', 0))
-    )
-    top_actor_id, top_actor = sorted_actors[0] if sorted_actors else (None, None)
-    if top_actor and top_actor.get('level') in ESCALATORY_LEVELS:
-        parts.append(
-            f"Highest-tempo actor this scan: {ACTOR_PROSE_NAMES.get(top_actor_id, top_actor_id)} "
-            f"at {top_actor.get('level')} ({top_actor.get('article_count', 0)} signals)."
-        )
-
+    corro = [t for t in (tripwires_global or []) if t.get('grade', 'corroborated') == 'corroborated']
+    elevated = [v for v, lv in (vector_levels or {}).items() if lv in ESCALATORY_LEVELS]
+    if corro:
+        whats = sorted({TRIPWIRE_PLAIN.get(t.get('id'), (t.get('id'),))[0] for t in corro})
+        parts.append('High-impact events are confirmed by more than one outlet: ' + '; '.join(whats[:3]) + '.')
+    if elevated:
+        parts.append('Reporting is busier than usual on ' +
+                     ', '.join(VECTOR_NAMES.get(v, v) for v in elevated) + '.')
+    if not corro and not elevated:
+        parts.append('Peru reads quiet this cycle: no area is unusually busy and nothing high-impact is confirmed.')
+    single = [t for t in (tripwires_global or []) if t.get('grade') == 'single_source']
+    if single:
+        parts.append('Single-outlet reports not yet corroborated: ' +
+                     ', '.join(sorted({TRIPWIRE_PLAIN.get(t.get('id'), (t.get('id'),))[0] for t in single})[:3]) + '.')
+    parts.append(MEANINGS['politics']['plain'])
     return ' '.join(parts)
 
 
 # ============================================
-# SO WHAT FACTOR BUILDER
+# GREAT-POWER ALIGNMENT DRIFT
 # ============================================
+# v1.1.0: one step lower across the board. Drifting is a standing structural
+# reading (Chancay is built and operating); it belongs at "watch" (L3), not
+# "serious pressure" (L4), or Peru carries L4 forever from a fact that does
+# not move.
+DRIFT_BAND_META = {
+    'US-anchored': {'level': 1, 'color': '#38bdf8', 'priority': 4},
+    'Contested':   {'level': 2, 'color': '#f59e0b', 'priority': 7},
+    'Drifting':    {'level': 3, 'color': '#f97316', 'priority': 8},
+    'Realigning':  {'level': 4, 'color': '#dc2626', 'priority': 11},
+}
+
+DRIFT_PROFILES = {
+    'peru': {
+        'flag':            '\U0001F1F5\U0001F1EA',
+        'inroad_power':    'China',
+        'incumbent_power': 'the US',
+        'inroad_actor':    'china_peru',
+        'counter_actor':   'us_peru',
+        'inroad_tripwires':  ('dual_use_facility', 'diplomatic_anti_us',
+                              'security_cooperation', 'major_infra_milestone'),
+        'counter_tripwires': ('project_contestation', 'monroe_doctrine_invoked',
+                              'us_displacement_push', 'strategic_minerals_pact'),
+        'dependency_channel': 'the COSCO-controlled Chancay megaport and copper/silver sales to China',
+        'commodity_keys':     ('copper', 'silver'),
+        'crosstheater_amp':   'china_lac_active',
+        'structural_dependency_baseline': True,
+        'precedents': ('the COSCO-operated Chancay megaport -- the flagship Chinese port in '
+                       'South America, opened November 2024 and not reversed'),
+        'leading_indicators': [
+            'Chancay throughput / expansion and COSCO stake moves',
+            'Copper and silver sales locked in to Chinese buyers (Las Bambas, Chinalco, Shougang)',
+            'China-Peru trade-deal upgrades and Belt-and-Road announcements',
+            'Lima saying it has a "sovereign right to choose partners"',
+            'US counter-moves -- ambassador pressure, "better partner" offers, congressional scrutiny',
+        ],
+    },
+}
+
+_DRIFT_LEVEL_RANK = {'low': 0, 'normal': 1, 'elevated': 2, 'high': 3, 'surge': 4}
+
+
+def score_alignment_drift(actor_summaries, tripwires_global, commodity_pressure,
+                          crosstheater_amplifiers, country='peru', profile=None):
+    """Great-power alignment-drift convergence read. CONVERGENCE, not prediction."""
+    prof = profile or DRIFT_PROFILES.get((country or '').lower())
+    if not prof:
+        return None
+    asum = actor_summaries or {}
+    inroad_lvl = _DRIFT_LEVEL_RANK.get((asum.get(prof['inroad_actor']) or {}).get('level', 'low'), 0)
+    counter_lvl = _DRIFT_LEVEL_RANK.get((asum.get(prof['counter_actor']) or {}).get('level', 'low'), 0)
+    tw_ids = {tw.get('id') for tw in (tripwires_global or [])
+              if tw.get('grade', 'corroborated') == 'corroborated'}
+    inroad_tw = [t for t in prof['inroad_tripwires'] if t in tw_ids]
+    counter_tw = [t for t in prof['counter_tripwires'] if t in tw_ids]
+    dep_active = bool(prof.get('structural_dependency_baseline', False))
+    if not dep_active:
+        for ck in prof.get('commodity_keys', ()):
+            cp = (commodity_pressure or {}).get(ck) or {}
+            if isinstance(cp, dict) and (cp.get('active') or cp.get('level') in ('elevated', 'high', 'surge')):
+                dep_active = True
+                break
+    amp_active = bool((crosstheater_amplifiers or {}).get(prof.get('crosstheater_amp', '')))
+    inroad = inroad_lvl + len(inroad_tw) + (1 if dep_active else 0) + (1 if amp_active else 0)
+    counter = counter_lvl + len(counter_tw)
+    if inroad <= 1:
+        band = 'US-anchored'
+    elif inroad >= 2 and counter >= 2:
+        band = 'Contested'
+    elif inroad >= 5 and counter <= 1 and dep_active:
+        band = 'Realigning'
+    elif (inroad - counter) >= 2:
+        band = 'Drifting'
+    elif counter >= 2:
+        band = 'Contested'
+    else:
+        band = 'US-anchored'
+    floor = False
+    if prof.get('structural_dependency_baseline') and band == 'US-anchored':
+        band, floor = 'Drifting', True
+    ip, cp_, cc = prof['inroad_power'], prof['incumbent_power'], (country or '').title()
+    if band == 'US-anchored':
+        so_what = (ip + "'s presence in " + cc + " reads as ordinary business this cycle; "
+                   + cp_ + "'s position is not being contested.")
+    elif band == 'Contested':
+        so_what = (ip + ' and ' + cp_ + ' are both actively competing for ' + cc + ' this cycle -- '
+                   'a tug-of-war, not a settled choice.')
+    elif band == 'Drifting':
+        so_what = (cc + ' is tied ever more closely to ' + ip + ' through ' + prof['dependency_channel'] +
+                   (', a standing fact rather than this week\'s news.' if floor else
+                    ', and ' + ip + '\'s moves are outpacing ' + cp_ + '\'s this cycle.') +
+                   ' What it means: trade and investment pull Lima toward Beijing even when politics leans to Washington.')
+    else:
+        so_what = ('Sustained ' + ip + ' moves, deep dependency (' + prof['dependency_channel'] +
+                   ') and little ' + cp_ + ' push-back are consistent with ' + cc +
+                   ' settling into ' + ip + '\'s orbit.')
+    meta = DRIFT_BAND_META[band]
+    return {
+        'id': 'bri_inroad_' + (country or '').lower(), 'country': (country or '').lower(),
+        'flag': prof.get('flag', ''), 'band': band, 'standing_floor': floor,
+        'inroad_power': ip, 'incumbent_power': cp_,
+        'inroad_score': inroad, 'counter_score': counter, 'net': inroad - counter,
+        'active_inroad_tripwires': inroad_tw, 'active_counter_tripwires': counter_tw,
+        'dependency_active': dep_active, 'regional_amp_active': amp_active,
+        'so_what_factor': so_what, 'leading_indicators': list(prof['leading_indicators']),
+        'precedent': prof['precedents'],
+        'disclaimer': ('A convergence / influence indicator, not a prediction of realignment. '
+                       + cc + ' keeps full agency over its partners.'),
+        'level': meta['level'], 'priority': meta['priority'], 'color': meta['color'],
+        'icon': '\U0001F9ED',
+    }
+
+
+def build_alignment_drift_top_signal(drift):
+    if not drift or drift.get('band') in (None, 'US-anchored'):
+        return None
+    floor = drift.get('standing_floor')
+    return {
+        'priority':      drift['priority'],
+        'category':      'alignment_drift',
+        'theatre':       drift['country'],
+        'level':         drift['level'],
+        'level_name':    LEVEL_ORDER[min(4, drift['level'])],
+        'pressure_type': 'diplomatic',
+        'standing':      bool(floor),
+        'icon':          drift['icon'],
+        'color':         drift['color'],
+        'short_text':    ('Peru: economically tied ever more closely to China (Chancay port, copper sales)'
+                          + (' -- a standing fact, not new' if floor else ' -- China\'s moves outpacing the US this cycle')),
+        'long_text':     (drift['so_what_factor'] + ' ' + drift['disclaimer'])[:480],
+        'what_it_means': _meaning('chancay'),
+        'meaning':       _meaning_sentence('chancay'),
+    }
+
+
+# ============================================
+# SO WHAT
+# ============================================
+def build_so_what_factor(actor_summaries, vector_scores, vector_levels, tripwires_global,
+                         commodity_pressure, alignment_drift=None):
+    """Plain So What bullets: {bullet, weight}."""
+    bullets = []
+    corro = {t.get('id') for t in (tripwires_global or []) if t.get('grade', 'corroborated') == 'corroborated'}
+    single = {t.get('id') for t in (tripwires_global or []) if t.get('grade') == 'single_source'}
+
+    if 'las_bambas_full_closure' in corro:
+        m = MEANINGS['las_bambas']
+        bullets.append({'bullet': ('Las Bambas has stopped, confirmed by more than one outlet. ' + m['global'] +
+                                   ' Watch: how long it lasts, and whether Chinese smelters cut output.'),
+                        'weight': 6.0})
+    elif 'las_bambas_full_closure' in single:
+        bullets.append({'bullet': ('One outlet reports Las Bambas operations suspended; not yet corroborated. '
+                                   + MEANINGS['las_bambas']['not_implied']), 'weight': 4.6})
+    if 'chancay_disruption' in corro:
+        bullets.append({'bullet': ('Disruption at Chancay, confirmed by 2+ outlets. ' + MEANINGS['chancay']['global']),
+                        'weight': 5.4})
+    if 'state_of_emergency' in corro:
+        bullets.append({'bullet': ('A new state of emergency is confirmed. ' + MEANINGS['state_of_emergency']['plain']),
+                        'weight': 5.0})
+    if 'presidential_vacancy' in corro:
+        bullets.append({'bullet': ('A move to remove the president is confirmed by 2+ outlets. Peru has '
+                                   'changed presidents repeatedly this decade; a removal would hand power to '
+                                   'Congress\'s succession line and unsettle the mining fast-track agenda.'),
+                        'weight': 5.6})
+    if corro & {'anchoveta_season_cancelled', 'fishing_quota_slashed'}:
+        bullets.append({'bullet': 'Anchoveta catch cut, confirmed. ' + MEANINGS['fishmeal']['global'], 'weight': 5.2})
+    if 'extremist_network_signal' in corro:
+        bullets.append({'bullet': ('A Hizballah / Iran-linked network tied to Peru is reported by 2+ outlets -- '
+                                   'out of pattern for Peru; read it with the Tri-Border Area.'), 'weight': 5.3})
+
+    if alignment_drift and alignment_drift.get('band') in ('Contested', 'Drifting', 'Realigning'):
+        bullets.append({'bullet': 'China and the US: ' + alignment_drift.get('so_what_factor', ''),
+                        'weight': 4.0 if alignment_drift.get('standing_floor') else 5.5})
+
+    if (vector_levels or {}).get('resource_sector') in ESCALATORY_LEVELS and 'las_bambas_full_closure' not in corro:
+        bullets.append({'bullet': ('Mining reporting is busier than usual. ' + MEANINGS['copper']['global'] +
+                                   ' ' + MEANINGS['copper']['not_implied']), 'weight': 3.6})
+    if (vector_levels or {}).get('domestic_stability') in ESCALATORY_LEVELS:
+        bullets.append({'bullet': ('Politics and security reporting is busier than usual. ' +
+                                   MEANINGS['politics']['plain']), 'weight': 3.2})
+
+    story = (commodity_pressure or {}).get('_pressure_story') or {}
+    if (story.get('alert') or 'normal') != 'normal':
+        bullets.append({'bullet': ('Commodity news about Peru is running hot (' + story['alert'] +
+                                   '). That measures how much is being written, not prices.'),
+                        'weight': 3.0})
+
+    if not bullets:
+        bullets.append({'bullet': ('Peru reads quiet this cycle. The things that would change that: a '
+                                   'confirmed Las Bambas stoppage, a new state of emergency, a move against '
+                                   'the president, or trouble at the Chancay port.'), 'weight': 1.0})
+    bullets.sort(key=lambda b: -b['weight'])
+    return bullets[:7]
+
+
 # ============================================================
 # ELECTION RUNOFF WATCH (Jun 2026 cycle) -- RETIRED Jul 2026, kept dormant
 # ============================================================
@@ -791,365 +836,30 @@ def _election_bullets(election, commodity_pressure):
     return bullets
 
 
-# ════════════════════════════════════════════════════════════════════
-# GREAT-POWER ALIGNMENT-DRIFT — portable "BRI writ large" convergence
-# ════════════════════════════════════════════════════════════════════
-# Country-agnostic engine (clone of the Chile core) + per-country DRIFT_PROFILES.
-# Peru enhancement: structural_dependency_baseline -- an entrenched, operational
-# inroad (the Chancay megaport) is a standing dependency AND a band floor: such a
-# country reads at minimum 'Drifting', never 'US-anchored', because the inroad has
-# already structurally landed. CONVERGENCE / influence indicator, NOT prediction.
-
-DRIFT_BAND_META = {
-    'US-anchored': {'level': 1, 'color': '#38bdf8', 'priority': 8},
-    'Contested':   {'level': 3, 'color': '#f59e0b', 'priority': 12},
-    'Drifting':    {'level': 4, 'color': '#f97316', 'priority': 13},
-    'Realigning':  {'level': 5, 'color': '#dc2626', 'priority': 14},
-}
-
-DRIFT_PROFILES = {
-    'peru': {
-        'flag':            '\U0001F1F5\U0001F1EA',   # PE
-        'inroad_power':    'China',
-        'incumbent_power': 'the US',
-        'inroad_actor':    'china_peru',
-        'counter_actor':   'us_peru',
-        'inroad_tripwires':  ('dual_use_facility', 'diplomatic_anti_us',
-                              'security_cooperation', 'major_infra_milestone'),
-        'counter_tripwires': ('project_contestation', 'monroe_doctrine_invoked',
-                              'us_displacement_push', 'strategic_minerals_pact'),
-        'dependency_channel': 'the COSCO-controlled Chancay megaport and copper/silver offtake',
-        'commodity_keys':     ('copper', 'silver'),
-        'crosstheater_amp':   'china_lac_active',
-        'structural_dependency_baseline': True,   # Chancay is operational (opened Nov 2024)
-        'precedents': ('the COSCO-operated Chancay megaport -- the flagship Chinese port in '
-                       'South America, opened November 2024 and not reversed'),
-        'leading_indicators': [
-            'Chancay throughput / expansion and COSCO stake moves',
-            'Mining offtake lock-in -- Las Bambas, Chinalco, Shougang, Jinzhao copper/silver',
-            'China-Peru FTA upgrades and Belt-and-Road project announcements',
-            'Diplomatic alignment markers -- "sovereign right to choose partners" / multipolar framing',
-            'US counter-moves -- ambassador pressure, "better partner" messaging, Select Committee scrutiny',
-            'Regional challenger tempo -- the China-LAC cross-theater amplifier',
-        ],
-    },
-}
-
-_DRIFT_LEVEL_RANK = {'low': 0, 'normal': 1, 'elevated': 2, 'high': 3, 'surge': 4}
-
-
-def score_alignment_drift(actor_summaries, tripwires_global,
-                          commodity_pressure, crosstheater_amplifiers,
-                          country='peru', profile=None):
-    """Portable great-power alignment-drift convergence read ("BRI writ large").
-    Nets challenger (China/BRI) inroad pressure against incumbent (US) counter-
-    pressure: US-anchored -> Contested -> Drifting -> Realigning. Registry-shaped
-    output (id: bri_inroad_<country>). CONVERGENCE, not prediction."""
-    prof = profile or DRIFT_PROFILES.get((country or '').lower())
-    if not prof:
-        return None
-
-    asum = actor_summaries or {}
-    inroad_lvl  = _DRIFT_LEVEL_RANK.get((asum.get(prof['inroad_actor'])  or {}).get('level', 'low'), 0)
-    counter_lvl = _DRIFT_LEVEL_RANK.get((asum.get(prof['counter_actor']) or {}).get('level', 'low'), 0)
-
-    tw_ids = {tw.get('id') for tw in (tripwires_global or [])}
-    inroad_tw  = [t for t in prof['inroad_tripwires']  if t in tw_ids]
-    counter_tw = [t for t in prof['counter_tripwires'] if t in tw_ids]
-
-    # structural dependency lever: standing baseline (operational megaport) OR a live commodity surge
-    dep_active = bool(prof.get('structural_dependency_baseline', False))
-    if not dep_active:
-        for ck in prof.get('commodity_keys', ()):
-            cp = (commodity_pressure or {}).get(ck) or {}
-            if isinstance(cp, dict) and (cp.get('active') or cp.get('level') in ('elevated', 'high', 'surge')):
-                dep_active = True
-                break
-
-    amp_active = bool((crosstheater_amplifiers or {}).get(prof.get('crosstheater_amp', '')))
-
-    inroad  = inroad_lvl + len(inroad_tw) + (1 if dep_active else 0) + (1 if amp_active else 0)
-    counter = counter_lvl + len(counter_tw)
-
-    # ── band the NET drift ──
-    if inroad <= 1:
-        band = 'US-anchored'
-    elif inroad >= 2 and counter >= 2:
-        band = 'Contested'
-    elif inroad >= 5 and counter <= 1 and dep_active:
-        band = 'Realigning'
-    elif (inroad - counter) >= 2:
-        band = 'Drifting'
-    elif counter >= 2:
-        band = 'Contested'
-    else:
-        band = 'US-anchored'
-
-    # structural-dependency floor: an entrenched, operational inroad means the
-    # alignment has already structurally landed -- at minimum 'Drifting'.
-    if prof.get('structural_dependency_baseline') and band == 'US-anchored':
-        band = 'Drifting'
-
-    ip = prof['inroad_power']; cp_ = prof['incumbent_power']; cc = (country or '').title()
-    if band == 'US-anchored':
-        so_what = (ip + "'s inroads into " + cc + " read as routine commercial presence rather than a "
-                   "converging displacement pattern; " + cp_ + "'s position is uncontested this cycle.")
-    elif band == 'Contested':
-        so_what = (ip + " inroads and " + cp_ + " counter-pressure are both active -- a contested "
-                   "tug-of-war consistent with " + prof['precedents'] + ". The alignment is being "
-                   "fought over, not conceded.")
-    elif band == 'Drifting':
-        so_what = (ip + " inroads are outpacing " + cp_ + " counter-pressure; with " +
-                   prof['dependency_channel'] + " already entrenched, the pattern is consistent with "
-                   "alignment drift toward " + ip + "'s pole, advancing faster than it is being contested.")
-    else:  # Realigning
-        so_what = ("Sustained " + ip + " inroads, structural dependency (" + prof['dependency_channel'] +
-                   "), and limited " + cp_ + " counter are consistent with the alignment entrenching "
-                   "toward " + ip + "'s pole.")
-
-    disclaimer = ("This is a CONVERGENCE / influence indicator, NOT a prediction of realignment. It "
-                  "measures whether " + ip + "-displacement signals are outpacing " + cp_ +
-                  " counter-pressure; " + cc + " retains full agency over its partners.")
-
-    meta = DRIFT_BAND_META[band]
-    return {
-        'id':                'bri_inroad_' + (country or '').lower(),
-        'country':           (country or '').lower(),
-        'flag':              prof.get('flag', ''),
-        'band':              band,
-        'inroad_power':      ip,
-        'incumbent_power':   cp_,
-        'inroad_score':      inroad,
-        'counter_score':     counter,
-        'net':               inroad - counter,
-        'active_inroad_tripwires':  inroad_tw,
-        'active_counter_tripwires': counter_tw,
-        'dependency_active': dep_active,
-        'regional_amp_active': amp_active,
-        'so_what_factor':    so_what,
-        'leading_indicators': list(prof['leading_indicators']),
-        'precedent':         prof['precedents'],
-        'disclaimer':        disclaimer,
-        'level':             meta['level'],
-        'priority':          meta['priority'],
-        'color':             meta['color'],
-        'icon':              '\U0001F9ED',       # compass
-    }
-
-
-def build_alignment_drift_top_signal(drift):
-    """Canonical-schema top_signal for the alignment-drift read -> regional BLUF / GPI.
-    Returns None for US-anchored (calm baseline)."""
-    if not drift or drift.get('band') in (None, 'US-anchored'):
-        return None
-    return {
-        'priority':   drift['priority'],
-        'category':   'alignment_drift',
-        'theatre':    drift['country'],
-        'level':      drift['level'],
-        'icon':       drift['icon'],
-        'color':      drift['color'],
-        'short_text': (drift['flag'] + ' ' + drift['country'].upper() + ': ' +
-                       drift['inroad_power'] + ' alignment drift -- ' + drift['band']),
-        'long_text':  ((drift['so_what_factor'] + ' ' + drift['disclaimer'])[:480]),
-    }
-
-
-def build_so_what_factor(actor_summaries, vector_scores, vector_levels, tripwires_global, commodity_pressure, alignment_drift=None):
-    """
-    Build the bulleted 'So What' factor — strategic implications calibrated to
-    Peru's 4-vector frame. Returns a list of dicts:
-      {bullet: str, weight: float}
-
-    The bullets are intended for the rhetoric-peru.html So What card.
-    Weight is used to sort (highest first); ~3-7 bullets returned typically.
-
-    v1.1 (Jun 2026): leads with the great-power alignment-drift "So What Factor"
-    when an alignment_drift read is supplied (BRI writ large).
-    """
-    bullets = []
-
-    # ── Lead: great-power alignment-drift "So What Factor" (BRI writ large) ──
-    if alignment_drift and alignment_drift.get('band'):
-        _ad_band = alignment_drift['band']
-        _ad_w = {'US-anchored': 3.0, 'Contested': 9.0,
-                 'Drifting': 9.5, 'Realigning': 10.0}.get(_ad_band, 5.0)
-        bullets.append({
-            'bullet': ('ALIGNMENT DRIFT -- ' + _ad_band + ': ' +
-                       alignment_drift.get('so_what_factor', '')),
-            'weight': _ad_w,
-        })
-
-    # ── Election runoff watch (Jun 2026 cycle; auto-quiesces when corpus goes quiet) ──
-    _election = build_election_watch(actor_summaries)
-    bullets.extend(_election_bullets(_election, commodity_pressure))
-
-    # ── Composite commodity story (standalone only when no election stacking bullet) ──
-    _story = (commodity_pressure or {}).get('_pressure_story') or {}
-    if not _election and (_story.get('alert') or 'normal') not in ('normal',):
-        bullets.append({
-            'bullet': ("Composite commodity news-signal pressure is at "
-                       + _story['alert'].upper() + " ("
-                       + str(_story.get('points', 0)) + " pts across "
-                       + str(_story.get('profile_count', 0)) + " tracked commodities). "
-                       "Signal volume/severity, not price -- watch mining-region "
-                       "rhetoric for the political component of the premium."),
-            'weight': 4.9,
-        })
-
-    # ── Vector-driven implications ──
-    if vector_levels.get('domestic_stability') in ('high', 'surge'):
-        bullets.append({
-            'bullet': "Domestic-stability vector is at " + vector_levels['domestic_stability'] +
-                      " — Peru's institutional cohesion is under stress. Watch for impeachment cycles, " +
-                      "cabinet reshuffles, and electoral-calendar acceleration toward 2026 generals.",
-            'weight': 5.0,
-        })
-    elif vector_levels.get('domestic_stability') == 'elevated':
-        bullets.append({
-            'bullet': "Domestic-stability vector is elevated — political tempo is rising but below " +
-                      "historical rupture thresholds. Track presidency, FFAA, and Congressional " +
-                      "rhetoric for inflection signals.",
-            'weight': 3.5,
-        })
-
-    if vector_levels.get('resource_sector') in ('high', 'surge'):
-        bullets.append({
-            'bullet': "Resource-sector vector at " + vector_levels['resource_sector'] +
-                      " — mining-sector and Las Bambas rhetoric is at elevated supply-disruption tempo. " +
-                      "Direct global commodity-pricing implications for copper and silver.",
-            'weight': 4.8,
-        })
-    elif vector_levels.get('resource_sector') == 'elevated':
-        bullets.append({
-            'bullet': "Resource-sector vector is elevated — mining-community friction is signaling " +
-                      "above-baseline activity. Watch for blockade duration in the Apurímac corridor " +
-                      "and mesa-de-diálogo announcements.",
-            'weight': 3.2,
-        })
-
-    if vector_levels.get('china_alignment') in ('high', 'surge'):
-        bullets.append({
-            'bullet': "China-alignment vector at " + vector_levels['china_alignment'] +
-                      " — BRI / Chancay channel activity is elevated. Strategic mineral offtake, " +
-                      "infrastructure-project milestones, and Lima-Beijing diplomatic tempo all signaling.",
-            'weight': 4.2,
-        })
-
-    if vector_levels.get('us_alignment') in ('high', 'surge'):
-        bullets.append({
-            'bullet': "US-alignment vector at " + vector_levels['us_alignment'] +
-                      " — Embassy Lima, INL, SOUTHCOM and FTA channels are signaling above " +
-                      "baseline. Often correlates with security-cooperation milestones or trade-friction events.",
-            'weight': 4.0,
-        })
-
-    # ── Tripwire-specific implications ──
-    tripwire_ids = list({tw.get('id') for tw in tripwires_global or []})
-
-    if 'las_bambas_full_closure' in tripwire_ids:
-        bullets.append({
-            'bullet': "Las Bambas closure tripwire is HOT — global copper supply impact is direct. " +
-                      "Watch LME copper futures, MMG (TSE:1208) earnings, and Chinese-smelter " +
-                      "concentrate-import statements in next 7-14 days.",
-            'weight': 5.5,
-        })
-
-    if 'chancay_disruption' in tripwire_ids:
-        bullets.append({
-            'bullet': "Chancay megaport disruption tripwire is HOT — China-LatAm BRI flagship " +
-                      "infrastructure under stress. Watch COSCO operational statements, Peruvian-government " +
-                      "posture, and any U.S. Senate Foreign Relations response.",
-            'weight': 5.2,
-        })
-
-    if 'state_of_emergency' in tripwire_ids:
-        bullets.append({
-            'bullet': "State of emergency declared — executive authority expanded over civilian " +
-                      "movement and police deployment. Track geographic scope, duration, and civil-society " +
-                      "/ IACHR response posture.",
-            'weight': 5.0,
-        })
-
-    if 'presidential_vacancy' in tripwire_ids:
-        bullets.append({
-            'bullet': "Presidential vacancy / impeachment vote in motion — successful vote would " +
-                      "trigger constitutional succession. Watch Congressional vote tally, FFAA institutional " +
-                      "posture, and OAS regional-democracy response.",
-            'weight': 5.3,
-        })
-
-    if 'extremist_network_signal' in tripwire_ids:
-        bullets.append({
-            'bullet': "External extremist-network signal in Peru territory — this is out-of-pattern " +
-                      "for Peru (unlike the Tri-Border Area). Verify against multiple independent sources " +
-                      "before treating as confirmed; this tripwire stays armed by design.",
-            'weight': 5.4,
-        })
-
-    # ── Commodity coupling implications ──
-    for commodity_id, risk in (commodity_pressure or {}).items():
-        if commodity_id.startswith('_'):
-            continue  # reserved keys (e.g. _pressure_story) are not commodities
-        if risk.get('alert_level') in ('high', 'surge'):
-            bullets.append({
-                'bullet': f"Commodity-coupling: {commodity_id} supply pressure on Peru is at " +
-                          f"{risk.get('alert_level')}. Peru's mining-sector rhetoric is now coupled " +
-                          f"to global {commodity_id} pricing — sector signal volume will lead price-impact " +
-                          f"by days.",
-                'weight': 4.5,
-            })
-
-    # ── Default baseline implications when nothing escalatory ──
-    if not bullets:
-        bullets.append({
-            'bullet': "All four analytical vectors are at baseline. Peru's rhetoric environment " +
-                      "shows no structural pressure events this scan; baseline tempo is healthy " +
-                      "for an active presidential-cycle country.",
-            'weight': 1.0,
-        })
-        bullets.append({
-            'bullet': "Watch indicators for next phase: Apurímac corridor blockade frequency, " +
-                      "Boluarte-vs-Congress motion volume, Chancay throughput statements, US-Peru " +
-                      "FTA review milestones.",
-            'weight': 0.8,
-        })
-
-    # Sort by weight descending, return top 7
-    bullets.sort(key=lambda b: -b['weight'])
-    return bullets[:7]
-
 
 # ============================================
-# (Optional) Convenience entry point for callers
-# that want a single canonical interpretation pass.
+# Convenience entry point
 # ============================================
 def interpret_peru_signals(scan_data):
-    """
-    Convenience wrapper — accepts a complete scan_data dict and returns the
-    three derived analytical fields. Mirrors the Japan tracker's contract.
-    """
-    actor_summaries        = scan_data.get('actor_summaries', {}) or {}
-    vector_scores          = scan_data.get('vector_scores', {}) or {}
-    vector_levels          = scan_data.get('vector_levels', {}) or {}
-    tripwires_global       = scan_data.get('tripwires_global', []) or []
-    commodity_pressure     = scan_data.get('commodity_pressure', {}) or {}
+    actor_summaries         = scan_data.get('actor_summaries', {}) or {}
+    vector_scores           = scan_data.get('vector_scores', {}) or {}
+    vector_levels           = scan_data.get('vector_levels', {}) or {}
+    tripwires_global        = scan_data.get('tripwires_global', []) or []
+    commodity_pressure      = scan_data.get('commodity_pressure', {}) or {}
     crosstheater_amplifiers = scan_data.get('crosstheater_amplifiers', {}) or {}
-
-    drift = score_alignment_drift(actor_summaries, tripwires_global,
-                                  commodity_pressure, crosstheater_amplifiers,
-                                  country='peru')
+    drift = score_alignment_drift(actor_summaries, tripwires_global, commodity_pressure,
+                                  crosstheater_amplifiers, country='peru')
     return {
         'top_signals':       build_top_signals(actor_summaries, tripwires_global,
-                                                commodity_pressure, crosstheater_amplifiers),
+                                               commodity_pressure, crosstheater_amplifiers),
         'executive_summary': build_executive_summary(actor_summaries, vector_scores,
                                                      vector_levels, tripwires_global),
         'so_what':           build_so_what_factor(actor_summaries, vector_scores, vector_levels,
-                                                   tripwires_global, commodity_pressure,
-                                                   alignment_drift=drift),
+                                                  tripwires_global, commodity_pressure,
+                                                  alignment_drift=drift),
         'alignment_drift':   drift,
-        'election_watch':    build_election_watch(actor_summaries),
+        'top_indicator':     build_top_indicator(actor_summaries, tripwires_global, drift),
     }
 
 
-print("[Peru Signal Interpreter] Module loaded — v1.0.0")
+print("[Peru Signal Interpreter] Module loaded — v1.1.0 (evidence-graded, int levels, meanings)")

@@ -1,7 +1,34 @@
 """
 Asifah Analytics -- Cuba Rhetoric & Pressure Tracker
 WHA Backend Module
-v1.3.0 -- July 23 2026
+v1.4.0 -- Nov 4 2026   (v1.3.0 Jul 23 2026)
+
+v1.4.0 (Nov 4 2026) -- WHA Phase 2 refresh: EVIDENCE + PLAIN LANGUAGE
+  * THE INTERPRETER NEVER LOADED. This file imports build_top_signals from
+    cuba_signal_interpreter, which did not define it, so the whole import
+    failed: no red lines, no So What, no top signals, every scan. The WHA
+    BLUF then built Cuba's signals itself ("Regime fracture L4"). The
+    interpreter (v1.2.0) now ships build_top_signals.
+  * "REGIME FRACTURE L4" WAS BLACKOUT COVERAGE. The dissident actor counted
+    'apagon', 'blackout', 'escasez', 'crisis cuba', 'dictadura cubana' and the
+    NAMES of independent outlets (14ymedio, CiberCuba...) as dissident
+    activity -- so every blackout story was read as opposition pressure, and
+    10+ matches bumped it to L3. Scarcity belongs to the civilian-pressure
+    ladder, which already reads it. Removed from the dissident actor.
+  * EVIDENCE (shared evidence_gate): a tripwire scores L4 only with 2+
+    separate outlets; one outlet = L2 (approaching); hedged / social = rumour.
+    Volume alone tops out at L2 ("busier than usual"). Cross-theater and
+    butterfly boosts may add one step but cannot exceed L3 without a
+    corroborated tripwire. Items older than 10 days are dropped. The
+    civilian / migration / tanker ladders need 2 outlets at L3+.
+  * ACCENT BUG: the ladders compared FOLDED text with ACCENTED phrases
+    ('apagón nacional'), so accented rungs never matched. Ladders are folded too.
+  * Plain top_indicator + signal text; force gate; /history reads the list
+    correctly (it used GET on a Redis LIST and always returned []).
+  * Dated context (Nov 4 2026): US fuel blockade since Jan 2026 (EO 14380);
+    grid deficit around two-thirds of peak demand, 20+ hour outages; talks
+    confirmed in March, 2,000+ prisoners released from April; Rubio aid offer
+    in May; US "regime change" goal stated; Raul Castro indicted.
 
 Cuba Rhetoric Tracker -- Inverted Pressure Model
 
@@ -106,6 +133,7 @@ COPYRIGHT 2025-2026 Asifah Analytics. All rights reserved.
 """
 
 import os
+import re
 import json
 import threading
 import unicodedata
@@ -159,6 +187,37 @@ except ImportError:
     print("[Cuba Rhetoric] gdelt_gateway not available -- using direct GDELT calls")
     _GDELT_GATEWAY = False
 
+# Shared evidence rules (v1.4.0). Fallbacks keep the tracker running if the
+# module is missing -- but with the filters off, so deploy it.
+try:
+    from evidence_gate import (TripwireLedger, drop_stale, ladder_detect, outlet_of,
+                               is_hedged, MAX_ARTICLE_AGE_DAYS)
+    _EVIDENCE_GATE = True
+except ImportError as e:
+    print(f"[Cuba Rhetoric] WARNING: evidence_gate not available ({e}) -- evidence filters OFF")
+    _EVIDENCE_GATE = False
+    MAX_ARTICLE_AGE_DAYS = 10
+    def drop_stale(a, max_age_days=10): return list(a), 0
+    def outlet_of(a):
+        s_ = a.get('source'); return str((s_.get('name') if isinstance(s_, dict) else s_) or 'unknown').lower()
+    def is_hedged(t): return False
+    def ladder_detect(articles, ladder, max_signals=10, text_fn=None):
+        lvl, sigs = 0, []
+        for L in sorted(ladder, reverse=True):
+            for ph in ladder[L]:
+                for a in articles:
+                    if ph in (text_fn(a) if text_fn else ''):
+                        lvl = max(lvl, L); sigs.append({'phrase': ph, 'level': L, 'article': a.get('title', '')})
+        return lvl, sigs[:max_signals]
+    class TripwireLedger:
+        def __init__(self): self._h = {}
+        def add(self, tw, a, text=None): self._h.setdefault(tw, set()).add(outlet_of(a))
+        def ids(self): return list(self._h)
+        def result(self, tw):
+            o = sorted(self._h.get(tw, ()))
+            return {'grade': 'corroborated' if len(o) >= 2 else ('single_source' if o else 'none'),
+                    'outlets': o, 'rumint_outlets': [], 'items': []}
+
 # Signal interpreter (Red Lines + So What)
 try:
     from cuba_signal_interpreter import (
@@ -166,7 +225,9 @@ try:
         build_so_what,
         build_historical_matches,
         build_top_signals,
+        build_top_indicator,
         _score_rumint,
+        MEANINGS as CUBA_MEANINGS,
     )
     _INTERPRETER_AVAILABLE = True
 except ImportError as e:
@@ -300,6 +361,12 @@ ACTORS = {
             # Policy instruments
             'cuba sanctions bill', 'cuba congress', 'cuba legislation',
             'cuba-related executive order',
+            # v1.4.0: the 2026 fuel blockade (EO 14380, Jan 29 2026)
+            'fuel blockade', 'oil blockade', 'energy blockade', 'blockade on cuba',
+            'blockade of cuba', 'bloqueo energetico', 'bloqueo petrolero', 'cerco energetico',
+            'executive order 14380', 'tariffs on countries that supply oil to cuba',
+            'us cuba talks', 'conversaciones cuba estados unidos', 'dialogo cuba estados unidos',
+            'raul castro indicted', 'acusacion contra raul castro',
             # Spanish equivalents
             'estados unidos cuba', 'washington cuba', 'gobierno cuba estados unidos',
             'casa blanca cuba', 'departamento de estado cuba',
@@ -653,39 +720,22 @@ ACTORS = {
             'cuban american national foundation', 'fnca cuba',
             'cuba diaspora', 'miami cuban', 'cuban exile',
             'cuban-american community', 'little havana',
-            # Independent media
-            '14ymedio', 'diario de cuba', 'cibercuba', 'adn cuba',
-            'cubanet', 'periodismo de barrio',
-            'el toque cuba', 'tremenda nota',
+            # Independent media -- v1.4.0: outlet NAMES removed (every article
+            # from those outlets matched its own byline). Journalist harassment
+            # is kept as an activity signal.
+            'independent journalist cuba', 'periodista independiente cuba',
+            'reportero detenido cuba',
             # Signals
             'cuba defector', 'cuba dissident released', 'cuba dissident jailed',
             'cuba prisoner of conscience',
-            # Economic collapse (regime brittleness indicators)
-            'apagon', 'blackout', 'sin luz',
-            'racionamiento', 'escasez',
-            'hiperinflacion', 'dolarizacion',
-            'salario miseria', 'no alcanza',
-            'sin comida', 'sin medicinas',
-            'crisis alimentaria', 'crisis energetica',
-            'exodo cubano', 'migracion masiva',
-            'colapso economico', 'economic collapse',
-            'cuba inflation', 'peso devaluation',
-            'no alcanzaba', 'alcanzaba para',
-            # Healthcare collapse (regime brittleness)
-            'salud publica', 'hospital sin',
-            'medico huida', 'sistema salud colapso',
-            'medical shortage', 'doctor defection',
-            'brain drain',
-            'atencion medica', 'sin atencion',
-            # Military service deaths / conscription (regime mortality signal)
-            'servicio militar', 'smo muerte',
-            'conscripcion muerte', 'recluta muerto',
-            'jovenes han muerto', 'han muerto en',
-            # Regime critic voices (external press)
-            'regimen comunista', 'regimen cubano',
-            'tirania cubana', 'dictadura cubana',
-            'cuba tirania', 'cuba dictadura',
-            'problemas de cuba', 'crisis cuba',
+            # v1.4.0: economic-collapse, healthcare, conscription and "regime critic"
+            # vocabulary REMOVED from this actor -- blackout and scarcity stories
+            # were counting as dissent, which is how blackout coverage became
+            # "regime fracture L4". Scarcity is read by CIVILIAN_PRESSURE_TRIGGERS;
+            # critic voices are commentary, not activity. Independent-outlet NAMES
+            # were removed from the media group above for the same reason.
+            'detenidos tras protesta', 'protesters detained cuba', 'cacerolazo',
+            'protesta por apagones', 'protest over blackouts', 'protestas en santiago de cuba',
         ],
         'baseline_statements_per_week': 10,
         'tripwires': [
@@ -1731,146 +1781,100 @@ def _fold(s):
 
 
 def _score_article_for_actor(article, actor_key, actor_def):
-    """Score an article for a specific actor. Returns (level, trigger_phrase)."""
-    # v1.1.0: accent-folded so Spanish-language sources match unaccented keywords
-    text = _fold(f"{article.get('title') or ''} {article.get('description') or ''}")
+    """Score an article for a specific actor. Returns (level, trigger_phrase, tripwire_or_None).
 
+    v1.4.0: a tripwire no longer returns L4 on its own -- it is returned so the
+    actor can grade it by outlet count in _classify_articles."""
+    text = _fold(f"{article.get('title') or ''} {article.get('description') or ''}")
     for kw in actor_def.get('keywords', []):
         if _fold(kw) in text:
-            # Tripwires elevate match to L4 (Coercion level)
             for tw in actor_def.get('tripwires', []):
                 if _fold(tw) in text:
-                    return 4, tw
-            return 1, kw
-    return 0, None
+                    return 1, tw, tw
+            return 1, kw, None
+    return 0, None, None
+
+
+def _fold_ladder(ladder):
+    return {lvl: [_fold(p) for p in phrases] for lvl, phrases in ladder.items()}
 
 
 def _classify_global_signals(articles):
     """
-    v2.1: Cross-actor signal sweep — scans ALL articles for migration,
-    civilian pressure, and oil tanker signals.
-
-    Returns dict with max levels and captured signal snippets.
-    These signals are independent of the 9-actor matrix because they're
-    structural indicators (Cuba-wide), not actor-specific rhetoric.
+    Cuba-wide structural ladders: migration out / return, civilian pressure,
+    oil tanker arrivals. v1.4.0: read through evidence_gate.ladder_detect, so
+    an L3+ rung needs two separate outlets, hedged text counts only toward
+    L1-L2, and BOTH text and phrases are accent-folded (the accented rungs
+    never matched before).
     """
-    summary = {
-        'migration_out_max':      0,
-        'migration_return_max':   0,
-        'civilian_pressure_max':  0,
-        'oil_tanker_max':         0,
-        'migration_out_signals':     [],
-        'migration_return_signals':  [],
-        'civilian_pressure_signals': [],
-        'oil_tanker_signals':        [],
+    text_fn = lambda a: _fold((a.get('title', '') or '') + ' ' + (a.get('description', '') or ''))
+    out_lvl, out_sig = ladder_detect(articles, _fold_ladder(MIGRATION_OUT_TRIGGERS), 5, text_fn)
+    ret_lvl, ret_sig = ladder_detect(articles, _fold_ladder(MIGRATION_RETURN_TRIGGERS), 5, text_fn)
+    civ_lvl, civ_sig = ladder_detect(articles, _fold_ladder(CIVILIAN_PRESSURE_TRIGGERS), 8, text_fn)
+    oil_lvl, oil_sig = ladder_detect(articles, _fold_ladder(OIL_TANKER_TRIGGERS), 5, text_fn)
+    for s_ in out_sig:
+        s_['direction'] = 'out'
+    for s_ in ret_sig:
+        s_['direction'] = 'return'
+    return {
+        'migration_out_max':         out_lvl,
+        'migration_return_max':      ret_lvl,
+        'civilian_pressure_max':     civ_lvl,
+        'oil_tanker_max':            oil_lvl,
+        'migration_out_signals':     out_sig,
+        'migration_return_signals':  ret_sig,
+        'civilian_pressure_signals': civ_sig,
+        'oil_tanker_signals':        oil_sig,
     }
-
-    for article in articles:
-        # v1.1.0: accent-folded -- 'apagon' now matches 'apagon', 'escasez' the
-        # accented forms, etc. The civilian-pressure ladder is almost entirely
-        # Spanish-source-driven, so this is where folding pays most.
-        text = _fold(
-            (article.get('title', '') or '') + ' ' +
-            (article.get('description', '') or '')
-        )
-
-        # Migration OUT (Cuba → US/Mexico, escalatory)
-        for level in (5, 4, 3, 2, 1):
-            for kw in MIGRATION_OUT_TRIGGERS.get(level, []):
-                if kw in text:
-                    if level > summary['migration_out_max']:
-                        summary['migration_out_max'] = level
-                    if len(summary['migration_out_signals']) < 5:
-                        summary['migration_out_signals'].append({
-                            'phrase': kw, 'level': level, 'direction': 'out',
-                            'article': article.get('title', '')[:120],
-                            'published': article.get('published', ''),
-                        })
-                    break
-            if summary['migration_out_max'] >= level:
-                break
-
-        # Migration RETURN (deportation/repatriation, de-escalatory)
-        for level in (5, 4, 3, 2, 1):
-            for kw in MIGRATION_RETURN_TRIGGERS.get(level, []):
-                if kw in text:
-                    if level > summary['migration_return_max']:
-                        summary['migration_return_max'] = level
-                    if len(summary['migration_return_signals']) < 5:
-                        summary['migration_return_signals'].append({
-                            'phrase': kw, 'level': level, 'direction': 'return',
-                            'article': article.get('title', '')[:120],
-                            'published': article.get('published', ''),
-                        })
-                    break
-            if summary['migration_return_max'] >= level:
-                break
-
-        # Civilian Pressure (blackouts, scarcity, currency collapse)
-        for level in (5, 4, 3, 2, 1):
-            for kw in CIVILIAN_PRESSURE_TRIGGERS.get(level, []):
-                if kw in text:
-                    if level > summary['civilian_pressure_max']:
-                        summary['civilian_pressure_max'] = level
-                    if len(summary['civilian_pressure_signals']) < 8:
-                        summary['civilian_pressure_signals'].append({
-                            'phrase': kw, 'level': level,
-                            'article': article.get('title', '')[:120],
-                            'published': article.get('published', ''),
-                        })
-                    break
-            if summary['civilian_pressure_max'] >= level:
-                break
-
-        # Oil tanker arrivals (Russia/Iran/Venezuela)
-        for level in (5, 4, 3, 2, 1):
-            for kw in OIL_TANKER_TRIGGERS.get(level, []):
-                if kw in text:
-                    if level > summary['oil_tanker_max']:
-                        summary['oil_tanker_max'] = level
-                    if len(summary['oil_tanker_signals']) < 5:
-                        summary['oil_tanker_signals'].append({
-                            'phrase': kw, 'level': level,
-                            'article': article.get('title', '')[:120],
-                            'published': article.get('published', ''),
-                        })
-                    break
-            if summary['oil_tanker_max'] >= level:
-                break
-
-    return summary
 
 
 def _classify_articles(articles):
     """
     Classify all articles against the 9 Cuba actors.
-    Returns actor_results dict keyed by actor_key.
+
+    v1.4.0 levels:
+      L1  any match
+      L2  busier than usual (matches >= the actor's weekly baseline) -- the
+          ceiling for VOLUME
+      L2  a tripwire reported by ONE outlet (approaching)
+      L4  a tripwire reported by 2+ separate outlets, unhedged
+      rumour / hedged tripwire mentions do not lift the level
     """
     actor_results = {}
     for actor_key, actor_def in ACTORS.items():
-        matched = []
-        max_level = 0
-        max_trigger = None
-
+        matched, ledger, outlets = [], TripwireLedger(), set()
+        best_phrase = None
         for art in articles:
-            level, trigger = _score_article_for_actor(art, actor_key, actor_def)
-            if level > 0:
-                art_copy = dict(art)
-                art_copy['escalation_level'] = level
-                art_copy['trigger_phrase']   = trigger
-                matched.append(art_copy)
-                if level > max_level:
-                    max_level   = level
-                    max_trigger = trigger
+            level, trigger, tw = _score_article_for_actor(art, actor_key, actor_def)
+            if level <= 0:
+                continue
+            art_copy = dict(art)
+            art_copy['trigger_phrase'] = trigger
+            art_copy['outlet'] = outlet_of(art)
+            outlets.add(art_copy['outlet'])
+            if tw:
+                ledger.add(tw, art, _fold(f"{art.get('title') or ''} {art.get('description') or ''}"))
+                art_copy['match_kind'] = 'tripwire'
+            matched.append(art_copy)
+            best_phrase = best_phrase or trigger
 
-        # If multiple keywords matched at L1, count of matches bumps level
-        # (5+ matches = L2, 10+ = L3 -- reasonable density heuristic)
-        if max_level == 1 and len(matched) >= 10:
-            max_level = 3
-        elif max_level == 1 and len(matched) >= 5:
-            max_level = 2
-
-        # Sort matched by escalation desc, then by date desc
+        n = len(matched)
+        level = 0 if n == 0 else (2 if n >= actor_def.get('baseline_statements_per_week', 10) else 1)
+        tripwires = []
+        phrase = best_phrase
+        for tw in ledger.ids():
+            r = ledger.result(tw)
+            tripwires.append({'tripwire': tw, **r})
+            if r['grade'] == 'corroborated' and level < 4:
+                level, phrase = 4, tw
+            elif r['grade'] == 'single_source' and level < 2:
+                level, phrase = 2, tw
+        for a in matched:
+            if a.get('match_kind') == 'tripwire':
+                g = next((t['grade'] for t in tripwires if t['tripwire'] == a['trigger_phrase']), 'none')
+                a['escalation_level'] = 4 if g == 'corroborated' else (2 if g == 'single_source' else 1)
+            else:
+                a['escalation_level'] = 1
         matched.sort(key=lambda x: -x.get('escalation_level', 0))
 
         actor_results[actor_key] = {
@@ -1880,15 +1884,30 @@ def _classify_articles(articles):
             'color':             actor_def.get('color', '#6b7280'),
             'role':              actor_def.get('role', ''),
             'description':       actor_def.get('description', ''),
-            'escalation_level':  max_level,
-            'escalation_label':  ESCALATION_LEVELS.get(max_level, {}).get('label', 'Baseline'),
-            'escalation_color':  ESCALATION_LEVELS.get(max_level, {}).get('color', '#6b7280'),
-            'escalation_phrase': max_trigger,
-            'statement_count':   len(matched),
+            'escalation_level':  level,
+            'escalation_label':  ESCALATION_LEVELS.get(level, {}).get('label', 'Baseline'),
+            'escalation_color':  ESCALATION_LEVELS.get(level, {}).get('color', '#6b7280'),
+            'escalation_phrase': phrase,
+            'statement_count':   n,
+            'outlet_count':      len(outlets),
+            'tripwires':         tripwires,
+            'corroborated_tripwire': any(t['grade'] == 'corroborated' for t in tripwires),
             'top_articles':      matched[:5],
-            'silence_alert':     len(matched) == 0,
+            'silence_alert':     n == 0,
         }
 
+    return actor_results
+
+
+def _clamp_boosted_levels(actor_results):
+    """v1.4.0: boosts (cross-theater, butterfly) may add context but cannot
+    take an actor past L3 unless 2+ outlets confirmed a tripwire for it."""
+    for k, r in actor_results.items():
+        if not r.get('corroborated_tripwire') and r.get('escalation_level', 0) > 3:
+            r['escalation_level'] = 3
+            r['escalation_label'] = ESCALATION_LEVELS.get(3, {}).get('label', 'Baseline')
+            r['escalation_color'] = ESCALATION_LEVELS.get(3, {}).get('color', '#6b7280')
+            r['clamped'] = 'boosted past L3 without a corroborated tripwire -- held at L3'
     return actor_results
 
 
@@ -2194,46 +2213,32 @@ def _compute_cuba_l5_gate(theatre_level, vectors, actor_results, civ_press_lvl, 
 
 def _build_cuba_signal_text(theatre_level, vectors, civ_press_lvl, civ_press_label,
                               migration_net_label, l5_capped=False):
-    """
-    Build short_text + long_text for Cuba's theatre_high signal.
-    Returns dict {'short': str, 'long': str}.
-    """
-    us_p   = vectors.get('us_pressure', 0)
+    """Plain short_text + long_text for Cuba's theatre signal (v1.4.0)."""
+    us_p = vectors.get('us_pressure', 0)
     fracture = vectors.get('regime_fracture', 0)
-    adv    = vectors.get('adversary_access', 0)
-
-    label_map = {0: 'Monitoring', 1: 'Rhetoric', 2: 'Warning', 3: 'Direct Threat',
-                 4: 'Coercion', 5: 'Active Crisis'}
-    label = label_map.get(theatre_level, 'Monitoring')
-
-    # Identify which composite vector is highest
-    if us_p >= fracture and us_p >= adv:
-        driver = 'US pressure'
-    elif fracture >= adv:
-        driver = 'regime fracture'
-    else:
-        driver = 'adversary access (RU/CN/IR)'
-
-    short = f"🇨🇺 CUBA L{theatre_level} {label} — driven by {driver}"
+    adv = vectors.get('adversary_access', 0)
+    bits = []
     if civ_press_lvl >= 3:
-        short = f"🇨🇺 CUBA L{theatre_level} {label} — {driver}; civilian pressure {civ_press_label}"
-    if len(short) > 120:
-        short = short[:117] + '...'
-
-    long_parts = [
-        f"🇨🇺 CUBA at L{theatre_level} {label}.",
-        f"Composite vectors: US pressure L{us_p}, regime fracture L{fracture}, adversary access L{adv}.",
-    ]
+        bits.append('severe blackouts and shortages')
+    if us_p >= 3:
+        bits.append('heavy US pressure')
+    elif us_p >= 2:
+        bits.append('steady US pressure')
+    if fracture >= 3:
+        bits.append('confirmed protest activity')
+    if adv >= 3:
+        bits.append('Russia / China / Iran activity')
+    short = 'Cuba: ' + (', '.join(bits) if bits else 'no strong signal this cycle')
+    long_parts = [f'Cuba reads level {theatre_level} this cycle.']
     if civ_press_lvl >= 2:
-        long_parts.append(f"Civilian pressure: L{civ_press_lvl} ({civ_press_label}).")
-    if migration_net_label and migration_net_label != 'baseline':
-        long_parts.append(f"Migration net: {migration_net_label}.")
+        long_parts.append(f'Everyday hardship: {civ_press_label.lower()} (power, fuel, food, medicine).')
+    long_parts.append(f'US pressure {us_p}, street protest {fracture}, outside-power activity {adv} '
+                      '(each 0-5; volume alone tops out at 2).')
+    if migration_net_label and migration_net_label not in ('baseline', 'Quiet'):
+        long_parts.append(f'Migration: {migration_net_label.lower()}.')
     if l5_capped:
-        long_parts.append("L5 axis gate did not fire — capped at L4 ceiling per platform L5 Reservation Contract.")
-    else:
-        long_parts.append("Cuba is a hybrid command-node/absorber tracker; reads RU/CN/IR axis activity and US sanctions posture.")
-
-    return {'short': short, 'long': ' '.join(long_parts)}
+        long_parts.append('The raw reading reached crisis range without a confirmed crisis event, so it is held one step below.')
+    return {'short': short[:230], 'long': ' '.join(long_parts)}
 
 
 # ============================================
@@ -2259,6 +2264,10 @@ def run_cuba_rhetoric_scan(force=False):
 
         # 1. Fetch all articles
         articles = _fetch_all_articles()
+        # v1.4.0: stale evidence out before anything is scored
+        articles, stale_dropped = drop_stale(articles, MAX_ARTICLE_AGE_DAYS)
+        if stale_dropped:
+            print(f"[Cuba Rhetoric] Dropped {stale_dropped} items older than {MAX_ARTICLE_AGE_DAYS} days")
 
         # 2. Classify against 9 actors
         actor_results = _classify_articles(articles)
@@ -2350,6 +2359,9 @@ def run_cuba_rhetoric_scan(force=False):
         # End Phase 6 butterfly block. Continue with normal scan flow.
         # ──────────────────────────────────────────────────────────────────
 
+        # v1.4.0: no boost may carry an actor past L3 without corroboration
+        actor_results = _clamp_boosted_levels(actor_results)
+
         # 3b. v2.1: Cross-actor signal sweep (migration, civilian pressure, oil tankers)
         global_signals = _classify_global_signals(articles)
 
@@ -2398,8 +2410,12 @@ def run_cuba_rhetoric_scan(force=False):
             except Exception as e:
                 print(f"[Cuba Rhetoric] Red lines error: {str(e)[:120]}")
             try:
-                scan_data_for_so_what = {'actors': actor_results, **vectors}
-                historical_matches = build_historical_matches(actor_results, vectors) \
+                scan_data_for_so_what = {'actors': actor_results, **vectors,
+                                         'civilian_pressure_level': civ_press_lvl,
+                                         'migration_out_level': global_signals['migration_out_max'],
+                                         'oil_tanker_level': global_signals['oil_tanker_max']}
+                historical_matches = build_historical_matches(
+                    actor_results, {**vectors, 'civilian_pressure_level': civ_press_lvl}) \
                     if 'build_historical_matches' in globals() else []
                 so_what = build_so_what(scan_data_for_so_what, red_lines_triggered, historical_matches)
             except Exception as e:
@@ -2617,7 +2633,16 @@ def run_cuba_rhetoric_scan(force=False):
             'timestamp':             datetime.now(timezone.utc).isoformat(),
             'from_cache':            False,
             'refresh_triggered':     True,
-            'version':               '2.4.0 - April 2026',  # v2.4: emits top_signals[] for BLUF/GPI
+            'version':               '1.4.0',
+            'meanings':              CUBA_MEANINGS if _INTERPRETER_AVAILABLE else {},
+            'evidence_rules': {
+                'max_article_age_days': MAX_ARTICLE_AGE_DAYS,
+                'stale_dropped':        stale_dropped,
+                'gate_available':       _EVIDENCE_GATE,
+                'note': ('Busier-than-usual reporting tops out at L2. A high-impact event needs two '
+                         'separate outlets to count in full; one outlet reads as approaching; rumour '
+                         'and hedged wording do not lift the level.'),
+            },
         }
 
         # v2.4: Build top_signals[] AFTER result dict (needs theatre_level + so_what)
@@ -2633,7 +2658,14 @@ def run_cuba_rhetoric_scan(force=False):
             except Exception as e:
                 print(f"[Cuba Rhetoric] build_top_signals error: {str(e)[:120]}")
                 top_signals = []
-        result['top_signals'] = top_signals
+        result['top_signals'] = sorted(top_signals or [], key=lambda s_: -int(s_.get('priority', 0) or 0))
+        result['top_indicator'] = ''
+        if _INTERPRETER_AVAILABLE:
+            try:
+                result['top_indicator'] = build_top_indicator(result)
+            except Exception as e:
+                print(f"[Cuba Rhetoric] top indicator error: {str(e)[:120]}")
+        result['bluf'] = result['top_indicator']
 
         # Write cache + history + fingerprint
         _redis_set(RHETORIC_CACHE_KEY, result)
@@ -2724,12 +2756,28 @@ def start_background_refresh():
 # ============================================
 # FLASK ENDPOINTS
 # ============================================
+_FORCE_GAP_SECONDS = 15 * 60
+_last_forced = [0.0]
+_force_lock = threading.Lock()
+
+
+def _force_allowed():
+    with _force_lock:
+        now = time.time()
+        if now - _last_forced[0] < _FORCE_GAP_SECONDS:
+            return False
+        _last_forced[0] = now
+        return True
+
+
 def register_cuba_rhetoric_endpoints(app):
     """Register /api/rhetoric/cuba endpoints on the Flask app."""
 
     @app.route('/api/rhetoric/cuba', methods=['GET'])
     def cuba_rhetoric():
         force = request.args.get('force', '').lower() in ('true', '1', 'yes')
+        if force and not _force_allowed():
+            force = False   # v1.4.0: one forced scan per 15 minutes
 
         if not force:
             cached = _redis_get(RHETORIC_CACHE_KEY)
@@ -2784,7 +2832,18 @@ def register_cuba_rhetoric_endpoints(app):
 
     @app.route('/api/rhetoric/cuba/history', methods=['GET'])
     def cuba_rhetoric_history():
-        history = _redis_get(HISTORY_KEY) or []
+        # v1.4.0: history is a Redis LIST (lpush); GET on a list always failed.
+        history = []
+        try:
+            r = requests.get(f"{UPSTASH_REDIS_URL}/lrange/{HISTORY_KEY}/0/-1",
+                             headers={'Authorization': f'Bearer {UPSTASH_REDIS_TOKEN}'}, timeout=5)
+            for e in (r.json().get('result') or []):
+                try:
+                    history.append(json.loads(e))
+                except (TypeError, ValueError):
+                    continue
+        except Exception as e:
+            print(f"[Cuba Rhetoric] history read error: {str(e)[:80]}")
         return jsonify({'success': True, 'history': history, 'count': len(history)})
 
     print("[Cuba Rhetoric] Endpoints registered: /api/rhetoric/cuba, /summary, /history")

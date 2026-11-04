@@ -1,7 +1,14 @@
 """
 wha_regional_bluf.py
 Asifah Analytics -- Western Hemisphere Backend Module
-v2.6.0 -- Nov 1 2026  (v1.0.0 April 2026)
+v2.7.0 -- Nov 4 2026  (v2.6.0 Nov 1 2026; v1.0.0 April 2026)
+
+v2.7.0 (Nov 4 2026):
+  * Trackers that emit a plain `top_indicator` (Venezuela 1.1, Peru 1.1,
+    Cuba 1.4) speak in their own words in both prose builders, instead of
+    "PERU composite L3 -- resource sector L4" / "CUBA -- regime fracture L4".
+  * Vector display names in plain words (street protest, mining and
+    fisheries, Russia / China / Iran activity...).
 
 v2.6.0 (Nov 1 2026):
   * Signals that carry only 'severity' (the US interpreter's schema) get a
@@ -49,6 +56,7 @@ Author: RCGG / Asifah Analytics
 
 import os
 import json
+import re
 import traceback
 from datetime import datetime, timezone
 import requests
@@ -792,6 +800,13 @@ def _build_bluf_prose(posture, trackers):
         so_what  = data.get('so_what', {})
         display  = THEATRE_DISPLAY.get(theatre, theatre.upper())
 
+        # v1.1.0 (Nov 4 2026): trackers that emit a plain top_indicator speak
+        # for themselves -- no "composite L3 -- regime fracture L4" codes.
+        _ti = str((data.get('raw') or {}).get('top_indicator') or '').strip()
+        if _ti and threat >= 2:
+            parts.append(f"{display}: {_ti}")
+            continue
+
         if theatre == 'cuba' and threat >= 2:
             us_pressure      = _safe_int(so_what.get('us_pressure'))
             regime_fracture  = _safe_int(so_what.get('regime_fracture'))
@@ -1051,6 +1066,12 @@ def _extract_so_what_phrase(raw_data):
     """
     if not isinstance(raw_data, dict):
         return ''
+    # v1.1.0 (Nov 4 2026): a tracker's own plain top_indicator beats any
+    # scenario code. First sentence only -- this sits inside a longer line.
+    _ti = str(raw_data.get('top_indicator') or '').strip()
+    if _ti:
+        _first = re.split(r'(?<=[.!?])\s+', _ti)[0].rstrip('.')
+        return _first[:220]
     so_what = raw_data.get('so_what')
     if not isinstance(so_what, dict):
         return ''
@@ -1085,15 +1106,15 @@ def _extract_active_vectors(raw_data, threshold=2):
     VECTOR_DISPLAY = {
         'us_pressure':         'U.S. pressure',
         'regime_legitimacy':   'regime legitimacy',
-        'regime_fracture':     'regime fracture',
-        'adversary_access':    'adversary access',
+        'regime_fracture':     'street protest',
+        'adversary_access':    'Russia / China / Iran activity',
         'oil_extraction':      'oil sector',
         'migration_outflow':   'migration outflow',
         'essequibo_dispute':   'Essequibo dispute',
-        'domestic_stability':  'domestic stability',
-        'resource_sector':     'resource sector',
-        'us_alignment':        'U.S. alignment',
-        'china_alignment':     'China alignment',
+        'domestic_stability':  'politics and security',
+        'resource_sector':     'mining and fisheries',
+        'us_alignment':        'U.S. relations',
+        'china_alignment':     'China relations',
     }
 
     active = []

@@ -1734,7 +1734,7 @@ def _classify_articles(articles):
 
     v1.1.0 evidence rule for tripwires (per actor):
       2+ distinct non-social outlets -> L4  (corroborated)
-      1 outlet                       -> L3  (single source -- approaching)
+      1 outlet                       -> L2  (single source -- approaching)
       social feeds only              -> L2  (rumour lane)
     Hedged tripwire text never counts as a tripwire.
     """
@@ -1798,7 +1798,8 @@ def _classify_articles(articles):
         if n_out >= TRIPWIRE_CORROBORATION:
             tw_level, grade = 4, 'corroborated'
         elif n_out == 1:
-            tw_level, grade = 3, 'single_source'
+            # v1.1.1 (Nov 4 pm): L3+ needs 2+ outlets -- one outlet is L2 (approaching)
+            tw_level, grade = 2, 'single_source'
         elif hits['social']:
             tw_level, grade = 2, 'rumint'
         else:
@@ -3312,7 +3313,7 @@ def run_venezuela_rhetoric_scan(force=False):
             'source_counts':            _compute_source_counts(articles),
             'scanned_at':               datetime.now(timezone.utc).isoformat(),
             'timestamp':                datetime.now(timezone.utc).isoformat(),
-            'version':                  '1.1.0 - Nov 4 2026 (evidence layer + transition track)',
+            'version':                  '1.1.1 - Nov 4 2026 (evidence layer + transition track; single source = L2)',
         }
 
         # Phase 12: cache writes

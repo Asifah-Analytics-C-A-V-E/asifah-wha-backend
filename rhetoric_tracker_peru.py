@@ -1,8 +1,28 @@
 """
 rhetoric_tracker_peru.py
 =========================================================
-Peru Rhetoric Tracker v1.0.0 — Asifah Analytics
-Built: May 9, 2026
+Peru Rhetoric Tracker v1.1.0 — Asifah Analytics
+Built: May 9, 2026 · v1.1.0 Nov 4, 2026
+
+v1.1.0 (Nov 4 2026) -- WHA Phase 2 refresh: EVIDENCE + PLAIN LANGUAGE
+  * Peru was reading far too hot. An actor reached 'surge' purely on article
+    VOLUME (Las Bambas: ~12 items in a week = surge, and it is covered
+    constantly), and the word 'surge' travelled to the GPI as L5 "Economic
+    Rupture". Now:
+      - volume alone tops out at 'elevated' ("busier than usual");
+      - 'high' / 'surge' come only from a tripwire confirmed by 2+ separate
+        outlets (evidence_gate.TripwireLedger); one outlet = 'elevated' and
+        flagged as approaching; hedged / social = rumour lane, no lift;
+      - items older than 10 days are dropped before scoring (the 2024 Reuters
+        story and the MMG homepage were feeding live reads);
+      - a state-of-emergency RENEWAL is routine, not a tripwire (Lima has
+        rolling crime emergencies).
+  * Top signals carry integer levels, pressure_type and `what_it_means`
+    (see peru_signal_interpreter 1.1.0), plus a plain top_indicator.
+  * Spokes: writes spoke:china:peru (Chancay / BRI) and spoke:us:peru.
+  * Force gate: ?refresh=true allows one forced scan per 15 minutes.
+  * Facts dated: Keiko Fujimori president since Jul 28 2026 (Boluarte was
+    removed Oct 2025; Jeri, then Balcazar served as interim presidents).
 
 Architecture: 8-actor frame, 4-vector analytical lens, multilingual signal
 collection (English + Spanish), cross-tracker fingerprint integration.
@@ -79,6 +99,28 @@ COMMODITY_FINGERPRINT_AVAILABLE = True  # always — we use HTTP proxy, not impo
 
 print("[Peru Rhetoric] Module loading...")
 
+# Shared evidence rules (v1.1.0). Fallbacks keep the tracker running if the
+# module is missing -- but without the filters, so deploy it.
+try:
+    from evidence_gate import (TripwireLedger, drop_stale, outlet_of, is_hedged,
+                               MAX_ARTICLE_AGE_DAYS)
+    EVIDENCE_GATE_AVAILABLE = True
+except ImportError:
+    print("[Peru Rhetoric] ⚠️  evidence_gate unavailable -- evidence filters OFF")
+    EVIDENCE_GATE_AVAILABLE = False
+    MAX_ARTICLE_AGE_DAYS = 10
+    def drop_stale(a, max_age_days=10): return list(a), 0
+    def outlet_of(a): return str(a.get('source') or 'unknown').lower()
+    def is_hedged(t): return False
+    class TripwireLedger:
+        def __init__(self): self._h = {}
+        def add(self, tw, a, text=None): self._h.setdefault(tw, set()).add(outlet_of(a))
+        def ids(self): return list(self._h)
+        def result(self, tw):
+            o = sorted(self._h.get(tw, ()))
+            return {'grade': 'corroborated' if len(o) >= 2 else ('single_source' if o else 'none'),
+                    'outlets': o, 'rumint_outlets': [], 'items': []}
+
 # Try to import signal interpreter for prose generation
 try:
     from peru_signal_interpreter import (
@@ -87,6 +129,8 @@ try:
         build_so_what_factor,
         score_alignment_drift,
         build_alignment_drift_top_signal,
+        build_top_indicator,
+        MEANINGS as PERU_MEANINGS,
     )
     PERU_INTERPRETER_AVAILABLE = True
     print("[Peru Rhetoric] ✅ Signal interpreter loaded")
@@ -149,7 +193,7 @@ ACTORS = {
         'name': 'Presidency',
         'flag': '🇵🇪', 'icon': '🏛️',
         'color': '#dc2626',
-        'role': 'Executive — Fujimori transition (president-elect, Jun 2026) / outgoing Boluarte administration rhetoric',
+        'role': 'Executive — President Keiko Fujimori (in office since Jul 28 2026)',
         'description': 'Statements from Casa de Pizarro, presidential cabinet, official spokesperson, presidential guard incidents, electoral-cycle rhetoric',
         'vector': 'domestic_stability',
         'keywords': [
@@ -177,6 +221,10 @@ ACTORS = {
             'president-elect peru', 'presidenta electa', 'fujimori cabinet',
             'gabinete fujimori', 'fujimori inauguration', 'transicion de mando',
             'presidente electo', 'proclamacion jne',
+            # v1.1.0: Fujimori in office since Jul 28 2026
+            'presidenta fujimori', 'president fujimori', 'fujimori government',
+            'gobierno de fujimori', 'fujimori administration', 'premier peru',
+            'presidente del consejo de ministros', 'jose jeri', 'josé jerí', 'balcazar',
         ],
         'baseline_statements_per_week': 12,
     },
@@ -541,6 +589,10 @@ TRIPWIRES = {
             'las bambas suspended operations', 'las bambas full closure',
             'las bambas indefinite shutdown', 'las bambas paralización indefinida',
             'las bambas cierre indefinido', 'las bambas operaciones suspendidas',
+            # v1.1.0: how wires actually phrase it
+            'las bambas suspends operations', 'las bambas halts operations',
+            'las bambas halts production', 'las bambas suspends production',
+            'las bambas suspende operaciones', 'las bambas paraliza operaciones',
         ],
         'severity': 'surge',
         'description': 'Las Bambas full operational closure — global copper supply impact',
@@ -556,9 +608,11 @@ TRIPWIRES = {
     },
     'presidential_vacancy': {
         'patterns': [
-            'boluarte impeached', 'boluarte impeachment vote',
-            'vacancia boluarte aprobada', 'moción de vacancia aprobada',
-            'boluarte removed', 'boluarte resigna', 'boluarte renuncia',
+            # v1.1.0: current office-holder + generic removal language
+            'fujimori impeachment vote', 'vacancia fujimori', 'moción de vacancia contra fujimori',
+            'vacancia presidencial aprobada', 'moción de vacancia aprobada',
+            'congress removes president peru', 'peru congress ousts president',
+            'fujimori removed', 'fujimori resigns', 'fujimori renuncia',
         ],
         'severity': 'surge',
         'description': 'Presidential vacancy / impeachment vote — institutional rupture',
@@ -1075,11 +1129,24 @@ def _classify_article_actor(article):
     return matches
 
 
+# v1.1.0: words that turn a tripwire match into routine news. Peru renews
+# states of emergency constantly (Lima crime emergencies since 2025); a
+# renewal is not a new rupture.
+TRIPWIRE_EXCLUSIONS = {
+    'state_of_emergency': ['prorroga', 'prórroga', 'prorrogan', 'prorrogó', 'extends', 'extended',
+                           'extension', 'extiende', 'extienden', 'amplía', 'amplia', 'renews',
+                           'renewed', 'renueva', 'renovación'],
+    'las_bambas_full_closure': ['resumes', 'reanuda', 'restart', 'reinicia'],
+}
+
+
 def _check_tripwires(text):
     """Check article text against TRIPWIRES patterns. Returns list of (tripwire_id, severity)."""
     text_lower = _normalize_text(text)
     triggered = []
     for tw_id, tw_data in TRIPWIRES.items():
+        if any(x in text_lower for x in TRIPWIRE_EXCLUSIONS.get(tw_id, ())):
+            continue
         for pattern in tw_data['patterns']:
             if pattern.lower() in text_lower:
                 triggered.append((tw_id, tw_data['severity']))
@@ -1100,12 +1167,14 @@ def _score_actor_articles(articles_for_actor, actor_id):
             'sources': [],
             'top_articles': [],
             'tripwires': [],
+            'outlet_count': 0,
         }
 
     score = 0
     lang_count = {}
     src_count = {}
-    tripwires_seen = set()
+    ledger = TripwireLedger()          # v1.1.0: who reported each tripwire
+    outlets = set()
 
     for art in articles_for_actor:
         feed_w = art.get('feed_weight', 1.0)
@@ -1118,11 +1187,12 @@ def _score_actor_articles(articles_for_actor, actor_id):
         lang_count[lang] = lang_count.get(lang, 0) + 1
         src = art.get('source', 'Unknown')
         src_count[src] = src_count.get(src, 0) + 1
+        outlets.add(outlet_of(art))
 
-        # Tripwire check
+        # Tripwire check -- graded by outlet count, hedged text = rumour lane
         full_text = f"{art.get('title', '')} {art.get('description', '')}"
         for tw_id, severity in _check_tripwires(full_text):
-            tripwires_seen.add((tw_id, severity))
+            ledger.add(tw_id, art, full_text.lower())
 
     # Sort articles by article_score descending
     sorted_articles = sorted(
@@ -1139,9 +1209,17 @@ def _score_actor_articles(articles_for_actor, actor_id):
             'language':    a.get('language', 'en'),
             'published':   a.get('published', ''),
             'feed_type':   a.get('feed_type', ''),
+            'outlet':      outlet_of(a),
         })
 
     sources = sorted(src_count.items(), key=lambda x: -x[1])[:6]
+    tripwires = []
+    for tw_id in ledger.ids():
+        r = ledger.result(tw_id)
+        tripwires.append({'id': tw_id, 'severity': TRIPWIRES[tw_id]['severity'],
+                          'grade': r['grade'], 'outlets': r['outlets'],
+                          'rumint_outlets': r.get('rumint_outlets', []),
+                          'items': r.get('items', [])})
 
     return {
         'score':              round(score, 2),
@@ -1149,7 +1227,8 @@ def _score_actor_articles(articles_for_actor, actor_id):
         'language_breakdown': lang_count,
         'sources':            [{'source': s, 'count': c} for s, c in sources],
         'top_articles':       top_articles,
-        'tripwires':          [{'id': tw_id, 'severity': sev} for tw_id, sev in tripwires_seen],
+        'tripwires':          tripwires,
+        'outlet_count':       len(outlets),
     }
 
 
@@ -1379,49 +1458,70 @@ def _compute_peru_l5_gate(tripwires_global, actor_summaries, vector_scores):
     return gate
 
 
+VECTOR_PLAIN = {
+    'domestic_stability': 'politics and security',
+    'resource_sector':    'mining and fisheries',
+    'us_alignment':       'US-Peru relations',
+    'china_alignment':    'China-Peru relations',
+}
+
+
 def _build_peru_signal_text(theatre_level, theatre_score, vector_levels, actor_summaries, l5_capped=False):
-    """
-    Build short_text + long_text for Peru's theatre_high signal.
-    Returns dict {'short': str, 'long': str}.
-    """
-    # Identify top vectors at elevated+
-    vectors_active = []
-    if isinstance(vector_levels, dict):
-        for vec, lvl in vector_levels.items():
-            if lvl in ('elevated', 'high', 'surge'):
-                vectors_active.append(vec.replace('_', ' '))
-
-    vectors_brief = ', '.join(vectors_active[:3]) if vectors_active else 'baseline'
-
-    # Identify top actors at elevated+
-    actors_active = []
-    if isinstance(actor_summaries, dict):
-        for actor, summary in actor_summaries.items():
-            lvl = summary.get('level', 'low') if isinstance(summary, dict) else 'low'
-            if lvl in ('elevated', 'high', 'surge'):
-                actors_active.append(actor.replace('_', ' '))
-
-    actors_brief = ', '.join(actors_active[:3]) if actors_active else ''
-
-    label_map = {0: 'Monitoring', 1: 'Rhetoric', 2: 'Warning',
-                 3: 'Direct Threat', 4: 'Coercion', 5: 'Active Crisis'}
-    label = label_map.get(theatre_level, 'Monitoring')
-
-    short = f"🇵🇪 PERU L{theatre_level} {label} — {vectors_brief}"
-    if len(short) > 120:
-        short = short[:117] + '...'
-
-    long_parts = [f"🇵🇪 PERU at L{theatre_level} {label} (theatre score {theatre_score}/100)."]
-    if vectors_active:
-        long_parts.append(f"Active vectors: {vectors_brief}.")
-    if actors_active:
-        long_parts.append(f"Top actors: {actors_brief}.")
-    if l5_capped:
-        long_parts.append("L5 axis gate did not fire — capped at L4 ceiling per platform L5 Reservation Contract.")
+    """Plain short_text + long_text for Peru's theatre signal (v1.1.0)."""
+    busy = [VECTOR_PLAIN.get(v, v.replace('_', ' ')) for v, lvl in (vector_levels or {}).items()
+            if lvl in ('elevated', 'high', 'surge')]
+    hot = [VECTOR_PLAIN.get(v, v.replace('_', ' ')) for v, lvl in (vector_levels or {}).items()
+           if lvl in ('high', 'surge')]
+    if hot:
+        short = 'Peru: confirmed high-impact reporting on ' + ' and '.join(hot[:2])
+    elif busy:
+        short = 'Peru: busier than usual on ' + ' and '.join(busy[:2]) + ' -- more news, nothing high-impact confirmed'
     else:
-        long_parts.append("Peru is a resource-economy absorber-class tracker; reads commodity pressure and US/China alignment.")
+        short = 'Peru: quiet -- nothing high-impact confirmed'
+    long_parts = [f'Peru reads level {theatre_level} this cycle.']
+    if busy:
+        long_parts.append('Reporting is above its usual level on ' + ', '.join(busy) + '.')
+    if hot:
+        long_parts.append('At least one high-impact event is confirmed by more than one outlet.')
+    else:
+        long_parts.append('Volume alone never lifts Peru above "elevated"; nothing high-impact is confirmed.')
+    if l5_capped:
+        long_parts.append('The raw reading reached crisis range without a confirmed crisis event, so it is held one step below.')
+    return {'short': short[:230], 'long': ' '.join(long_parts)}
 
-    return {'short': short, 'long': ' '.join(long_parts)}
+
+# ============================================
+# SPOKES (v1.1.0)
+# ============================================
+SPOKE_TTL_HOURS = 30
+
+
+def _write_peru_spokes(actor_summaries, tripwires_global):
+    """spoke:china:peru (Chancay / BRI) and spoke:us:peru, read by spoke_wheel_reader."""
+    LV = {'low': 0, 'normal': 1, 'elevated': 2, 'high': 3, 'surge': 4}
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for hub, actor in (('china', 'china_peru'), ('us', 'us_peru')):
+        a = actor_summaries.get(actor) or {}
+        lvl = LV.get(a.get('level', 'low'), 0)
+        n = a.get('article_count', 0)
+        chancay = any(t.get('id') == 'chancay_disruption' and t.get('grade') == 'corroborated'
+                      for t in tripwires_global or [])
+        if hub == 'china':
+            top = ('Chancay port disruption confirmed by 2+ outlets.' if chancay else
+                   ('China-Peru reporting is busier than usual (' + str(n) + ' items) -- Chancay port, '
+                    'copper sales, investment.' if lvl >= 2 else
+                    'China-Peru: routine coverage; the Chancay port and copper sales are the standing tie.'
+                    if n else 'No China-Peru reporting reached the scanners this cycle -- unread, not calm.'))
+        else:
+            top = ('US-Peru reporting is busier than usual (' + str(n) + ' items).' if lvl >= 2 else
+                   'US-Peru: routine coverage.' if n else
+                   'No US-Peru reporting reached the scanners this cycle -- unread, not calm.')
+        _redis_set(f'spoke:{hub}:peru', {
+            'ts': now_iso, 'hub': hub, 'country': 'peru', 'level': lvl,
+            'top_signal': top, 'items': n,
+            'relationship': 'bri_corridor' if hub == 'china' else 'hemispheric_partner',
+            'source': 'rhetoric_tracker_peru v1.1.0',
+        }, ttl_hours=SPOKE_TTL_HOURS)
 
 
 # ============================================
@@ -1460,6 +1560,10 @@ def scan_peru_rhetoric(force=False, days=7):
             deduped.append(a)
     all_articles = deduped
     print(f"[Peru Rhetoric] Articles after dedup: {len(all_articles)}")
+    # v1.1.0: stale evidence out before anything is scored
+    all_articles, stale_dropped = drop_stale(all_articles, MAX_ARTICLE_AGE_DAYS)
+    if stale_dropped:
+        print(f"[Peru Rhetoric] Dropped {stale_dropped} items older than {MAX_ARTICLE_AGE_DAYS} days")
 
     # ── Classify articles by actor ──
     articles_by_actor = {actor_id: [] for actor_id in ACTORS.keys()}
@@ -1477,7 +1581,21 @@ def scan_peru_rhetoric(force=False, days=7):
     for actor_id, actor_data in ACTORS.items():
         scored = _score_actor_articles(articles_by_actor[actor_id], actor_id)
         baseline = actor_data['baseline_statements_per_week']
-        level = actor_alert_level(scored['score'], baseline)
+        volume_level = actor_alert_level(scored['score'], baseline)
+        # v1.1.0: VOLUME tops out at 'elevated' ("busier than usual"). Only a
+        # tripwire confirmed by 2+ outlets can lift an actor to its severity;
+        # one outlet lifts to 'elevated' at most; rumour does not lift.
+        _ord = ['low', 'normal', 'elevated', 'high', 'surge']
+        level = volume_level if _ord.index(volume_level) <= 2 else 'elevated'
+        for _tw in scored['tripwires']:
+            if _tw['grade'] == 'corroborated':
+                _cand = _tw['severity']
+            elif _tw['grade'] == 'single_source':
+                _cand = 'elevated'
+            else:
+                continue
+            if _ord.index(_cand) > _ord.index(level):
+                level = _cand
         actor_levels[actor_id] = level
 
         actor_summaries[actor_id] = {
@@ -1490,6 +1608,8 @@ def scan_peru_rhetoric(force=False, days=7):
             'vector':       actor_data['vector'],
             'score':        scored['score'],
             'level':        level,
+            'volume_level': volume_level,
+            'outlet_count': scored.get('outlet_count', 0),
             'baseline':     baseline,
             'article_count':       scored['article_count'],
             'language_breakdown':  scored['language_breakdown'],
@@ -1525,6 +1645,7 @@ def scan_peru_rhetoric(force=False, days=7):
 
     # ── Write Peru fingerprints for downstream consumers ──
     _write_peru_fingerprints(actor_levels, vector_scores, tripwires_global)
+    _write_peru_spokes(actor_summaries, tripwires_global)
 
     # ── Build executive summary + so-what + top signals via interpreter ──
     if PERU_INTERPRETER_AVAILABLE:
@@ -1556,6 +1677,17 @@ def scan_peru_rhetoric(force=False, days=7):
         _drift_sig = build_alignment_drift_top_signal(alignment_drift)
         if _drift_sig and not any(s.get('category') == 'alignment_drift' for s in top_signals):
             top_signals = [_drift_sig] + list(top_signals)
+
+    # ── v1.1.0: the one plain sentence ──
+    top_indicator = ''
+    if PERU_INTERPRETER_AVAILABLE:
+        try:
+            top_indicator = build_top_indicator(actor_summaries, tripwires_global,
+                                                alignment_drift, len(all_articles))
+        except Exception as _ti_err:
+            print(f"[Peru Rhetoric] top indicator error: {_ti_err}")
+    # Strongest first, always
+    top_signals = sorted(top_signals or [], key=lambda s_: -int(s_.get('priority', 0) or 0))
 
     # ── Compute composite Peru pressure score ──
     composite_score = round(sum(vector_scores.values()), 2)
@@ -1611,6 +1743,17 @@ def scan_peru_rhetoric(force=False, days=7):
 
         # ── L5 Reservation Contract fields (v1.0.0 May 21 2026) ──
         'theatre_label':         theatre_label,
+        'top_indicator':         top_indicator,
+        'bluf':                  top_indicator,
+        'meanings':              PERU_MEANINGS if PERU_INTERPRETER_AVAILABLE else {},
+        'evidence_rules': {
+            'max_article_age_days':    MAX_ARTICLE_AGE_DAYS,
+            'stale_dropped':           stale_dropped,
+            'gate_available':          EVIDENCE_GATE_AVAILABLE,
+            'note': ('Busier-than-usual reporting tops out at "elevated". A high-impact event '
+                     'needs two separate outlets to count in full; one outlet reads as approaching; '
+                     'rumour and hedged wording do not lift the level.'),
+        },
         'signal_text_short':     signal_text['short'],
         'signal_text_long':      signal_text['long'],
         'l5_gate':               l5_gate,
@@ -1638,7 +1781,7 @@ def scan_peru_rhetoric(force=False, days=7):
         'days_analyzed':          days,
         'last_updated':           datetime.now(timezone.utc).isoformat(),
         'cached':                 False,
-        'version':                '1.0.0',
+        'version':                '1.1.0',
     }
 
     save_cache(result)
@@ -1701,6 +1844,20 @@ def _start_background_refresh():
 # ============================================
 # FLASK ENDPOINTS
 # ============================================
+_FORCE_GAP_SECONDS = 15 * 60
+_last_forced = [0.0]
+_force_lock = threading.Lock()
+
+
+def _force_allowed():
+    with _force_lock:
+        now = time.time()
+        if now - _last_forced[0] < _FORCE_GAP_SECONDS:
+            return False
+        _last_forced[0] = now
+        return True
+
+
 def register_peru_rhetoric_endpoints(app, start_background=True):
     """Register Peru rhetoric endpoints on a Flask app + start background refresh."""
     from flask import jsonify, request
@@ -1710,6 +1867,8 @@ def register_peru_rhetoric_endpoints(app, start_background=True):
         if request.method == 'OPTIONS':
             return ('', 204)
         force = request.args.get('refresh', '').lower() in ('true', '1', 'yes')
+        if force and not _force_allowed():
+            force = False   # v1.1.0: one forced scan per 15 minutes
 
         cached = load_cache()
         if cached and is_cache_fresh(cached) and not force:
@@ -1738,7 +1897,8 @@ def register_peru_rhetoric_endpoints(app, start_background=True):
         """Diagnostic — config snapshot + cache freshness."""
         cached = load_cache()
         return jsonify({
-            'version':                  '1.0.0',
+            'version':                  '1.1.0',
+            'evidence_gate':            EVIDENCE_GATE_AVAILABLE,
             'actor_count':              len(ACTORS),
             'actors':                   list(ACTORS.keys()),
             'vector_count':             len(VECTOR_GROUPS),
