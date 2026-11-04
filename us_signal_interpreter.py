@@ -1,6 +1,8 @@
 """
 ========================================
-U.S. SIGNAL INTERPRETER (v1.4.0 -- November 4, 2026; v1.3.0 Nov 1; v1.2.0 Sep 7 2026)
+U.S. SIGNAL INTERPRETER (v1.4.1 -- November 4, 2026 pm; v1.4.0 Nov 4 am; v1.3.0 Nov 1; v1.2.0 Sep 7 2026)
+v1.4.1: So What bullets in plain words (PLAIN_GAP, ACTOR_PLAIN); the
+        military bullet explains itself instead of printing scores.
 v1.4.0: top-signal cards in plain words -- no "tripwires", no "[L4] vs capability net",
 "x baseline" becomes "x their usual pace", the Fed card no longer ends in a question mark.
 v1.3.0: stale facts removed from user-facing text (DHS 'funding constraints',
@@ -155,6 +157,38 @@ GAP_CELLS = {
         'Retrenchment',
         'Capability is declining with rhetoric at baseline. Consistent with an '
         'unannounced drawdown, sustainment strain, or attrition being absorbed quietly.'),
+}
+
+
+# v1.4.1 (Nov 4 2026): what each cell MEANS, in words a reader can use.
+# The old bullet printed "Credible buildup -- rhetoric 79/100 [L5] against
+# measured capability net +29.5 (66% projection share...)" -- true, and
+# unreadable, and it sat under a "Stable" headline without explaining why
+# both can be right (the composite is domestic; this is the military lane).
+PLAIN_GAP = {
+    'credible_buildup': ('Military: what Washington says and what it is moving line up. '
+                         'Tough statements are matched by forces heading out ({share} of '
+                         'tracked military moves are deployments, not drawdowns). Statements '
+                         'backed by hardware are the ones adversaries take seriously.'),
+    'declaratory':      ('Military: the statements are tougher than the deployments. Forces are '
+                         'holding steady while the rhetoric runs hot -- the classic shape of '
+                         'deterrence by words.'),
+    'the_gap':          ('Military: the rhetoric is rising while measured forces are being used up '
+                         'faster than they are replaced. That gap does not last: either the words '
+                         'cool, reinforcements arrive, or someone tests it.'),
+    'quiet_preparation': ('Military: forces are moving out without matching public statements. '
+                          'Preparation that is not announced is not meant to deter -- the cell '
+                          'that most deserves attention.'),
+    'retrenchment':     ('Military: forces are being drawn down or worn down without any '
+                         'announcement. Consistent with a quiet pullback or strain being absorbed.'),
+}
+
+ACTOR_PLAIN = {
+    'us_executive': 'the White House', 'us_state_dept': 'the State Department',
+    'us_defense': 'the Pentagon', 'us_congress_majority': 'the congressional majority',
+    'us_congress_opposition': 'the congressional minority', 'us_judicial': 'the courts',
+    'us_dhs_ice': 'immigration enforcement (DHS/ICE)', 'us_federal_reserve': 'the Federal Reserve',
+    'us_states': 'state governments', 'us_civil_mobilization': 'civil-society groups',
 }
 
 
@@ -759,22 +793,24 @@ def compute_so_what_factor(actor_results, composite, outbound_targets,
     _gap = compute_capability_rhetoric_gap(actor_results, capability)
     if _gap.get('available') and _gap.get('cell') != 'baseline':
         _gc = _gap['capability']
-        bullets.append(
-            f"{_gap['label']} -- rhetoric {_gap['rhetoric']['score']:.0f}/100 "
-            f"[{_gap['rhetoric']['tier']}] against measured capability net "
-            f"{_gc['net_score']:+} ({_gc['projection_share']:.0%} projection share, "
-            f"confidence {_gap['confidence']})."
-        )
+        _plain = PLAIN_GAP.get(_gap.get('cell'))
+        if _plain:
+            _txt = _plain.format(share=f"{_gc.get('projection_share', 0):.0%}")
+            if str(_gap.get('confidence', '')).lower() == 'low':
+                _txt += ' (Low confidence: the military read is thin this cycle.)'
+            bullets.append(_txt)
+        else:
+            bullets.append(f"{_gap['label']}. {_gap.get('assessment', '')}".strip())
     elif _gap.get('reason') and _gap['reason'] != 'no_military_fingerprint':
-        bullets.append(f"Capability-rhetoric join not completed: {_gap['assessment']}")
+        bullets.append('Military: we could not set statements against force movements this '
+                       'cycle (the military read is missing or too old).')
 
     # Bullet 1: ICE/DHS context (always relevant given calibration note)
     dhs = actor_results.get('us_dhs_ice', {})
     dhs_score = dhs.get('actor_score', 0)
     if dhs_score >= 38:
         bullets.append(
-            f"Immigration enforcement (DHS/ICE) at L{dhs.get('tier','L0')[1:]} -- "
-            f"highest-volatility domestic vector, midterm-driver indicator."
+            "Immigration enforcement (DHS/ICE) is the most volatile domestic topic this period."
         )
     elif dhs.get('statement_count', 0) > 0:
         # v1.3.0: was "constrained by recent shutdown / DHS funding situation",
@@ -784,13 +820,15 @@ def compute_so_what_factor(actor_results, composite, outbound_targets,
 
     # Bullet 2: top actor
     if top_actor_key and top_actor_score > 30:
-        actor_name = top_actor_key.replace('us_', '').replace('_', ' ').title()
-        bullets.append(f"Loudest actor this period: {actor_name} ({top_actor_score}/100).")
+        actor_name = ACTOR_PLAIN.get(top_actor_key,
+                                     top_actor_key.replace('us_', '').replace('_', ' '))
+        bullets.append(f"Loudest voice this period: {actor_name} "
+                       f"({round(top_actor_score)} out of 100).")
 
     # Bullet 3: outbound targets
     if outbound_targets:
         target_list = ', '.join([t['country'].title() for t in outbound_targets[:3]])
-        bullets.append(f"US rhetoric targeting: {target_list}.")
+        bullets.append(f"Countries Washington is talking about most: {target_list}.")
     else:
         bullets.append("No specific country is being heavily rhetoric-targeted by US executive this period.")
 
@@ -1105,4 +1143,4 @@ def compute_kinetic_precursor_targets(actor_results, articles):
     return elevated
 
 
-print("[US Signal Interpreter] Module loaded -- v1.4.0 (capability-rhetoric join)")
+print("[US Signal Interpreter] Module loaded -- v1.4.1 (plain So What)")

@@ -1,8 +1,34 @@
 """
 rhetoric_tracker_chile.py
 =========================================================
-Chile Rhetoric Tracker v1.0.0 — Asifah Analytics
-Built: May 9, 2026
+Chile Rhetoric Tracker v1.2.0 — Asifah Analytics
+Built: May 9, 2026 · v1.2.0 Nov 4, 2026
+
+v1.2.0 (Nov 4 2026) -- WHA Phase 2 refresh (same pass as Peru 1.1.0 / Cuba 1.4.0)
+  * GEOGRAPHY FILTER. An article counts for Chile only if it is about Chile:
+    it names Chile (or a Chilean place, institution or company), or it comes
+    from a Chilean outlet AND names no other country. Mapuche items also need
+    Chilean geography -- the Mapuche signal was being fed by an Argentine
+    Bariloche story. The China actor carried 'neuquén' (an Argentine
+    province, home of China's Argentine space station); removed.
+  * WORD BOUNDARIES. Keywords match whole words on accent-folded text:
+    'andina' matched Peru's Andina news agency, 'kast' would match
+    'broadcast', 'gabinete' matched any country's cabinet.
+  * EVIDENCE (shared evidence_gate). A tripwire counts at full severity only
+    with 2+ separate outlets; one outlet = elevated ("approaching"); hedged
+    or social = rumour. Volume alone tops out at 'elevated'. Items older than
+    10 days are dropped. Routine 30-day renewals of the southern state of
+    exception are excluded (it has been renewed since Oct 2021).
+  * CURRENT FACTS. Kast has been president since Mar 11 2026; the
+    presidency actor reads Kast, not Boric. "Boric resignation" ->
+    president_resignation; the approval-cliff tripwire removed
+    ('aprobación 20' matched "aprobación 2026").
+  * BUGS. _write_chile_fingerprints indexed dict tripwires as tuples
+    (t[1]) and crashed every scan, so chile_copper_disruption /
+    chile_lithium_disruption were never written. red_lines_count counted
+    every tripwire hit. Both fixed.
+  * Plain top_indicator; spoke:china:chile and spoke:us:chile (30h TTL);
+    ?refresh gated to one forced scan per 15 minutes.
 
 7-actor rhetoric and pressure tracker for Chile, modeled on the Peru
 tracker pattern (Apr 2026) but tuned to Chile's analytical distinctions:
@@ -68,6 +94,28 @@ except ImportError:
 
 print("[Chile Rhetoric] Module loading...")
 
+# Shared evidence rules (v1.2.0). Fallbacks keep the tracker running if the
+# module is missing -- but without the filters, so deploy it.
+try:
+    from evidence_gate import (TripwireLedger, drop_stale, outlet_of, is_hedged,
+                               MAX_ARTICLE_AGE_DAYS)
+    EVIDENCE_GATE_AVAILABLE = True
+except ImportError:
+    print("[Chile Rhetoric] ⚠️  evidence_gate unavailable -- evidence filters OFF")
+    EVIDENCE_GATE_AVAILABLE = False
+    MAX_ARTICLE_AGE_DAYS = 10
+    def drop_stale(a, max_age_days=10): return list(a), 0
+    def outlet_of(a): return str(a.get('source') or 'unknown').lower()
+    def is_hedged(t): return False
+    class TripwireLedger:
+        def __init__(self): self._h = {}
+        def add(self, tw, a, text=None): self._h.setdefault(tw, set()).add(outlet_of(a))
+        def ids(self): return list(self._h)
+        def result(self, tw):
+            o = sorted(self._h.get(tw, ()))
+            return {'grade': 'corroborated' if len(o) >= 2 else ('single_source' if o else 'none'),
+                    'grade_text': '', 'outlets': o, 'rumint_outlets': [], 'items': []}
+
 # ============================================
 # CONFIGURATION
 # ============================================
@@ -104,6 +152,10 @@ try:
         score_alignment_drift as _interp_alignment_drift,
         build_alignment_drift_top_signal as _interp_drift_signal,
     )
+    try:
+        from chile_signal_interpreter import build_top_indicator as _interp_top_indicator
+    except ImportError:
+        _interp_top_indicator = None
     INTERPRETER_AVAILABLE = True
     print("[Chile Rhetoric] ✅ Signal interpreter loaded")
 except ImportError:
@@ -126,29 +178,27 @@ ACTORS = {
         'name':     'Presidency',
         'flag':     '🇨🇱',
         'icon':     '🏛️',
-        'role':     'Executive Branch / Boric Administration',
+        'role':     'Executive Branch / Kast Government (since Mar 11 2026)',
         'vector':   'domestic_stability',
         'baseline': 14,
         'keywords': [
             # English
-            'boric', 'chilean president', 'chile president', 'la moneda',
-            'chilean executive', 'boric administration', 'palacio de la moneda',
-            'chile cabinet', 'chilean cabinet reshuffle',
-            # Spanish — president direct
-            'presidente boric', 'gabriel boric', 'la moneda',
+            'kast', 'jose antonio kast', 'chilean president', 'chile president', 'la moneda',
+            'chilean government', 'kast administration', 'kast government',
+            'chile cabinet', 'chilean cabinet',
+            # Spanish
+            'presidente kast', 'gobierno de kast', 'gobierno kast', 'la moneda',
             'gobierno de chile', 'gobierno chileno', 'ejecutivo chileno',
             'palacio de la moneda', 'gabinete', 'cambio de gabinete',
-            # Election cycle (2026 generals)
-            'elecciones chile 2026', 'chile 2026 election', 'chilean primary',
-            'primarias chile', 'jara', 'kast', 'matthei', 'frente amplio',
-            # Approval / political position
-            'aprobación boric', 'boric approval', 'rechazo a boric',
-            'chile poll', 'cadem', 'plaza pública',
+            'ministro del interior', 'ministro de seguridad', 'ministro de hacienda',
+            # Approval / polls
+            'aprobacion de kast', 'kast approval', 'cadem', 'encuesta cep', 'criteria',
         ],
         'tripwires': [
-            ('boric_resignation',    4, ['renuncia boric', 'boric resigns', 'dimisión boric']),
-            ('cabinet_collapse',     3, ['gabinete renuncia', 'cabinet collapses', 'cabinet resign en masse']),
-            ('approval_cliff',       2, ['aprobación 20', 'aprobación 18', 'aprobación 15', 'approval crashes']),
+            ('president_resignation', 4, ['renuncia kast', 'kast resigns', 'dimision de kast',
+                                          'renuncia del presidente kast']),
+            ('cabinet_collapse',     3, ['renuncia masiva de ministros', 'cabinet collapses',
+                                          'ministers resign en masse', 'crisis de gabinete']),
         ],
     },
     'cancilleria': {
@@ -219,11 +269,11 @@ ACTORS = {
         'baseline': 18,
         'keywords': [
             # English — copper anchors
-            'codelco', 'chuquicamata', 'el teniente', 'andina',
+            'codelco', 'chuquicamata', 'el teniente', 'division andina', 'codelco andina',
             'salvador mine', 'gabriela mistral mine',
             'escondida', 'bhp escondida', 'minera escondida',
             'collahuasi', 'los pelambres', 'antofagasta minerals',
-            'quebrada blanca', 'spence', 'centinela',
+            'quebrada blanca', 'minera spence', 'centinela',
             'anglo american chile', 'sur andes', 'los bronces',
             # English — lithium anchors
             'sqm chile', 'sociedad quimica minera',
@@ -245,8 +295,8 @@ ACTORS = {
             'paralización minera chile', 'strike codelco', 'strike escondida',
         ],
         'tripwires': [
-            ('escondida_strike',          4, ['escondida strike', 'huelga escondida', 'paralización escondida']),
-            ('codelco_strike',            4, ['codelco strike', 'huelga codelco', 'paralización codelco']),
+            ('escondida_strike',          3, ['escondida strike', 'huelga escondida', 'paralización escondida']),
+            ('codelco_strike',            3, ['codelco strike', 'huelga codelco', 'paralización codelco']),
             ('chuquicamata_disruption',   3, ['chuquicamata cierre', 'chuquicamata closure', 'chuquicamata suspension']),
             ('lithium_nationalization',   3, ['lithium nationalization', 'nacionalización litio', 'estatización litio']),
             ('mining_fatality',           3, ['minero muerto', 'mining fatality chile', 'accidente fatal mina']),
@@ -280,7 +330,7 @@ ACTORS = {
             'machi linconao', 'celestino córdova',
         ],
         'tripwires': [
-            ('state_of_exception',    4, ['estado de excepción araucanía', 'state of exception araucania', 'estado de excepción macrozona']),
+            ('state_of_exception',    3, ['estado de excepción araucanía', 'state of exception araucania', 'estado de excepción macrozona']),
             ('mass_arson',            3, ['quema masiva', 'incendios coordinados', 'mass arson araucania']),
             ('mapuche_fatality',      3, ['mapuche muerto', 'comunero muerto', 'mapuche killed']),
             ('cam_attack',            3, ['atentado cam', 'cam attack', 'coordinadora atentado']),
@@ -350,7 +400,7 @@ ACTORS = {
             'limit china', 'select committee', 'house select committee',
             'brandon judd', 'us pressure chile', 'eeuu presiona chile',
             'us warns chile', 'eeuu advierte chile',
-            'pushes back against chinese', 'us target',
+            'pushes back against chinese',
             'suspending the project', 'suspende proyecto', 'observatory suspended',
             'china dual use concern', 'pulling latin america',
         ],
@@ -358,7 +408,7 @@ ACTORS = {
             ('strategic_minerals_pact', 3, ['us chile critical minerals agreement', 'pacto minerales críticos chile estados unidos']),
             ('ambassador_recall',       4, ['embajador retirado', 'ambassador recalled chile']),
             ('joint_exercise_friction', 2, ['ejercicio conjunto cancelado', 'joint exercise canceled chile']),
-            ('project_contestation',    3, ['suspending the project', 'suspende proyecto', 'blocked the observatory', 'stopped a chinese', 'observatory suspended', 'pushes back against chinese', 'us target']),
+            ('project_contestation',    3, ['suspending the project', 'suspende proyecto', 'blocked the observatory', 'stopped a chinese', 'observatory suspended', 'pushes back against chinese']),
             ('monroe_doctrine_invoked', 2, ['monroe doctrine', 'doctrina monroe']),
             ('us_displacement_push',    2, ['better partner', 'limit china', 'select committee']),
         ],
@@ -398,7 +448,8 @@ ACTORS = {
             'astronomical observatory china', 'national astronomical observatory',
             'universidad católica del norte', 'catholic university of the north',
             'near-earth', 'objetos cercanos a la tierra',
-            'deep space station', 'espacio lejano', 'neuquén', 'cesco',
+            # v1.2.0: 'neuquén' / 'cesco' / 'deep space station' removed -- China's
+            # deep-space station is in Neuquén, ARGENTINA. It fed China-Chile.
             'dual-use observatory', 'satellite tracking china',
             # NEW -- Diplomatic anti-US alignment layer
             'sovereign right', 'derecho soberano', 'elegir socios',
@@ -415,7 +466,7 @@ ACTORS = {
             ('chinese_naval_visit',     3, ['china naval chile', 'pla navy chile', 'buque chino chile']),
             ('major_infra_milestone',   3, ['china port chile groundbreaking', 'cable transpacífico inauguración']),
             ('fta_renegotiation',       2, ['fta china chile renegotiation', 'tlc china chile renegociación']),
-            ('dual_use_facility',       3, ['telescopio chino', 'radio telescope', 'observatorio atacama', 'deep space station', 'chinese observatory']),
+            ('dual_use_facility',       3, ['telescopio chino', 'radio telescope', 'observatorio atacama', 'chinese observatory']),
             ('diplomatic_anti_us',      2, ['sovereign right', 'derecho soberano', 'injerencia estadounidense', 'lashes out at us']),
             ('security_cooperation',    3, ['china police training', 'cooperación policial china', 'ciudad segura china']),
         ],
@@ -489,6 +540,9 @@ GDELT_QUERIES_ES = [
 # ============================================
 # ALERT-LEVEL CALIBRATION
 # ============================================
+LEVEL_NAMES = ['low', 'normal', 'elevated', 'high', 'surge']
+
+
 def actor_alert_level(score, baseline):
     """Map a weighted score to a categorical alert level."""
     if baseline <= 0: baseline = 1
@@ -768,31 +822,135 @@ def fetch_all_brave(days=7, gdelt_count=0, newsapi_count=0):
 # ============================================
 # ARTICLE → ACTOR CLASSIFICATION
 # ============================================
+import unicodedata
+
+
+def _fold(text):
+    """Lower-case and strip accents, so 'excepción' matches 'excepcion'."""
+    return ''.join(c for c in unicodedata.normalize('NFKD', text or '')
+                   if not unicodedata.combining(c)).lower()
+
+
 def _normalize_text(text):
-    return (text or '').lower()
+    return _fold(text)
 
 
-def _classify_article_actor(article):
-    """Match article against actor keywords; return list of matched actors."""
-    text = _normalize_text((article.get('title') or '') + ' ' + (article.get('source') or ''))
+def _article_text(article):
+    """Title + description, folded. The SOURCE NAME is deliberately excluded:
+    'BioBioChile' in the source field used to satisfy Chile keywords."""
+    return _fold(' '.join(str(article.get(k) or '') for k in ('title', 'description', 'snippet')))
+
+
+_RX_CACHE = {}
+
+
+def _has_phrase(text, phrase):
+    """Whole-word match on folded text: 'kast' no longer matches 'broadcast'.
+    Whole words alone cannot tell Codelco's Andina division from Peru's Andina
+    news agency -- that is what the Chile-context gate below is for."""
+    rx = _RX_CACHE.get(phrase)
+    if rx is None:
+        rx = re.compile(r'(?<![a-z0-9])' + re.escape(_fold(phrase)) + r'(?![a-z0-9])')
+        _RX_CACHE[phrase] = rx
+    return bool(rx.search(text))
+
+
+# ── v1.2.0 GEOGRAPHY GATE ────────────────────────────────────────────────
+# Chilean outlets carry world news, and several actors share vocabulary with
+# neighbours (Mapuche communities live on both sides of the Andes; 'gabinete'
+# is every country's cabinet). An article counts for Chile when:
+#   * it names Chile or a Chilean place / institution / company, OR
+#   * it comes from a Chilean outlet AND names no other country.
+CHILE_CONTEXT = (
+    'chile', 'chileno', 'chilena', 'chilenos', 'chilenas', 'la moneda', 'santiago de chile',
+    'codelco', 'enami', 'cochilco', 'corfo', 'sqm', 'escondida', 'chuquicamata', 'el teniente',
+    'collahuasi', 'los pelambres', 'quebrada blanca', 'salar de atacama', 'antofagasta',
+    'atacama', 'tarapaca', 'iquique', 'arica', 'valparaiso', 'vina del mar', 'biobio', 'bio bio',
+    'araucania', 'temuco', 'malleco', 'arauco', 'macrozona sur', 'los lagos', 'aysen', 'magallanes',
+    'punta arenas', 'carabineros', 'kast', 'boric', 'van klaveren', 'camara de diputados',
+    'senado chileno', 'temucuicui', 'llaitul', 'coordinadora arauco malleco', 'sernapesca',
+    'subpesca', 'novaandino',
+)
+CHILEAN_OUTLETS = ('la tercera', 'el mercurio (emol)', 'biobiochile', 'cooperativa', 'emol',
+                   'latercera.com', 'biobiochile.cl', 'cooperativa.cl', 'emol.com',
+                   'df.cl', 'elmostrador.cl', 'cnnchile.com', 't13.cl', '24horas.cl',
+                   'theclinic.cl', 'ciperchile.cl', 'radioagricultura.cl', 'adnradio.cl')
+FOREIGN_MARKERS = (
+    'argentina', 'argentino', 'milei', 'buenos aires', 'bariloche', 'neuquen',
+    'rio negro', 'chubut', 'mendoza', 'peru', 'peruano', 'lima', 'bolivia', 'boliviano', 'la paz',
+    'colombia', 'petro', 'venezuela', 'maduro', 'ecuador', 'noboa', 'mexico', 'sheinbaum',
+    'brasil', 'brazil', 'lula', 'uruguay', 'paraguay', 'cuba', 'espana', 'spain',
+)
+# Mapuche items additionally need CHILEAN geography -- the Bariloche fix.
+CHILE_SOUTH = ('chile', 'chileno', 'chilena', 'araucania', 'biobio', 'bio bio', 'temuco', 'malleco',
+               'arauco', 'macrozona', 'carabineros', 'la moneda', 'kast', 'temucuicui', 'llaitul',
+               'coordinadora arauco malleco', 'ercilla', 'collipulli', 'tirua', 'canete', 'lumaco',
+               'traiguen', 'victoria', 'angol', 'los alamos', 'curacautin')
+ARGENTINE_SOUTH = ('bariloche', 'neuquen', 'rio negro', 'chubut', 'villa mascardi', 'lafken winkul',
+                   'cushamen', 'esquel', 'el bolson', 'san martin de los andes', 'argentina',
+                   'patagonia argentina', 'milei')
+
+
+def _is_chile_article(article, text=None):
+    text = text if text is not None else _article_text(article)
+    if any(_has_phrase(text, t) for t in CHILE_CONTEXT):
+        return True
+    src = str(article.get('source') or '').lower()
+    url = str(article.get('url') or '').lower()
+    chilean_outlet = any(o in src or o in url for o in CHILEAN_OUTLETS) or '.cl/' in url
+    return chilean_outlet and not any(_has_phrase(text, f) for f in FOREIGN_MARKERS)
+
+
+def _mapuche_in_chile(text):
+    if any(_has_phrase(text, t) for t in ARGENTINE_SOUTH) and not any(_has_phrase(text, t) for t in CHILE_SOUTH):
+        return False
+    return True
+
+
+def _classify_article_actor(article, text=None):
+    """Match article against actor keywords; return list of matched actors.
+    Caller has already applied the Chile-context gate."""
+    text = text if text is not None else _article_text(article)
     matches = []
     for actor_id, cfg in ACTORS.items():
+        if actor_id == 'mapuche_conflict' and not _mapuche_in_chile(text):
+            continue
         for kw in cfg['keywords']:
-            if kw.lower() in text:
+            if _has_phrase(text, kw):
                 matches.append(actor_id)
                 break
     return matches
 
 
+# Routine items that share tripwire words but are not the event.
+TRIPWIRE_EXCLUSIONS = {
+    # The southern state of exception has been renewed every 30 days since
+    # Oct 2021. A renewal is routine; only a new or wider declaration is news.
+    # v1.2.0 severities: a strike at Escondida/Codelco is a real economic event
+    # (L3, 'high') but not a stability crisis in a stable democracy -- it was 4,
+    # which read "Imminent Crisis" on the WHA scale. Same for a new state of
+    # exception layered on one that has run since 2021.
+    'state_of_exception': ('prorroga', 'prorrogar', 'prorrogo', 'extension', 'extiende', 'renueva',
+                           'renovacion', 'extends', 'extended', 'renewal', 'renews', 'vigente'),
+    'escondida_strike': ('evita huelga', 'averts strike', 'acuerdo', 'agreement', 'deal reached',
+                         'votacion', 'vote on', 'strike vote', 'could strike', 'amenaza'),
+    'codelco_strike': ('evita huelga', 'averts strike', 'acuerdo', 'agreement', 'deal reached'),
+}
+
+
 def _check_tripwires(text):
-    """Return list of (actor_id, tripwire_id, severity) for any pattern match."""
-    text = _normalize_text(text)
+    """Return list of (actor_id, tripwire_id, severity) for any pattern match.
+    `text` must already be folded."""
     fired = []
     for actor_id, cfg in ACTORS.items():
+        if actor_id == 'mapuche_conflict' and not _mapuche_in_chile(text):
+            continue
         for tw in cfg.get('tripwires', []):
             tw_id, severity, patterns = tw
+            if any(_has_phrase(text, x) for x in TRIPWIRE_EXCLUSIONS.get(tw_id, ())):
+                continue
             for pat in patterns:
-                if pat.lower() in text:
+                if _has_phrase(text, pat):
                     fired.append((actor_id, tw_id, severity))
                     break
     return fired
@@ -874,36 +1032,86 @@ def _write_chile_fingerprints(actor_levels, vector_scores, tripwires_global):
                         'scanned_at': datetime.now(timezone.utc).isoformat()},
                        ttl_hours=CACHE_TTL_HOURS)
 
-        if any(t[1] in ('lithium_nationalization', 'codelco_strike', 'escondida_strike',
-                        'chuquicamata_disruption') for t in tripwires_global):
-            _redis_set('chile_lithium_disruption' if any(t[1] == 'lithium_nationalization' for t in tripwires_global)
-                       else 'chile_copper_disruption',
-                       {'active': True, 'tripwires': [t[1] for t in tripwires_global],
-                        'scanned_at': datetime.now(timezone.utc).isoformat()},
+        # v1.2.0: tripwires are dicts (they were indexed as tuples -- t[1] --
+        # and crashed here every scan). Only CORROBORATED tripwires arrive.
+        ids = [t.get('id') for t in tripwires_global]
+        now_iso = datetime.now(timezone.utc).isoformat()
+        if 'lithium_nationalization' in ids:
+            _redis_set('chile_lithium_disruption',
+                       {'active': True, 'tripwires': ['lithium_nationalization'], 'scanned_at': now_iso},
+                       ttl_hours=CACHE_TTL_HOURS)
+        cu = [i for i in ids if i in ('codelco_strike', 'escondida_strike', 'chuquicamata_disruption')]
+        if cu:
+            _redis_set('chile_copper_disruption',
+                       {'active': True, 'tripwires': cu, 'scanned_at': now_iso},
                        ttl_hours=CACHE_TTL_HOURS)
 
-        if any(t[1] in ('impeachment_vote', 'cabinet_minister_ousted',
-                        'major_reform_collapse') for t in tripwires_global):
+        cp = [i for i in ids if i in ('impeachment_vote', 'cabinet_minister_ousted', 'major_reform_collapse')]
+        if cp:
             _redis_set('chile_constitutional_pressure',
-                       {'active': True, 'tripwires': [t[1] for t in tripwires_global],
-                        'scanned_at': datetime.now(timezone.utc).isoformat()},
+                       {'active': True, 'tripwires': cp, 'scanned_at': now_iso},
                        ttl_hours=CACHE_TTL_HOURS)
 
         # Fisheries disruption fingerprint (convergence hook -- feeds the
         # fertilizer/food-input convergence read via the feed-protein axis;
         # Humboldt sibling to Peru anchoveta). Dormant until a tripwire fires.
-        if any(t[1] in ('fishing_quota_cut', 'fishing_law_reform',
-                        'fisheries_collapse', 'salmon_disruption') for t in tripwires_global):
+        fish = [i for i in ids if i in ('fishing_quota_cut', 'fishing_law_reform',
+                                         'fisheries_collapse', 'salmon_disruption')]
+        if fish:
             _redis_set('chile_fishmeal_disruption',
-                       {'active': True, 'tripwires': [t[1] for t in tripwires_global
-                                                      if t[1] in ('fishing_quota_cut', 'fishing_law_reform',
-                                                                  'fisheries_collapse', 'salmon_disruption')],
+                       {'active': True, 'tripwires': fish,
                         'note': 'Chile Humboldt fisheries -- secondary anchoveta/fishmeal + salmon axis; '
                                 'feeds fertilizer/food-input convergence (feed-protein pillar)',
                         'scanned_at': datetime.now(timezone.utc).isoformat()},
                        ttl_hours=CACHE_TTL_HOURS)
     except Exception as e:
         print(f"[Chile Rhetoric] fingerprint write error: {str(e)[:120]}")
+
+
+# ════════════════════════════════════════════════════════════════════
+# SPOKES (v1.2.0) -- spoke:china:chile and spoke:us:chile for
+# spoke_wheel_reader. 30h TTL; the reader's 24h gate judges staleness.
+# ════════════════════════════════════════════════════════════════════
+SPOKE_TTL_HOURS = 30
+_SPOKE_LV = {'low': 0, 'normal': 1, 'elevated': 2, 'high': 3, 'surge': 4}
+
+
+def _write_chile_spokes(actor_summaries, tripwires_global):
+    written = []
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for hub, actor, rel, why in (
+            ('china', 'china_chile', 'commodity_customer',
+             "China is Chile's largest trading partner and buys about half its copper; Tianqi owns about a fifth of SQM."),
+            ('us', 'us_chile', 'hemispheric_partner',
+             'The Kast government (since Mar 2026) leans toward Washington on security and critical minerals.')):
+        a = actor_summaries.get(actor) or {}
+        lvl = _SPOKE_LV.get(a.get('level', 'low'), 0)
+        n = a.get('article_count', 0)
+        corro = [t for t in tripwires_global if t.get('actor') == actor and t.get('grade') == 'corroborated']
+        name = 'China' if hub == 'china' else 'US'
+        if corro:
+            top = f"{name}-Chile: confirmed by 2+ outlets -- {corro[0]['id'].replace('_', ' ')}."
+        elif lvl >= 2:
+            top = f"{name}-Chile reporting is busier than usual ({n} items)."
+        elif n:
+            top = f"{name}-Chile: routine coverage ({n} items)."
+        else:
+            top = f"No {name}-Chile reporting reached the scanners this cycle -- unread, not calm."
+        prev = _redis_get(f'spoke:{hub}:chile') or {}
+        try:
+            p = int(prev.get('level'))
+            direction = 'expanding' if lvl > p else ('contracting' if lvl < p else 'holding')
+            conf = 'corroborated' if corro else ('reported' if n else 'no_evidence')
+        except (TypeError, ValueError):
+            direction, conf = 'holding', 'no_evidence'
+        if _redis_set(f'spoke:{hub}:chile', {
+                'ts': now_iso, 'hub': hub, 'country': 'chile', 'level': lvl,
+                'top_signal': top, 'why': why, 'items': n, 'relationship': rel,
+                'trajectory': {'direction': direction, 'level': lvl, 'confidence': conf},
+                'source': 'rhetoric_tracker_chile v1.2.0'}, ttl_hours=SPOKE_TTL_HOURS):
+            written.append(hub)
+    print(f"[Chile Rhetoric] Spoke keys written: {written}")
+    return written
 
 
 # ============================================
@@ -990,45 +1198,36 @@ def _compute_chile_l5_gate(tripwires_global, actor_summaries, vector_scores):
     return gate
 
 
+VECTOR_PLAIN = {
+    'domestic_stability': 'politics and security',
+    'resource_sector':    'mining and fisheries',
+    'us_alignment':       'US-Chile relations',
+    'china_alignment':    'China-Chile relations',
+}
+
+
 def _build_chile_signal_text(theatre_level, theatre_score, vector_levels, actor_summaries, l5_capped=False):
-    """
-    Build short_text + long_text for Chile's theatre_high signal.
-    Uses WHA label vocabulary (Imminent Crisis at L4, Active Crisis at L5).
-    """
-    # Active vectors (elevated/high/surge)
-    vectors_active = []
-    if isinstance(vector_levels, dict):
-        for vec, lvl in vector_levels.items():
-            if lvl in ('elevated', 'high', 'surge'):
-                vectors_active.append(vec.replace('_', ' '))
-    vectors_brief = ', '.join(vectors_active[:3]) if vectors_active else 'baseline'
-
-    # Active actors
-    actors_active = []
-    if isinstance(actor_summaries, dict):
-        for actor, summary in actor_summaries.items():
-            lvl = summary.get('level', 'low') if isinstance(summary, dict) else 'low'
-            if lvl in ('elevated', 'high', 'surge'):
-                actors_active.append(actor.replace('_', ' '))
-    actors_brief = ', '.join(actors_active[:3]) if actors_active else ''
-
-    label = WHA_LABEL_VOCAB.get(theatre_level, 'Monitoring')
-
-    short = f"🇨🇱 CHILE L{theatre_level} {label} — {vectors_brief}"
-    if len(short) > 120:
-        short = short[:117] + '...'
-
-    long_parts = [f"🇨🇱 CHILE at L{theatre_level} {label} (theatre score {theatre_score}/100)."]
-    if vectors_active:
-        long_parts.append(f"Active vectors: {vectors_brief}.")
-    if actors_active:
-        long_parts.append(f"Top actors: {actors_brief}.")
-    if l5_capped:
-        long_parts.append("L5 axis gate did not fire — capped at L4 ceiling per platform L5 Reservation Contract.")
+    """Plain short_text + long_text for Chile's theatre signal (v1.2.0)."""
+    busy = [VECTOR_PLAIN.get(v, v.replace('_', ' ')) for v, lvl in (vector_levels or {}).items()
+            if lvl in ('elevated', 'high', 'surge')]
+    hot = [VECTOR_PLAIN.get(v, v.replace('_', ' ')) for v, lvl in (vector_levels or {}).items()
+           if lvl in ('high', 'surge')]
+    if hot:
+        short = 'Chile: confirmed high-impact reporting on ' + ' and '.join(hot[:2])
+    elif busy:
+        short = 'Chile: busier than usual on ' + ' and '.join(busy[:2]) + ' -- more news, nothing high-impact confirmed'
     else:
-        long_parts.append("Chile is a stable democracy; tracking domestic political and economic pressure.")
-
-    return {'short': short, 'long': ' '.join(long_parts)}
+        short = 'Chile: quiet -- nothing high-impact confirmed'
+    long_parts = [f'Chile reads level {theatre_level} this cycle.']
+    if busy:
+        long_parts.append('Reporting is above its usual level on ' + ', '.join(busy) + '.')
+    if hot:
+        long_parts.append('At least one high-impact event is confirmed by more than one outlet.')
+    else:
+        long_parts.append('Volume alone never lifts Chile above "elevated"; nothing high-impact is confirmed.')
+    if l5_capped:
+        long_parts.append('The raw reading reached crisis range without a confirmed crisis event, so it is held one step below.')
+    return {'short': short[:230], 'long': ' '.join(long_parts)}
 
 
 def scan_chile_rhetoric(force=False, days=7):
@@ -1053,32 +1252,74 @@ def scan_chile_rhetoric(force=False, days=7):
     )
     all_articles = rss_articles + gdelt_articles + newsapi_articles + brave_articles
 
-    # ── Classify articles by actor ──
-    articles_by_actor  = {a: [] for a in ACTORS}
-    tripwires_global   = []
-    for art in all_articles:
-        # Actor classification
-        for actor_id in _classify_article_actor(art):
+    # ── v1.2.0: dedupe, drop stale, keep only articles about Chile ──
+    _seen, _dedup = set(), []
+    for a in all_articles:
+        u = a.get('url') or a.get('title')
+        if u and u not in _seen:
+            _seen.add(u)
+            _dedup.append(a)
+    all_articles, stale_dropped = drop_stale(_dedup, MAX_ARTICLE_AGE_DAYS)
+    _chile, off_country = [], 0
+    for a in all_articles:
+        a['_text'] = _article_text(a)
+        if _is_chile_article(a, a['_text']):
+            a['outlet'] = outlet_of(a)
+            _chile.append(a)
+        else:
+            off_country += 1
+    print(f"[Chile Rhetoric] Evidence filters: {stale_dropped} stale, {off_country} not about Chile, "
+          f"{len(_chile)} kept")
+
+    # ── Classify articles by actor; collect tripwire hits per (actor, tripwire) ──
+    articles_by_actor = {a: [] for a in ACTORS}
+    ledgers = {a: TripwireLedger() for a in ACTORS}
+    tw_severity = {}
+    for art in _chile:
+        text = art['_text']
+        for actor_id in _classify_article_actor(art, text):
             articles_by_actor[actor_id].append(art)
-        # Tripwire pattern matching
-        for tw in _check_tripwires(art.get('title', '')):
+        for actor_id, tw_id, sev in _check_tripwires(text):
+            ledgers[actor_id].add(tw_id, art, text)
+            tw_severity[(actor_id, tw_id)] = sev
+
+    # Graded tripwires: corroborated (2+ outlets) / single_source / rumint
+    tripwires_global = []
+    for actor_id, led in ledgers.items():
+        for tw_id in led.ids():
+            r = led.result(tw_id)
+            if r['grade'] == 'none':
+                continue
+            sev = tw_severity.get((actor_id, tw_id), 3)
             tripwires_global.append({
-                'id':        tw[1],
-                'actor':     tw[0],
-                'severity':  ['low', 'normal', 'elevated', 'high', 'surge'][tw[2]],
-                'article':   {'title': art.get('title', ''), 'url': art.get('url', ''),
-                              'source': art.get('source', '')},
+                'id':         tw_id,
+                'actor':      actor_id,
+                'severity':   LEVEL_NAMES[max(0, min(4, sev))],
+                'grade':      r['grade'],
+                'grade_text': r.get('grade_text', ''),
+                'outlets':    r.get('outlets', []),
+                'rumint_outlets': r.get('rumint_outlets', []),
+                'items':      r.get('items', []),
             })
 
     # ── Score actors + compute levels ──
+    # v1.2.0: volume alone tops out at 'elevated'. Above that needs a
+    # corroborated tripwire; one outlet lifts to 'elevated' at most.
     actor_summaries = {}
     for actor_id, cfg in ACTORS.items():
         arts  = articles_by_actor[actor_id]
         score = _score_actor_articles(arts, actor_id)
-        level = actor_alert_level(score, cfg['baseline'])
+        volume_level = actor_alert_level(score, cfg['baseline'])
+        level = LEVEL_NAMES[min(LEVEL_NAMES.index(volume_level), 2)]
         actor_tripwires = [tw for tw in tripwires_global if tw['actor'] == actor_id]
+        for tw in actor_tripwires:
+            if tw['grade'] == 'corroborated':
+                level = LEVEL_NAMES[max(LEVEL_NAMES.index(level), LEVEL_NAMES.index(tw['severity']))]
+            elif tw['grade'] == 'single_source':
+                level = LEVEL_NAMES[max(LEVEL_NAMES.index(level), min(2, LEVEL_NAMES.index(tw['severity'])))]
         # Top 8 articles per actor for UI display
-        sorted_arts = sorted(arts, key=lambda a: a.get('feed_type') == 'rss', reverse=True)[:8]
+        sorted_arts = [{k: v for k, v in a.items() if k != '_text'}
+                       for a in sorted(arts, key=lambda a: a.get('feed_type') == 'rss', reverse=True)[:8]]
         actor_summaries[actor_id] = {
             'name':           cfg['name'],
             'flag':           cfg['flag'],
@@ -1088,7 +1329,9 @@ def scan_chile_rhetoric(force=False, days=7):
             'score':          score,
             'baseline':       cfg['baseline'],
             'level':          level,
+            'volume_level':   volume_level,
             'article_count':  len(arts),
+            'outlet_count':   len({a.get('outlet') for a in arts}),
             'top_articles':   sorted_arts,
             'tripwires':      actor_tripwires,
         }
@@ -1113,6 +1356,8 @@ def scan_chile_rhetoric(force=False, days=7):
         key=lambda lv: ['low', 'normal', 'elevated', 'high', 'surge'].index(lv),
         default='low',
     )
+
+    corroborated_tw = [t for t in tripwires_global if t['grade'] == 'corroborated']
 
     # ── BLUF compatibility shim ──
     LEVEL_TO_THEATRE_INT = {'low': 0, 'normal': 1, 'elevated': 2, 'high': 3, 'surge': 4}
@@ -1170,10 +1415,13 @@ def scan_chile_rhetoric(force=False, days=7):
         theatre_level, theatre_score, vector_levels, actor_summaries, l5_capped
     )
     theatre_high_signal = {
-        'priority':   9 + theatre_level,
+        'priority':   {0: 2, 1: 4, 2: 7, 3: 10, 4: 12}.get(theatre_level, 2),
         'category':   'theatre_high',
+        'type':       'theatre_read',
         'theatre':    'chile',
         'level':      theatre_level,
+        'level_name': LEVEL_NAMES[max(0, min(4, theatre_level))],
+        'pressure_type': 'composite',
         'icon':       '🔴' if theatre_level >= 4 else '🟠',
         'color':      '#dc2626' if theatre_level >= 5 else ('#ef4444' if theatre_level == 4 else '#f97316'),
         'short_text': signal_text['short'],
@@ -1188,9 +1436,18 @@ def scan_chile_rhetoric(force=False, days=7):
     if drift_sig and not any(s.get('category') == 'alignment_drift' for s in top_signals):
         top_signals = [drift_sig] + list(top_signals)
 
-    # ── Write Chile fingerprints for downstream consumers ──
+    top_indicator = ''
+    if INTERPRETER_AVAILABLE and _interp_top_indicator:
+        try:
+            top_indicator = _interp_top_indicator(actor_summaries, tripwires_global,
+                                                  alignment_drift, len(_chile))
+        except Exception as e:
+            print(f"[Chile Rhetoric] top indicator error: {str(e)[:120]}")
+
+    # ── Write Chile fingerprints + spokes for downstream consumers ──
     actor_levels = {a: s['level'] for a, s in actor_summaries.items()}
-    _write_chile_fingerprints(actor_levels, vector_scores, tripwires_global)
+    _write_chile_fingerprints(actor_levels, vector_scores, corroborated_tw)
+    spokes_written = _write_chile_spokes(actor_summaries, tripwires_global)
 
     scan_time = round(time.time() - scan_start, 1)
 
@@ -1215,10 +1472,25 @@ def scan_chile_rhetoric(force=False, days=7):
         'commodity_pressure':       commodity_pressure,
         'crosstheater_amplifiers':  crosstheater_amplifiers,
         'top_signals':              top_signals,
+        'top_indicator':            top_indicator,
+        'bluf':                     top_indicator,
+        'evidence_rules': {
+            'stale_dropped':     stale_dropped,
+            'not_about_chile':   off_country,
+            'articles_kept':     len(_chile),
+            'corroborated_tripwires': len(corroborated_tw),
+            'gate_available':    EVIDENCE_GATE_AVAILABLE,
+            'note': ('Only articles about Chile count (Argentine Mapuche stories are filtered out). '
+                     'Busier-than-usual reporting tops out at elevated; a high-impact event needs '
+                     'two separate outlets to count in full; one outlet reads as approaching; '
+                     'rumour and hedged wording do not lift the level.'),
+        },
+        'spokes_written':           spokes_written,
         'executive_summary':        executive_summary,
         'so_what':                  so_what,
         'alignment_drift':          alignment_drift,
-        'total_articles_scanned':   len(all_articles),
+        'total_articles_scanned':   len(_chile),
+        'articles_fetched':         len(all_articles) + stale_dropped,
         'rss_count':                len(rss_articles),
         'gdelt_count':              len(gdelt_articles),
         'newsapi_count':            len(newsapi_articles),
@@ -1227,7 +1499,7 @@ def scan_chile_rhetoric(force=False, days=7):
         'scanned_at':               datetime.now(timezone.utc).isoformat(),
         'last_updated':             datetime.now(timezone.utc).isoformat(),
         'cached':                   False,
-        'version':                  '1.1.0',                     # bumped per L5 contract retrofit
+        'version':                  '1.2.0',
     }
 
     save_cache(result)
@@ -1241,7 +1513,7 @@ def scan_chile_rhetoric(force=False, days=7):
             'theatre_level':       theatre_level,
             'theatre_score':       theatre_score,
             'scanned_at':          result.get('scanned_at') or datetime.now(timezone.utc).isoformat(),
-            'red_lines_count':     len(tripwires_global),
+            'red_lines_count':     len(corroborated_tw),
             'domestic_stability':  vector_levels.get('domestic_stability'),
             'resource_sector':     vector_levels.get('resource_sector'),
             'us_alignment':        vector_levels.get('us_alignment'),
@@ -1280,6 +1552,20 @@ def _start_background_refresh():
 # ============================================
 # FLASK ENDPOINTS
 # ============================================
+_FORCE_GAP_SECONDS = 15 * 60
+_last_forced = [0.0]
+_force_lock = threading.Lock()
+
+
+def _force_allowed():
+    with _force_lock:
+        now = time.time()
+        if now - _last_forced[0] < _FORCE_GAP_SECONDS:
+            return False
+        _last_forced[0] = now
+        return True
+
+
 def register_chile_rhetoric_endpoints(app, start_background=True):
     """Register Chile rhetoric endpoints. Call from app.py."""
 
@@ -1288,7 +1574,9 @@ def register_chile_rhetoric_endpoints(app, start_background=True):
         if request.method == 'OPTIONS':
             return '', 200
         try:
-            force = request.args.get('refresh', 'false').lower() == 'true'
+            force = request.args.get('refresh', 'false').lower() in ('true', '1', 'yes')
+            if force and not _force_allowed():
+                force = False   # v1.2.0: one forced scan per 15 minutes
             data  = scan_chile_rhetoric(force=force)
             return jsonify(data)
         except Exception as e:
@@ -1302,7 +1590,7 @@ def register_chile_rhetoric_endpoints(app, start_background=True):
     def api_chile_rhetoric_debug():
         cached = load_cache()
         return jsonify({
-            'version':                '1.0.0',
+            'version':                '1.2.0',
             'cache_key':              CACHE_KEY,
             'cache_ttl_hours':        CACHE_TTL_HOURS,
             'scan_interval_hours':    SCAN_INTERVAL_HOURS,

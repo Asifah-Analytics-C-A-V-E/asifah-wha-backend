@@ -1,7 +1,11 @@
 """
 wha_regional_bluf.py
 Asifah Analytics -- Western Hemisphere Backend Module
-v2.7.0 -- Nov 4 2026  (v2.6.0 Nov 1 2026; v1.0.0 April 2026)
+v2.7.1 -- Nov 4 2026  (v2.7.0 earlier today; v2.6.0 Nov 1 2026; v1.0.0 April 2026)
+
+v2.7.1 (Nov 4 2026, late): posture label names what happened -- red line
+  crossed vs. serious incident with no red line -- instead of "RED LINE OR
+  INCIDENT" (which showed with 0 red lines crossed).
 
 v2.7.0 (Nov 4 2026):
   * Trackers that emit a plain `top_indicator` (Venezuela 1.1, Peru 1.1,
@@ -756,10 +760,17 @@ def _determine_regional_posture(trackers):
     theatres_at_l3plus = sum(1 for l in levels if l >= 3)
 
     # Posture ladder
-    if total_breached >= 2 or max_level >= 5:
-        label, color = 'CRITICAL -- MULTI-BREACH OR ACTIVE CONFLICT', '#dc2626'
-    elif total_breached >= 1 or max_level >= 4:
-        label, color = 'ELEVATED -- RED LINE OR INCIDENT', '#ef4444'
+    # v2.7.1: say WHICH it is. "RED LINE OR INCIDENT" showed with zero red
+    # lines crossed whenever one country read L4, and the reader assumed a
+    # red line had gone.
+    if total_breached >= 2:
+        label, color = f'CRITICAL -- {total_breached} RED LINES CROSSED', '#dc2626'
+    elif max_level >= 5:
+        label, color = 'CRITICAL -- ACTIVE CONFLICT', '#dc2626'
+    elif total_breached == 1:
+        label, color = 'ELEVATED -- A RED LINE CROSSED', '#ef4444'
+    elif max_level >= 4:
+        label, color = 'ELEVATED -- SERIOUS INCIDENT, NO RED LINE CROSSED', '#ef4444'
     elif theatres_at_l3plus >= 2:
         label, color = 'ELEVATED -- MULTI-COUNTRY WARNING', '#f97316'
     elif max_level >= 3:

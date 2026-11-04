@@ -112,7 +112,7 @@ DEFAULT_MAX_ARTICLES   = 25
 UPSTASH_URL   = os.environ.get('UPSTASH_REDIS_URL', '') or os.environ.get('UPSTASH_REDIS_REST_URL', '')
 UPSTASH_TOKEN = os.environ.get('UPSTASH_REDIS_TOKEN', '') or os.environ.get('UPSTASH_REDIS_REST_TOKEN', '')
 NEWSAPI_KEY   = os.environ.get('NEWSAPI_KEY', '')   # legacy; deleted from Render 18 Oct 2026
-TRACKER_VERSION = '1.5.0'   # Nov 4 2026: results phase -- hedged mentions skipped, rung-2 needs corroboration, acceptance/concession lane, reported chamber control, plain headline | 1.4.1 Nov 1: pre-election gating, commentary + past-cycle guards
+TRACKER_VERSION = '1.6.0'   # Nov 4 2026 late: US wheel spoke count (how many hub spokes are reporting) + RSS with articles reads 'partial' even when some feeds 403 | 1.5.1: Nov 4 2026 pm: So What leads with the election result in the post-election window; RSS with some failed feeds reads 'partial', not 'http error' | 1.5.0 Nov 4 2026: results phase -- hedged mentions skipped, rung-2 needs corroboration, acceptance/concession lane, reported chamber control, plain headline | 1.4.1 Nov 1: pre-election gating, commentary + past-cycle guards
 # v1.4.0: NewsAPI through the shared gateway (budget, cache, stand-down).
 try:
     from newsapi_gateway import newsapi_fetch_probed as _newsapi_gw
@@ -1103,13 +1103,22 @@ def _health_status(rec):
         # news_index_total < 60 gate, so a healthy GDELT silently disables it.
         return 'not_attempted'
     statuses = rec.get('http_statuses') or {}
+    non_ok = [s for s in statuses if s not in ('200', 'None')]
+    # v1.6.0: a multi-feed source that DELIVERED articles is 'partial' even if
+    # some feeds answered 403 -- the live page said "auth failed" next to 429
+    # RSS articles. Single-endpoint sources never get here with articles.
+    if non_ok and rec.get('articles', 0) > 0:
+        return 'partial'
     if any(s in statuses for s in ('401', '403')):
         return 'auth_failed'
     if '429' in statuses:
         return 'rate_limited'
     non_ok = [s for s in statuses if s not in ('200', 'None')]
     if non_ok:
-        return 'http_error'
+        # v1.5.1: RSS is many feeds. If some answered with articles, the
+        # source DELIVERED -- 'http error' on the page next to "1,092 articles"
+        # read as a contradiction. Partial is the true word.
+        return 'partial' if rec.get('articles', 0) > 0 else 'http_error'
     if rec.get('errors'):
         return 'error'
     if rec.get('articles', 0) > 0:
@@ -2520,6 +2529,56 @@ def _build_us_signal_text(theatre_level, tier_band, composite, branch_div, fract
     return {'short': short, 'long': ' '.join(long_parts)}
 
 
+# ════════════════════════════════════════════════════════════════════
+# US WHEEL SPOKE COUNT (v1.6.0 -- Nov 4 2026)
+# The US is a hub: other trackers write spoke:us:{country} (Venezuela, Cuba,
+# Peru, Chile...) or carry a US block in their fingerprint. This reads the
+# whole rim through the shared spoke_wheel_reader and reports, in plain words,
+# how much of it is actually reporting. A rim that is mostly NOT REPORTING is a
+# coverage gap, not a calm hemisphere -- and the list doubles as the build list.
+# ════════════════════════════════════════════════════════════════════
+try:
+    from spoke_wheel_reader import read_wheel as _read_wheel
+except ImportError:
+    _read_wheel = None
+
+
+def _us_wheel_summary():
+    if not _read_wheel:
+        return {'readable': False, 'headline': 'Spoke reader not installed on this backend.'}
+    try:
+        w = _read_wheel('us')
+    except Exception as e:
+        return {'readable': False, 'headline': 'US wheel could not be read: ' + str(e)[:80]}
+    if not w.get('readable'):
+        return {'readable': False, 'headline': w.get('note') or 'US wheel unreadable this cycle.'}
+    spokes = w.get('spokes') or []
+    lit = [sp for sp in spokes if sp.get('state') == 'lit']
+    dark = [sp for sp in spokes if sp.get('state') == 'dark']
+    silent = [sp for sp in spokes if sp.get('state') == 'not_reporting']
+    total = len(spokes)
+    reporting = len(lit) + len(dark)
+    lit_names = ', '.join(sp.get('display', '') for sp in lit[:6])
+    head = (f'US wheel: {reporting} of {total} spokes reporting this cycle'
+            + (f'; {len(lit)} active ({lit_names})' if lit else '; none active')
+            + (f'. {len(silent)} are not reporting -- a coverage gap, not calm.' if silent else '.'))
+    slim = lambda sp: {'country': sp.get('country'), 'display': sp.get('display'),
+                       'state': sp.get('state'), 'level': sp.get('level', 0),
+                       'node_class': sp.get('node_class'), 'region': sp.get('region'),
+                       'reason': sp.get('reason', ''),
+                       'top_signal': str(sp.get('top_signal') or '')[:160]}
+    return {
+        'readable': True, 'total': total, 'reporting': reporting,
+        'lit_count': len(lit), 'dark_count': len(dark), 'not_reporting_count': len(silent),
+        'headline': head,
+        'lit': [slim(sp) for sp in lit],
+        'dark': [slim(sp) for sp in dark],
+        'not_reporting': [slim(sp) for sp in silent],
+        'converged': bool(w.get('converged')),
+        'wheel_headline': w.get('headline', ''),
+    }
+
+
 def run_us_rhetoric_scan(force=False):
     """Run a full US rhetoric scan. Returns the result dict."""
     global _scan_running
@@ -2678,6 +2737,21 @@ def run_us_rhetoric_scan(force=False):
                               'not evidence of calm.',
                 'severity': 'low', 'category': 'institutional', 'actor_key': 'us_executive',
             }] + list(top_signals or [])
+        # v1.5.1: the day after an election, the result IS the story. The
+        # rhetoric composite measures domestic tempo, so on its own it said
+        # "Active / Stable" without a word about the vote.
+        if sensed and isinstance(governance, dict) \
+                and governance.get('phase') in _POST_ELECTION_PHASES \
+                and governance.get('headline'):
+            so_what = dict(so_what or {})
+            _gh = str(governance['headline']).rstrip('.')
+            so_what['description'] = ('This week\'s story is the election result. ' + _gh + '. '
+                                      'Day to day, the rhetoric reading below is '
+                                      + (so_what.get('factor') or 'steady').lower() + ': '
+                                      + (so_what.get('description') or ''))
+            so_what['factor'] = 'Post-election window · ' + (so_what.get('factor') or 'Active')
+            so_what['bullet_points'] = ((governance.get('so_what') or [])[:2]
+                                        + list(so_what.get('bullet_points') or []))[:6]
         top_signals = _canonicalize_signals(top_signals)
         top_signals.sort(key=lambda s: -int(s.get('priority', 0) or 0))
         _redis_set('us:governance_transition', governance, ttl=7 * 24 * 3600)
@@ -2691,6 +2765,9 @@ def run_us_rhetoric_scan(force=False):
             theatre_level, tier_band, composite, branch_div, fracture,
             outbound_targets, l5_gate, l5_capped,
         )
+
+        # Phase 6b (v1.6.0): the US WHEEL -- how many hub spokes are reporting
+        us_wheel = _us_wheel_summary()
 
         # Phase 7: build full result
         elapsed = round(time.time() - start_time, 1)
@@ -2732,6 +2809,7 @@ def run_us_rhetoric_scan(force=False):
             'success':                 True,
             'sensed':                  sensed,
             'governance':              governance,
+            'us_wheel':                us_wheel,
             'mobilization':            mobilization,
             'source_counts':           _compute_source_counts(articles),
             # v1.3 - what each fetcher actually did, as opposed to whether
