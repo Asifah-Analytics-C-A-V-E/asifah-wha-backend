@@ -239,7 +239,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 # CONFIGURATION
 # ========================================
 
-VERSION = '1.6.3'   # Nov 4 2026: regional sweep drops stale items (>10d) and counts real outlets behind Google News (evidence_gate) | 1.6.2 Nov 3 2026: WHA market quotes (6 pulses) | advisories from the State Dept JSON feed (matches ME) | Argentina/Paraguay/Canada, NOTAM route, military key, advisories | Nov 1 2026: Flight Watch (first flight sensor) | Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
+VERSION = '1.6.4'   # Nov 4 2026 (late): Hizballah LatAm module | 1.6.3 Nov 4 2026: regional sweep drops stale items (>10d) and counts real outlets behind Google News (evidence_gate) | 1.6.2 Nov 3 2026: WHA market quotes (6 pulses) | advisories from the State Dept JSON feed (matches ME) | Argentina/Paraguay/Canada, NOTAM route, military key, advisories | Nov 1 2026: Flight Watch (first flight sensor) | Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
 
 # v1.3.1 (Oct 3 2026) -- the UA now derives from VERSION above.
 # WHA was already the cleanest backend on the platform: two call sites, both
@@ -2149,6 +2149,14 @@ try:
     register_wha_market_endpoints(app, force_gate=_public_force_allowed)
 except Exception as _wmq_err:
     print(f'[WHA Backend] WARNING: WHA market quotes unavailable ({_wmq_err})')
+
+# v1.6.4 (Nov 4 2026): Hizballah Latin America shared module -- Tri-Border Area
+# (Paraguay / Argentina / Brazil) + Venezuela's Margarita node. Free sources only.
+try:
+    from hizballah_latam import register_hizballah_latam_endpoints
+    register_hizballah_latam_endpoints(app, force_gate=_public_force_allowed)
+except Exception as _hl_err:
+    print(f'[WHA Backend] WARNING: Hizballah LatAm module unavailable ({_hl_err})')
 
 
 @app.route('/health', methods=['GET'])
