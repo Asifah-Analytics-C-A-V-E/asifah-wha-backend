@@ -239,7 +239,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 # CONFIGURATION
 # ========================================
 
-VERSION = '1.6.4'   # Nov 4 2026 (late): Hizballah LatAm module | 1.6.3 Nov 4 2026: regional sweep drops stale items (>10d) and counts real outlets behind Google News (evidence_gate) | 1.6.2 Nov 3 2026: WHA market quotes (6 pulses) | advisories from the State Dept JSON feed (matches ME) | Argentina/Paraguay/Canada, NOTAM route, military key, advisories | Nov 1 2026: Flight Watch (first flight sensor) | Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
+VERSION = '1.6.5'   # Nov 4 2026 (eve): Mexico + Argentina rhetoric trackers (shared engine) | 1.6.4 Nov 4 2026 (late): Hizballah LatAm module | 1.6.3 Nov 4 2026: regional sweep drops stale items (>10d) and counts real outlets behind Google News (evidence_gate) | 1.6.2 Nov 3 2026: WHA market quotes (6 pulses) | advisories from the State Dept JSON feed (matches ME) | Argentina/Paraguay/Canada, NOTAM route, military key, advisories | Nov 1 2026: Flight Watch (first flight sensor) | Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
 
 # v1.3.1 (Oct 3 2026) -- the UA now derives from VERSION above.
 # WHA was already the cleanest backend on the platform: two call sites, both
@@ -2157,6 +2157,20 @@ try:
     register_hizballah_latam_endpoints(app, force_gate=_public_force_allowed)
 except Exception as _hl_err:
     print(f'[WHA Backend] WARNING: Hizballah LatAm module unavailable ({_hl_err})')
+
+# v1.6.5 (Nov 4 2026): Mexico + Argentina rhetoric trackers on the shared engine
+# (wha_rhetoric_engine.py). /api/rhetoric/mexico and /api/rhetoric/argentina (+/debug).
+# ?refresh=true is gated to one forced scan per 15 minutes.
+try:
+    from rhetoric_tracker_mexico import register_mexico_rhetoric_endpoints
+    register_mexico_rhetoric_endpoints(app, force_gate=_public_force_allowed)
+except Exception as _mxr_err:
+    print(f'[WHA Backend] WARNING: Mexico rhetoric tracker unavailable ({_mxr_err})')
+try:
+    from rhetoric_tracker_argentina import register_argentina_rhetoric_endpoints
+    register_argentina_rhetoric_endpoints(app, force_gate=_public_force_allowed)
+except Exception as _arr_err:
+    print(f'[WHA Backend] WARNING: Argentina rhetoric tracker unavailable ({_arr_err})')
 
 
 @app.route('/health', methods=['GET'])

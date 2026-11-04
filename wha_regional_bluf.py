@@ -1,7 +1,14 @@
 """
 wha_regional_bluf.py
 Asifah Analytics -- Western Hemisphere Backend Module
-v2.7.1 -- Nov 4 2026  (v2.7.0 earlier today; v2.6.0 Nov 1 2026; v1.0.0 April 2026)
+v2.8.0 -- Nov 4 2026  (v2.7.1 / v2.7.0 earlier today; v2.6.0 Nov 1 2026; v1.0.0 April 2026)
+
+v2.8.0 (Nov 4 2026, evening): Mexico and Argentina join TRACKER_KEYS. Both run
+  on the shared engine (wha_rhetoric_engine.py) and emit the canonical contract
+  (int theatre_level, top_signals with level_name / pressure_type / meaning,
+  top_indicator, red_lines with status BREACHED / APPROACHING / WATCHING), so no
+  per-country branch is needed here: the generic path and top_indicator prose
+  handle them.
 
 v2.7.1 (Nov 4 2026, late): posture label names what happened -- red line
   crossed vs. serious incident with no red line -- instead of "RED LINE OR
@@ -87,9 +94,10 @@ TRACKER_KEYS = {
     'chile':     'rhetoric:chile:latest',
     'venezuela': 'rhetoric:venezuela:latest',  # v2.5 May 21 2026 — first contract-native tracker
     'us':        'rhetoric:us:latest',          # Jun 13 2026 — command-node anchor (writes rhetoric:us:latest, no TTL)
+    'mexico':    'rhetoric:mexico:latest',      # v2.8.0 Nov 4 2026 — shared engine (wha_rhetoric_engine)
+    'argentina': 'rhetoric:argentina:latest',   # v2.8.0 Nov 4 2026 — shared engine (wha_rhetoric_engine)
     # Future WHA trackers slot in here:
     # 'haiti':      'rhetoric:haiti:latest',
-    # 'mexico':     'rhetoric:mexico:latest',
     # 'panama':     'rhetoric:panama:latest',
     # 'colombia':   'rhetoric:colombia:latest',
     # 'brazil':     'rhetoric:brazil:latest',
@@ -102,6 +110,7 @@ THEATRE_FLAGS = {
     'venezuela': '\U0001f1fb\U0001f1ea',  # 🇻🇪
     'haiti':     '\U0001f1ed\U0001f1f9',  # 🇭🇹
     'mexico':    '\U0001f1f2\U0001f1fd',  # 🇲🇽
+    'argentina': '\U0001f1e6\U0001f1f7',  # 🇦🇷
     'panama':    '\U0001f1f5\U0001f1e6',  # 🇵🇦
     'colombia':  '\U0001f1e8\U0001f1f4',  # 🇨🇴
     'brazil':    '\U0001f1e7\U0001f1f7',  # 🇧🇷
@@ -115,6 +124,7 @@ THEATRE_DISPLAY = {
     'venezuela': 'VENEZUELA',
     'haiti':     'HAITI',
     'mexico':    'MEXICO',
+    'argentina': 'ARGENTINA',
     'panama':    'PANAMA',
     'colombia':  'COLOMBIA',
     'brazil':    'BRAZIL',
@@ -987,6 +997,7 @@ THEATRE_DISPLAY_NAMES = {
     'venezuela': 'Venezuela',
     'haiti':     'Haiti',
     'mexico':    'Mexico',
+    'argentina': 'Argentina',
     'panama':    'Panama',
     'colombia':  'Colombia',
     'brazil':    'Brazil',
@@ -1443,6 +1454,10 @@ def _wha_axes_for_signal(sig):
     sig = sig if isinstance(sig, dict) else {}
     pt = sig.get('pressure_type')
     cat = str(sig.get('category') or '').lower()
+    # v2.8.0: a theatre read that names its own pressure (not 'composite') is
+    # tagged with that pressure only -- an economy-led L2 is not a war.
+    if cat == 'theatre_high' and pt in ('economic', 'diplomatic', 'humanitarian', 'governance'):
+        return [pt]
     if cat in _WHA_REGIONAL_AXIS_SETS:
         axes = list(_WHA_REGIONAL_AXIS_SETS[cat])
         if pt and pt in ('kinetic','economic','diplomatic','humanitarian','governance') and pt not in axes:
