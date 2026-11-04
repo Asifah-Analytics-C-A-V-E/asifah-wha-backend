@@ -1,5 +1,6 @@
 """
-venezuela_financial_pulse.py -- Asifah Analytics WHA Backend -- v1.1.0 Jul 2026
+venezuela_financial_pulse.py -- Asifah Analytics WHA Backend -- v1.2.0 Nov 4 2026
+                                                                 (v1.1.0 Jul 2026)
 Cloned from iran_financial_pulse.py (contract donor). Three tiles:
   IBC (^IBC, INVERTED inflation-hedge read) / USDVES (VES=X, INVERTED,
   official-indicative -- parallel rate runs wider) / BRENT (export benchmark).
@@ -14,15 +15,25 @@ endpoints returned HTTP 500. Also fixed: _append_history crashed on
 float(None) whenever a source was unreachable, so one dead feed took the
 whole endpoint down. Absence-honest now: a dead source yields a stale tile
 with a last-known value and an explicit source_status, never an exception.
+
+v1.2.0 (Nov 4 2026) -- plain language + force gate.
+  * Every tile carries `tier_text`: what the move MEANS for Venezuela. The
+    raw tier said 'rally' when the Caracas index FELL (inverted read) --
+    correct to the code, nonsense to a reader.
+  * `read`: one sentence on the whole card, saying which feeds are dead.
+  * ?force=true allows one rebuild per 15 minutes (Yahoo rate-limits
+    hammering; same gate as the rest of the WHA backend).
 """
 
 import os
 import json
+import time
+import threading
 import requests
 from datetime import datetime, timezone, timedelta
 from flask import request, jsonify
 
-VERSION = '1.1.0'
+VERSION = '1.2.0'
 CACHE_KEY = 'pulse:venezuela:financial'
 HIST_KEY_IBC = 'pulse:venezuela:hist:ibc'
 HIST_KEY_VES = 'pulse:venezuela:hist:ves'
@@ -241,6 +252,45 @@ def _bvc_market_status():
     return 'open' if (9 * 60 + 30) <= mins <= (13 * 60) else 'closed'
 
 
+# Plain meaning of each tier, per tile (inverted tiles read the other way).
+TIER_TEXT = {
+    'IBC': {'stress': 'money running into shares to escape the bolívar',
+            'warning': 'some hedging into shares',
+            'stable': 'no unusual move',
+            'rally': 'hedging pressure easing'},
+    'USDVES': {'stress': 'bolívar weakening fast',
+               'warning': 'bolívar slipping',
+               'stable': 'bolívar steady',
+               'rally': 'bolívar strengthening'},
+    'BRENT': {'stress': 'oil falling -- less money for the state',
+              'warning': 'oil softening',
+              'stable': 'oil steady',
+              'rally': 'oil rising -- more money for the state'},
+}
+
+
+def _pulse_read(tiles, source_status, conv):
+    """One sentence a reader can act on. Dead feeds are named, not hidden."""
+    dead = [k.upper() if k != 'usdves' else 'USD/VES'
+            for k, v in source_status.items() if v != 'live']
+    if len(dead) == 3:
+        return ('All three price feeds are unreachable this cycle -- the figures shown are '
+                'last-known values, so this card is unread, not calm.')
+    if conv.get('active'):
+        main = ('Capital-flight pattern: the bolívar is weakening while money moves into '
+                'Caracas shares -- people are protecting savings, not betting on growth.')
+    else:
+        bits = []
+        for k in ('USDVES', 'BRENT'):
+            t = tiles.get(k) or {}
+            if not t.get('stale') and t.get('tier') in ('stress', 'warning', 'rally'):
+                bits.append(t.get('tier_text'))
+        main = ('; '.join(bits).capitalize() + '.') if bits else 'No unusual money move this cycle.'
+    if dead:
+        main += (' Not reading: ' + ', '.join(dead) + ' (feed unreachable -- last-known value shown).')
+    return main
+
+
 def _build_financial_pulse():
     ibc, ves, brent = _fetch_ibc(), _fetch_ves(), _fetch_brent()
 
@@ -290,6 +340,10 @@ def _build_financial_pulse():
                 'stale': brent is None},
     }
 
+    for _k, _t in tiles.items():
+        _t['tier_text'] = ('last-known value -- feed unreachable' if _t.get('stale') and _t.get('change_pct_24h') is None
+                           else TIER_TEXT[_k].get(_t['tier'], _t['tier']))
+
     # Per-source status so a reader (and the GPI) can tell a quiet market
     # from a dead feed. Absence-honest: the gap is surfaced, not smoothed.
     source_status = {
@@ -307,7 +361,10 @@ def _build_financial_pulse():
                 ('No capital-flight convergence detected this cycle (requires both IBC and '
                  'USD/VES 7-day trends rising). History accumulates one point per scan.')}
 
+    read = _pulse_read(tiles, source_status, convergence)
+
     return {'market_status': _bvc_market_status(),
+            'read': read,
             'updated_at': datetime.now(timezone.utc).isoformat(),
             'tiles': tiles,
             'source_status': source_status,
@@ -328,6 +385,22 @@ def _is_fresh(payload):
 # ------------------------------------------------------------
 # Flask endpoint registration
 # ------------------------------------------------------------
+FORCE_MIN_GAP_SECONDS = 15 * 60
+_last_forced = 0.0
+_force_lock = threading.Lock()
+
+
+def _force_allowed():
+    """One forced rebuild per 15 minutes, however many people press refresh."""
+    global _last_forced
+    with _force_lock:
+        now = time.time()
+        if now - _last_forced < FORCE_MIN_GAP_SECONDS:
+            return False
+        _last_forced = now
+        return True
+
+
 def register_venezuela_financial_pulse_endpoints(app):
 
     @app.route('/api/venezuela/financial-pulse', methods=['GET', 'OPTIONS'])
@@ -335,6 +408,8 @@ def register_venezuela_financial_pulse_endpoints(app):
         if request.method == 'OPTIONS':
             return '', 200
         force = request.args.get('force', 'false').lower() == 'true'
+        if force and not _force_allowed():
+            force = False   # rate-limited: serve the cache
         if not force:
             cached = _redis_get(CACHE_KEY)
             if cached and _is_fresh(cached):

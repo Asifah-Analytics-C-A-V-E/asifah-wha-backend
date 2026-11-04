@@ -1,29 +1,63 @@
 """
-Venezuela Rhetoric Tracker — v1.0.0 (May 21 2026)
+Venezuela Rhetoric Tracker — v1.1.0 (Nov 4 2026)   [v1.0.0 May 21 2026]
 
 Hybrid command-node + absorber tracker for Venezuela.
 First tracker built CONTRACT-NATIVE — L5 Reservation Contract baked in
-from day 1 (no retrofit). 16 actors, 6 vectors.
+from day 1 (no retrofit). 16 actors, 6 vectors + a transition track.
 
 ═══════════════════════════════════════════════════════════════════
-REALITY CONTEXT (May 2026)
+v1.1.0 (Nov 4 2026) -- WHA Phase 2 refresh
 ═══════════════════════════════════════════════════════════════════
-- Maduro: US federal detention (Brooklyn MDC) since Jan 3 2026 raid
-  ("Operation Absolute Resolve"). Pre-trial. Pleaded not guilty.
-  Argentina extradition request pending.
-- Delcy Rodríguez: Acting president since Jan 5 2026. 90-day cap
-  expired May 4 — legal continuity unresolved by Maduro-aligned NA.
-- US-VZ DÉTENTE: Embassy reopened, Delcy delisted from SDN (Apr 2),
-  political prisoner releases (621+), Treasury issuing new licenses.
-- US Chargé d'Affaires: John M. Barrett (since Apr 23 2026).
-  DCM: Mike Garcia.
-- VZ rep in DC: Felix Plasencia.
-- VZ Foreign Minister: Yvan Gil.
-- Diosdado Cabello: Interior Minister AND only remaining fugitive
-  co-defendant in Maduro indictment.
-- Padrino López: Defense Minister, LOYAL not parallel.
-- Opposition: Machado (Nobel Prize), Edmundo González (won 2024 vote).
-- Active ICJ case with Guyana on Essequibo territory.
+- EVIDENCE LAYER. A tripwire phrase in one headline no longer makes an
+  actor L4. Hedged wording ("could", "warns", "rumours"...) never counts
+  as a tripwire; articles older than MAX_ARTICLE_AGE_DAYS are dropped;
+  a tripwire needs 2+ distinct OUTLETS to score L4 (1 outlet = L3,
+  social-only = L2). Outlet names come from the item's <source> tag or
+  the " - Outlet" title suffix, so a Google News feed is not one outlet.
+- TRANSITION TRACK (new). The election/transition process is now the
+  main Venezuela story and nothing measured it. _detect_transition_track
+  reads stages 0-5 plus spoiler signals.
+- PLAIN LANGUAGE. top_indicator / bluf sentences; signal short_text is
+  "Venezuela: ..." in plain English (no L-codes, no flag emoji).
+- SPOKES. Writes spoke:{china,russia,iran,us}:venezuela (the richest
+  convention in spoke_wheel_reader) with a plain top_signal, a
+  trajectory and an honest coverage note. Targeted feeds added for the
+  China / Russia / Iran axes -- they were dark because nothing fetched
+  them, not because nothing was happening.
+- HIZBALLAH NODE. Margarita Island hook with corroborated vs RUMINT
+  lanes, written to hizballah_latam:venezuela for the coming shared
+  Latin America module.
+- FORCE GATE. ?force and /refresh are rate-limited (one forced scan per
+  15 min) and /refresh no longer spawns a new infinite thread per call.
+- Dated facts refreshed (below). Stale May claims removed.
+
+═══════════════════════════════════════════════════════════════════
+REALITY CONTEXT (as of Nov 4 2026 -- re-verify before relying on it)
+═══════════════════════════════════════════════════════════════════
+- Maduro: US federal custody since the Jan 3 2026 operation; arraigned in
+  New York. Oct 15 2026: he and Cilia Flores pleaded not guilty to new
+  charges (conspiracy to torture opponents).
+- Delcy Rodríguez: interim president since Jan 5 2026. The US restored
+  relations and recognised her government (Mar 2026).
+- Oct 25 2026: María Corina Machado returned to Venezuela after ~1 year
+  in exile; Oct 29 she endorsed the US plan for presidential elections
+  in 2027. Oct 29 Rodríguez promised constitutional elections under a
+  renewed electoral authority, no date set.
+- US plan as briefed (early Nov): Rodríguez declares the presidency
+  vacant, opening a six-month window to call elections.
+- Foreign Minister: Oliver Blanco (from Nov 2 2026; replaced Félix
+  Plasencia, who moves to the presidency's international affairs office
+  -- first task, the gold held at the Bank of England). Nov 3: Rubio met
+  Blanco on election infrastructure and political prisoners.
+- Defense Minister: Gen. Gustavo González López (since Mar 18 2026,
+  replacing Padrino López).
+- Diosdado Cabello: still the wild card (indicted; Interior portfolio).
+- Oil: US-controlled export marketing since Jan 2026, waivers for US
+  firms; Machado has attacked the new US-linked oil partner.
+- Jun 24 2026 twin earthquakes near Caracas (5,000+ dead); recovery and
+  relief politics continue.
+- Essequibo: ICJ heard the merits in May 2026; Guyana expects a ruling
+  as early as Nov 2026 -- a live date, not a background fact.
 
 ═══════════════════════════════════════════════════════════════════
 L5 RESERVATION CONTRACT (v1.0.0 — May 21 2026)
@@ -56,6 +90,7 @@ Author: Asifah Analytics
 """
 
 import os
+import re
 import json
 import time
 import threading
@@ -213,12 +248,13 @@ ACTORS = {
         'role':  'WH / State / Treasury — Political Rhetoric Toward Venezuela',
         'butterfly_boost': 'Phase 6 upstream signal (+1)',
         'description': (
-            'US executive branch political rhetoric toward Venezuela. Currently '
-            'in DÉTENTE posture (May 2026) — Trump statements oscillate between '
-            'cooperation praise ("they\'ve given us everything") and conditional '
-            'threats. Watch for: regime change rhetoric returning, Rubio (Cuban-'
-            'American, hawkish) statements, State Department briefings on Caracas, '
-            'Treasury announcements on sanctions easing or re-tightening.'
+            'US executive branch political rhetoric toward Venezuela. As of Nov '
+            '2026 Washington recognises the Rodríguez government and is pushing a '
+            'transition plan: Rodríguez declares the presidency vacant and a '
+            'six-month window opens for elections (2027). Rubio met FM Oliver '
+            'Blanco Nov 3. Watch for: deadlines or ultimatums attached to the '
+            'plan, praise or threats aimed at Rodríguez, sanctions easing or '
+            're-tightening, and whether the pace holds after the US midterms.'
         ),
         'keywords': [
             'trump venezuela', 'trump maduro', 'trump caracas',
@@ -230,6 +266,8 @@ ACTORS = {
             'us venezuela policy', 'venezuela policy',
             'venezuela detente', 'us venezuela cooperation',
             'venezuela regime change', 'venezuela transition',
+            'rubio blanco', 'rubio rodriguez', 'us transition plan venezuela',
+            'estados unidos venezuela', 'rubio venezuela elecciones',
         ],
         'tripwires': [
             'trump threatens venezuela', 'second wave venezuela',
@@ -248,9 +286,10 @@ ACTORS = {
         'role':  'OFAC / Commerce / Treasury — Specific Regulatory Actions on Venezuela',
         'butterfly_boost': 'Phase 6 upstream signal (+1)',
         'description': (
-            'Named sanctions, designations, regulatory actions. Currently in EASING '
-            'cycle (May 2026) — Delcy delisted Apr 2, Treasury issuing new licenses, '
-            'Chevron license modified. Watch for: OFAC SDN additions/removals, '
+            'Named sanctions, designations, regulatory actions. Easing cycle since '
+            'early 2026: temporary waivers let US firms work in oil, mining and '
+            'finance, and US-controlled marketing handles most crude exports. '
+            'Watch for: OFAC SDN additions/removals, '
             'Chevron license renewals or revocations, PDVSA-related licenses, '
             'secondary sanctions threats, oil services waivers, gold sanctions.'
         ),
@@ -290,11 +329,11 @@ ACTORS = {
         'color': '#0891b2',
         'role':  'SOUTHCOM / Navy / Joint Forces — Kinetic Posture Toward Venezuela',
         'description': (
-            'US military posture toward Venezuela. Operation "Absolute Resolve" '
-            '(Jan 3 2026) captured Maduro; Trump cancelled second-wave Jan 9. '
-            'Currently QUIET (May 2026) but watch for: SOUTHCOM exercises in '
-            'Caribbean, USS Nimitz movements, second-wave threats, Delta Force '
-            'rumors, troop posture announcements, Caribbean naval positioning.'
+            'US military posture toward Venezuela. The Jan 3 2026 operation '
+            'captured Maduro; a second wave was called off. Watch for: SOUTHCOM '
+            'exercises or deployments in the Caribbean, carrier or amphibious '
+            'group movements, renewed strike threats, troop posture '
+            'announcements, and any security role tied to the election plan.'
         ),
         'keywords': [
             'southcom venezuela', 'us southern command venezuela',
@@ -322,11 +361,11 @@ ACTORS = {
         'color': '#0284c7',
         'role':  'Charge d\'Affaires / DCM / Embassy Caracas / VZ Rep in DC',
         'description': (
-            'Diplomatic channel between Washington and Caracas. US CdA: '
-            'John M. Barrett (since Apr 23 2026, took over from Amb. Laura F. Dogu '
-            'who oversaw embassy reopening). DCM: Mike Garcia. VZ rep in '
-            'Washington: Felix Plasencia. Watch for: Barrett public statements, '
-            'embassy press releases, Plasencia engagements, channel disruptions.'
+            'Diplomatic channel between Washington and Caracas: the reopened US '
+            'embassy, Venezuelan envoys in Washington, and the Rubio-Blanco '
+            'channel (Nov 2026). Named officials change -- re-verify before '
+            'quoting one. Watch for: embassy statements, envoy meetings, '
+            'election-infrastructure talks, channel disruptions.'
         ),
         'keywords': [
             'john barrett venezuela', 'cda barrett', 'charge daffaires venezuela',
@@ -356,13 +395,13 @@ ACTORS = {
         'color': '#dc2626',
         'role':  'Acting President of Venezuela',
         'description': (
-            'Acting President of Venezuela since Jan 5 2026. Former VP, oil '
-            'minister. 90-day cap expired May 4 — legal continuity question '
-            'unresolved. Performing cooperation with US per détente arrangement '
-            'while preserving Chavismo. Sister of Jorge Rodríguez (NA head). '
-            'First international trip: The Hague May 9 (Essequibo ICJ case). '
-            'Watch for: speeches, council of ministers actions, US-cooperation '
-            'language, sanctions relief asks, oil reform announcements.'
+            'Interim President since Jan 5 2026; former VP and oil minister; '
+            'sister of NA head Jorge Rodríguez. Oct 29 2026 she promised '
+            'constitutional elections under a renewed electoral authority but '
+            'set no date; she also ordered no detentions without a court order. '
+            'Under the US plan she is expected to declare the presidency vacant. '
+            'Watch for: an election date or vacancy declaration, CNE renewal, '
+            'cabinet changes, US-cooperation language, and any slippage.'
         ),
         'keywords': [
             # Domestic identity (existing)
@@ -382,6 +421,8 @@ ACTORS = {
             'rodriguez tehran', 'rodriguez iran visit',
             'delcy foreign trip', 'delcy travel',
             'venezuela oil diplomacy', 'rodriguez oil agenda',
+            'rodriguez elections', 'rodríguez elecciones', 'delcy elecciones',
+            'presidenta interina', 'interim president rodriguez',
         ],
         'tripwires': [
             'delcy steps down', 'delcy resigns', 'delcy removed',
@@ -398,12 +439,11 @@ ACTORS = {
         'color': '#b91c1c',
         'role':  'President of National Assembly — Legislative Parallel Power',
         'description': (
-            'Head of Venezuela National Assembly. Brother of Delcy Rodríguez. '
-            'Swore his sister in as acting president Jan 5. Maduro-aligned NA '
-            'controls whether Delcy\'s acting term gets formalized past 90-day '
-            'cap (expired May 4) — KEY constitutional decision. Watch for: '
-            'legislative votes on extending Delcy term, sibling coordination '
-            'signals, NA pronouncements on US-VZ relations, election scheduling.'
+            'Head of the National Assembly; brother of Delcy Rodríguez; swore '
+            'her in Jan 5. The Assembly matters again because the transition '
+            'runs through it: a vacancy declaration, electoral law reform and '
+            'naming a new electoral council (CNE). Watch for: votes on the '
+            'CNE and electoral calendar, sibling coordination or splits.'
         ),
         'keywords': [
             'jorge rodriguez', 'jorge rodríguez',
@@ -415,28 +455,35 @@ ACTORS = {
             'venezuela elections schedule', 'snap election venezuela',
         ],
         'tripwires': [
-            'na declares vacancy', 'snap election called',
-            'na refuses extension', 'assembly dissolves',
+            # v1.1.0: a vacancy declaration is now a TRANSITION MILESTONE under
+            # the US plan, not a rupture, so it lives in TRANSITION_STAGES.
+            'assembly dissolves', 'asamblea disuelta',
             'jorge breaks with delcy', 'siblings split',
-            'permanently vacant venezuela', 'na votes maduro out',
+            'assembly blocks elections', 'asamblea bloquea elecciones',
         ],
         'baseline_statements_per_week': 8,
     },
 
     'vz_yvan_gil': {
-        'name':  'Yvan Gil',
+        # Key kept as 'vz_yvan_gil' so the pages and history stay joined up;
+        # the office is what we track, and the holder has changed twice.
+        'name':  'Foreign Ministry (Oliver Blanco)',
         'flag':  '🇻🇪',
         'icon':  '🌐',
         'color': '#991b1b',
         'role':  'Foreign Minister — Diplomatic Operations',
         'description': (
-            'Venezuela Foreign Minister. Manages diplomatic engagements, '
-            'particularly US-VZ channel (announced Plasencia appointment Feb 3). '
-            'Watch for: bilateral meeting readouts, UN positioning, statements '
-            'on Essequibo dispute, sanctions-relief diplomacy, sponsor-axis '
-            '(RU/CN/IR) coordination signals.'
+            'Venezuela\'s foreign ministry. Oliver Blanco, 34, became foreign '
+            'minister Nov 2 2026, replacing Félix Plasencia (moved to the '
+            'presidency\'s international affairs office, tasked first with '
+            'the gold held at the Bank of England). Watch for: Rubio-Blanco '
+            'readouts, UN positioning, the Essequibo ruling response, '
+            'sanctions-relief diplomacy, sponsor-axis (RU/CN/IR) signals.'
         ),
         'keywords': [
+            'oliver blanco', 'canciller blanco', 'félix plasencia',
+            'felix plasencia', 'venezuela gold bank of england',
+            'oro venezolano banco de inglaterra',
             'yvan gil', 'foreign minister venezuela',
             'venezuela foreign ministry', 'cancilleria venezuela',
             'mre venezuela', 'venezuela mre',
@@ -492,15 +539,15 @@ ACTORS = {
         'color': '#450a0a',
         'role':  'SEBIN / FAES / FANB — Padrino López + Coercive Apparatus',
         'description': (
-            'Venezuela security/intelligence apparatus + military command. '
-            'Includes SEBIN (intelligence), FAES (special action force), FANB '
-            '(armed forces), DGCIM (military counter-intel). Defense Minister '
-            'Padrino López publicly handed Delcy military command Feb 2 ceremony '
-            '(sword + golden baton) — LOYAL not parallel power. Watch for: '
-            'suppression intensity (post-prisoner-release dynamic), protest '
-            'response, Padrino statements, FANB exercises, mass arrest reports.'
+            'Venezuela security/intelligence apparatus + military command: '
+            'SEBIN, FAES, FANB, DGCIM. Defense Minister since Mar 18 2026: Gen. '
+            'Gustavo González López (ex-SEBIN/DGCIM chief), replacing Padrino '
+            'López; the high command was rebuilt Mar 19. Watch for: how security '
+            'forces treat opposition campaigning, arrests without court orders '
+            '(now formally banned), FANB statements on the election plan.'
         ),
         'keywords': [
+            'gonzalez lopez', 'gustavo gonzález lópez', 'ministro de defensa venezuela',
             'padrino lopez', 'vladimir padrino', 'padrino venezuela',
             'fanb venezuela', 'venezuela armed forces',
             'venezuela military', 'venezuela army',
@@ -510,8 +557,8 @@ ACTORS = {
             'venezuela mass arrest', 'venezuela protest crackdown',
         ],
         'tripwires': [
-            'padrino resigns', 'padrino arrested', 'fanb defects',
-            'military coup venezuela', 'padrino defies delcy',
+            'gonzalez lopez removed', 'gonzalez lopez arrested', 'fanb defects',
+            'military coup venezuela', 'golpe de estado venezuela',
             'mass arrests venezuela', 'sebin crackdown',
             'soldiers fire on civilians', 'venezuela military uprising',
         ],
@@ -532,9 +579,10 @@ ACTORS = {
         'description': (
             'INVERSE INDICATOR: opposition strength = government weakness. '
             'María Corina Machado (Nobel Peace Prize laureate) and Edmundo '
-            'González (won 2024 election per opposition tally) leading. Currently '
-            'pressing for: deeper political prisoner releases (~500+ remain), '
-            'snap elections, expansion of détente. Watch for: Machado statements, '
+            'González (won 2024 election per opposition tally). Machado returned '
+            'to Venezuela Oct 25 2026 and backs the US plan for 2027 elections; '
+            'she has attacked the new US-linked oil partner. Watch for: Machado '
+            'campaigning and security, prisoner releases, statements, '
             'González positioning, MUD coalition activity, US recognition signals, '
             'diaspora mobilization, named prisoner releases.'
         ),
@@ -548,11 +596,13 @@ ACTORS = {
             'venezuela diaspora', 'venezuela exiles',
             'plataforma unitaria', 'unitary platform venezuela',
             'guanipa', 'juan pablo guanipa',
+            'machado returns', 'machado regresa', 'machado barquisimeto',
+            'machado rally', 'machado campaign',
         ],
         'tripwires': [
             'machado arrested', 'machado detained', 'gonzalez detained',
-            'opposition leader killed', 'machado exile',
-            'mass opposition rally', 'general strike venezuela',
+            'opposition leader killed', 'machado attacked', 'atentado contra machado',
+            'general strike venezuela',
             'opposition declares victory', 'parallel government venezuela',
         ],
         'baseline_statements_per_week': 18,
@@ -569,7 +619,8 @@ ACTORS = {
         'color': '#581c87',
         'role':  'Maduro Detention + Nicolasito + Extradition + Loyalist Signals',
         'description': (
-            'Residual Chavismo signals around Maduro\'s US detention. Includes: '
+            'Residual Chavismo signals around Maduro\'s US detention (Oct 15 2026: '
+            'not-guilty pleas to new torture-conspiracy charges). Includes: '
             'Maduro court appearances (next dates, motions, "prisoner of war" '
             'rhetoric); his son Nicolás Maduro Guerra ("Nicolasito", NA legislator) '
             'speaking for him; defense legal fees fight; Argentina extradition '
@@ -611,9 +662,10 @@ ACTORS = {
         'role':  'Kremlin-Caracas Cooperation — Debt / Rosneft / Military',
         'butterfly_boost': 'Phase 6 upstream signal (+1)',
         'description': (
-            'Russian cooperation signals with Venezuela. Likely RECEDING given '
-            'US-VZ détente — Delcy unlikely to lean visibly on Moscow while '
-            'performing cooperation with Washington. Watch for: Lavrov/Medvedev '
+            'Russian cooperation signals with Venezuela. Expected to be quiet '
+            'while Caracas works with Washington -- but expected quiet is not '
+            'measured quiet, so the tracker now fetches this axis directly. '
+            'Watch for: Lavrov/Medvedev '
             'visits, Rosneft activity, debt restructuring announcements, military '
             'cooperation signals, Russian advisor presence, Russia abstaining on '
             'UN VZ resolutions, Putin statements on Maduro detention.'
@@ -626,6 +678,7 @@ ACTORS = {
             'kremlin venezuela', 'russia venezuela military',
             'russia oil venezuela', 'russia gas venezuela',
             'russia venezuela summit',
+            'rusia venezuela', 'moscú caracas', 'roszarubezhneft venezuela',
         ],
         'tripwires': [
             'russian troops venezuela', 'russia recognizes delcy',
@@ -659,6 +712,9 @@ ACTORS = {
             'huawei venezuela', 'zte venezuela',
             'china venezuela infrastructure', 'china caracas',
             'china venezuela debt',
+            'china venezuela oil debt', 'deuda china venezuela',
+            'china venezuela oil-for-loan', 'chinese oil venezuela',
+            'china venezuela restructuring',
         ],
         'tripwires': [
             'china recognizes delcy', 'cnpc expands venezuela',
@@ -694,6 +750,7 @@ ACTORS = {
             'iran gasoline venezuela', 'iranian gasoline caracas',
             'iran venezuela cooperation', 'iran venezuela trade',
             'tareck el aissami', 'el aissami iran',
+            'irán venezuela', 'iran venezuela drones', 'conviasa iran',
         ],
         'tripwires': [
             'iranian troops venezuela', 'irgc deployed venezuela',
@@ -714,7 +771,8 @@ ACTORS = {
         'color': '#facc15',
         'role':  'Margarita Island / Financial Flows / Latam Network',
         'description': (
-            'Dedicated watch for Hezbollah-Venezuela linkages. Historical concern '
+            'Dedicated watch for Hizballah-Venezuela linkages (Jan 2026: Rubio '
+            'vowed to end Hizballah/Iran activity in Venezuela). Historical concern '
             'centered on Margarita Island (Nueva Esparta state), Lebanese-VZ '
             'diaspora financial flows, Tareck El Aissami operation (Tareck arrested '
             '2024 — residual network status unclear). Watch for: Margarita Island '
@@ -732,6 +790,8 @@ ACTORS = {
             'hezbollah latin america', 'hezbollah latam',
             'venezuela terror finance', 'venezuela ct designation',
             'tareck el aissami hezbollah',
+            'hezbolá venezuela', 'hizbulá venezuela', 'porlamar hezbollah',
+            'nueva esparta', 'margarita hezbollah', 'hezbollah porlamar',
         ],
         'tripwires': [
             'hezbollah cell arrested venezuela',
@@ -753,8 +813,10 @@ ACTORS = {
             'Essequibo region (~⅔ of Guyana\'s current territory). At '
             'International Court of Justice (ICJ). Delcy Rodríguez attended in '
             'Hague May 9, 2026 (her first international trip). Region overlaps '
-            'with major ExxonMobil/Hess oil blocks (Stabroek). Watch for: ICJ '
-            'hearings/rulings, VZ referendum revival, Guyana statements, oil '
+            'with major ExxonMobil/Hess oil blocks (Stabroek). The ICJ heard the '
+            'merits in May 2026 and Guyana expects a ruling as early as Nov '
+            '2026 -- the next big date. Watch for: the ruling and whether '
+            'Caracas says it will respect it, VZ referendum revival, Guyana statements, oil '
             'block development announcements, CARICOM positioning, US/UK military '
             'posture toward Guyana.'
         ),
@@ -959,7 +1021,8 @@ ESSEQUIBO_TRIGGERS = {
 DIPLOMATIC_TRIGGERS = {
     1: ['us venezuela talks', 'venezuela us cooperation',
         'venezuela diplomatic outreach',
-        'plasencia dialogue', 'barrett caracas'],
+        'plasencia dialogue', 'barrett caracas', 'rubio blanco meeting',
+        'rubio se reunió con blanco'],
     2: ['us venezuela direct talks', 'plasencia barrett meeting',
         'venezuela detente signals', 'venezuela us channel',
         'us venezuela engagement', 'venezuela cooperation rhetoric'],
@@ -980,22 +1043,162 @@ DIPLOMATIC_TRIGGERS = {
 # 0=baseline, 1=-1, 2=-3, 3=-6, 4=-10, 5=-15
 DIPLOMATIC_MODIFIER_MAP = {0: 0, 1: -1, 2: -3, 3: -6, 4: -10, 5: -15}
 
+
+# ════════════════════════════════════════════════════════════════════
+# TRANSITION TRACK  (v1.1.0 -- Nov 4 2026)
+# The election/transition process is now the main Venezuela story, and
+# the tracker had no instrument for it. Stages describe HOW FAR the process
+# has got -- they are not an escalation ladder, so they never feed the
+# composite as pressure. Spoilers (postponement, an attack on a candidate,
+# a court blocking the vote) are the pressure half and are read separately.
+# ════════════════════════════════════════════════════════════════════
+TRANSITION_STAGES = {
+    1: ['venezuela elections', 'elecciones en venezuela', 'elecciones venezuela',
+        'venezuela electoral', 'cne venezuela', 'consejo nacional electoral',
+        'venezuela transition plan', 'transición venezuela'],
+    2: ['promises elections', 'promete elecciones', 'machado returns',
+        'machado regresa', 'machado returned', 'regreso de machado',
+        'new electoral council', 'nuevo cne', 'renewed electoral authority',
+        'electoral reform venezuela', 'reforma electoral',
+        'elections in 2027', 'elecciones en 2027', 'elecciones 2027'],
+    3: ['declares presidency vacant', 'presidency vacant', 'falta absoluta',
+        'vacancy declared venezuela', 'election date set', 'fecha de las elecciones',
+        'electoral calendar', 'cronograma electoral', 'calendario electoral',
+        'cne appointed', 'nuevo cne designado', 'new cne named'],
+    4: ['candidate registration venezuela', 'inscripción de candidatos',
+        'campaign officially begins venezuela', 'inicio de la campaña electoral',
+        'electoral observation mission venezuela', 'misión de observación electoral'],
+    5: ['venezuelans vote', 'venezuela votes', 'election day venezuela',
+        'jornada electoral venezuela', 'venezuela election results',
+        'resultados electorales venezuela'],
+}
+TRANSITION_STAGE_TEXT = {
+    0: 'no transition reporting this cycle',
+    1: 'transition discussed in general terms',
+    2: 'commitments made, no binding steps yet',
+    3: 'binding steps under way (vacancy, electoral council or calendar)',
+    4: 'campaign phase',
+    5: 'voting or results',
+}
+# Spoilers: the transition's pressure half. Hedge filter applies.
+TRANSITION_SPOILERS = [
+    'elections postponed venezuela', 'elecciones aplazadas', 'elecciones suspendidas',
+    'postpones elections', 'machado arrested', 'machado detenida',
+    'machado attacked', 'atentado contra machado', 'attack on machado',
+    'tsj blocks', 'tsj suspende', 'cabello rejects elections',
+    'cabello rechaza elecciones', 'colectivos attack', 'colectivos atacan',
+    'opposition rally attacked', 'disqualified candidate venezuela',
+    'inhabilitación', 'inhabilitada',
+]
+
+
+# ════════════════════════════════════════════════════════════════════
+# EVIDENCE LAYER  (v1.1.0 -- Nov 4 2026)
+# Platform rulings: a keyword is not a war; L3+ needs 2+ outlets; rumour is
+# in scope but lives in its own lane until corroborated.
+# ════════════════════════════════════════════════════════════════════
+MAX_ARTICLE_AGE_DAYS = 10          # older items are dropped before scoring
+TRIPWIRE_CORROBORATION = 2         # distinct outlets for a tripwire to score L4
+
+# Hedged or speculative wording. A tripwire inside hedged text is a
+# possibility, not an event, so it scores as an ordinary keyword hit.
+_HEDGE_RX = re.compile(
+    r"\b(could|may|might|would|warns?|warning of|fears?|feared|risk of|"
+    r"threat(?:ens)? to|possible|possibly|potential|rumou?rs?|rumou?red|"
+    r"reportedly considering|weighs|mulls|if\b|unconfirmed|alleged plan|"
+    r"podr[íi]a|podr[íi]an|posible|posiblemente|advierte|teme|temen|"
+    r"rumores?|presunto plan|no confirmad[oa]|eventual)\b",
+    re.IGNORECASE)
+
+SOCIAL_FEED_TYPES = ('reddit', 'bluesky', 'telegram')
+
+
+_MONTH_MAY_RX = re.compile(
+    r"\b(?:in|of|since|by|until|early|late|mid-?|next|last|this|on)\s+May\b|\bMay\s+\d",
+    re.IGNORECASE)
+
+
+def _is_hedged(text):
+    """True when wording is speculative. 'May' the month is not a hedge."""
+    t = _MONTH_MAY_RX.sub(' ', text or '')
+    return bool(_HEDGE_RX.search(t))
+
+
+def _outlet_of(article):
+    """The real outlet behind an item.
+
+    Google News RSS names itself as the feed source; the true outlet sits in
+    the item's <source> tag (captured as 'outlet') or the ' - Outlet' title
+    suffix. Without this, five Reuters copies through one Google feed would
+    count as one outlet and five different outlets through it would also
+    count as one.
+    """
+    o = (article.get('outlet') or '').strip()
+    if o:
+        return o.lower()
+    title = article.get('title') or ''
+    m = re.search(r'\s[-–—]\s([^-–—]{2,40})$', title)
+    if m and (article.get('source') or {}).get('name', '').lower().startswith('google news'):
+        return m.group(1).strip().lower()
+    src = article.get('source') or {}
+    name = src.get('name') if isinstance(src, dict) else str(src)
+    return (name or 'unknown').strip().lower()
+
+
+def _article_age_days(article):
+    dt = _parse_pub_date_strict(article.get('publishedAt'))
+    if dt is None:
+        return None
+    return (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0
+
+
+def _drop_stale(articles, max_age_days=MAX_ARTICLE_AGE_DAYS):
+    """Remove items with a readable date older than the window.
+
+    Undated items are KEPT (Brave gives '2 days ago'-style ages); the stale
+    check only removes what it can prove is old. Returns (fresh, dropped_n).
+    """
+    fresh, dropped = [], 0
+    for a in articles:
+        age = _article_age_days(a)
+        if age is not None and age > max_age_days:
+            dropped += 1
+            continue
+        fresh.append(a)
+    return fresh, dropped
+
+
+def _grade_evidence(outlets, social_only=False, hedged_only=False):
+    """Map who reported something to an evidence grade.
+
+    corroborated  -- 2+ distinct non-social outlets, at least one unhedged
+    single_source -- exactly one such outlet
+    rumint        -- social-only, or every mention hedged (rumour lane)
+    none          -- nothing
+    """
+    if not outlets:
+        return 'none'
+    if social_only or hedged_only:
+        return 'rumint'
+    return 'corroborated' if len(outlets) >= TRIPWIRE_CORROBORATION else 'single_source'
+
 # ════════════════════════════════════════════════════════════════════
 # VECTOR DESCRIPTIONS (frontend UI hints)
 # ════════════════════════════════════════════════════════════════════
 VECTOR_DESCRIPTIONS = {
     'us_pressure': (
         'US pressure on Venezuela: sanctions tempo, executive rhetoric, military '
-        'posture, regulatory actions. Currently in EASING/DÉTENTE phase but '
-        'fragile.'
+        'posture, regulatory actions. Currently a cooperation phase built around '
+        'a US-backed election plan -- conditional, so still worth measuring.'
     ),
     'regime_legitimacy': (
-        'Venezuelan regime legitimacy: Delcy 90-day cap question, NA legitimacy, '
-        'opposition strength, internal-security cohesion. Inverse of opposition.'
+        'Government legitimacy: whether the interim government\'s mandate holds '
+        'through the election process, opposition strength, internal-security '
+        'cohesion. Rises when opposition pressure rises.'
     ),
     'adversary_access': (
-        'Russia/China/Iran cooperation signals with Venezuela. Currently quieter '
-        'due to US-VZ détente — sponsor axes likely receding.'
+        'Russia/China/Iran (and Hizballah) signals in Venezuela. Each axis now '
+        'has its own feed, so a quiet reading is measured rather than assumed.'
     ),
     'oil_extraction': (
         'PDVSA production levels, Chevron license status, dark fleet activity, '
@@ -1006,8 +1209,9 @@ VECTOR_DESCRIPTIONS = {
         'collapse signal. Return flows = de-escalator (bidirectional model).'
     ),
     'essequibo_dispute': (
-        'Active territorial dispute with Guyana at ICJ. Major regional risk '
-        'vector — overlaps with ExxonMobil Stabroek oil blocks.'
+        'Territorial dispute with Guyana at the ICJ; a ruling is expected '
+        'soon (Guyana says as early as Nov 2026). Overlaps ExxonMobil\'s '
+        'Stabroek oil blocks.'
     ),
 }
 
@@ -1044,7 +1248,31 @@ RSS_SOURCES = [
      'Google News — Essequibo', 0.85, 'en'),
     ('https://news.google.com/rss/search?q=PDVSA+Chevron+oil&hl=en&gl=US&ceid=US:en',
      'Google News — PDVSA/Chevron', 0.85, 'en'),
+
+    # ── v1.1.0 (Nov 4 2026): the transition, and the axes that read dark ──
+    # The China / Russia / Iran spokes were dark because nothing fetched
+    # them. A dedicated feed per axis makes a quiet reading a MEASURED quiet.
+    ('https://news.google.com/rss/search?q=elecciones+Venezuela+Machado+Rodr%C3%ADguez&hl=es&gl=VE&ceid=VE:es',
+     'Google News — Transición', 0.85, 'es'),
+    ('https://news.google.com/rss/search?q=Venezuela+elections+transition+Rubio&hl=en&gl=US&ceid=US:en',
+     'Google News — Transition', 0.85, 'en'),
+    ('https://news.google.com/rss/search?q=China+Venezuela&hl=en&gl=US&ceid=US:en',
+     'Google News — China-VZ', 0.85, 'en'),
+    ('https://news.google.com/rss/search?q=Rusia+Venezuela&hl=es&gl=VE&ceid=VE:es',
+     'Google News — Rusia-VZ', 0.85, 'es'),
+    ('https://news.google.com/rss/search?q=Iran+Venezuela&hl=en&gl=US&ceid=US:en',
+     'Google News — Iran-VZ', 0.85, 'en'),
+    ('https://news.google.com/rss/search?q=Hezbollah+Venezuela+OR+Margarita&hl=en&gl=US&ceid=US:en',
+     'Google News — Hizballah-VZ', 0.85, 'en'),
 ]
+
+# Which feed covers which axis -- used to tell 'quiet' from 'unread'.
+AXIS_FEEDS = {
+    'china':     'Google News — China-VZ',
+    'russia':    'Google News — Rusia-VZ',
+    'iran':      'Google News — Iran-VZ',
+    'hizballah': 'Google News — Hizballah-VZ',
+}
 
 # ════════════════════════════════════════════════════════════════════
 # SOURCE WEIGHTS (canonical pattern from Cuba)
@@ -1148,6 +1376,33 @@ def _redis_lpush_trim(key, value, max_len=336):
 # DATE PARSING (RSS edge cases)
 # ════════════════════════════════════════════════════════════════════
 
+def _parse_pub_date_strict(pub_str):
+    """Like _parse_pub_date but returns None when the date cannot be read.
+
+    The stale-evidence filter must not treat an unreadable date as 'now'.
+    Handles RSS, ISO, and GDELT's compact seendate (20261104T120000Z).
+    """
+    if not pub_str or not isinstance(pub_str, str):
+        return None
+    s = pub_str.strip()
+    for fmt in ('%a, %d %b %Y %H:%M:%S %z', '%a, %d %b %Y %H:%M:%S %Z',
+                '%Y-%m-%dT%H:%M:%S%z', '%Y-%m-%dT%H:%M:%SZ',
+                '%Y-%m-%dT%H:%M:%S.%fZ', '%Y-%m-%d %H:%M:%S',
+                '%Y%m%dT%H%M%SZ', '%Y-%m-%d'):
+        try:
+            dt = datetime.strptime(s, fmt)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt
+        except (ValueError, TypeError):
+            continue
+    try:
+        dt = datetime.fromisoformat(s.replace('Z', '+00:00'))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
 def _parse_pub_date(pub_str):
     """Best-effort RSS date parse. Returns datetime or now()."""
     if not pub_str:
@@ -1186,7 +1441,6 @@ def _fetch_rss(url, source_name, weight=0.85, lang='es', max_items=20):
         if resp.status_code != 200:
             return articles
 
-        import re
         items = re.findall(r'<item>(.*?)</item>', resp.text, re.DOTALL | re.IGNORECASE)
         for item in items[:max_items]:
             def extract(tag):
@@ -1201,9 +1455,15 @@ def _fetch_rss(url, source_name, weight=0.85, lang='es', max_items=20):
             link = extract('link')
             desc = extract('description')
             pubdate = extract('pubDate')
+            # v1.1.0: the real outlet (Google News carries it in <source>)
+            _sm = re.search(r'<source[^>]*>(.*?)</source>', item, re.DOTALL | re.IGNORECASE)
+            outlet = ''
+            if _sm:
+                outlet = re.sub(r'<!\[CDATA\[(.*?)\]\]>', r'\1', _sm.group(1), flags=re.DOTALL).strip()
             if not title:
                 continue
             articles.append({
+                'outlet':                outlet,
                 'title':                 title,
                 'description':           desc,
                 'content':               title,
@@ -1360,20 +1620,24 @@ def _fetch_all_articles():
                      'telegram': 0, 'reddit': 0, 'bluesky': 0}
 
     # ── RSS feeds ──
+    feed_counts = {}
     for url, name, weight, lang in RSS_SOURCES:
         items = _fetch_rss(url, name, weight=weight, lang=lang)
         all_articles.extend(items)
         source_counts['rss'] += len(items)
+        feed_counts[name] = len(items)
         time.sleep(0.2)
+    source_counts['feeds'] = feed_counts
 
     # ── GDELT (with circuit breaker) ──
-    gdelt_failed = False
+    # v1.1.0: an empty answer can just mean no matches, so the breaker trips
+    # on two consecutive empties rather than the first one.
+    gdelt_empty_run = 0
     for query_name, (query, lang) in GDELT_QUERIES.items():
-        if gdelt_failed:
+        if gdelt_empty_run >= 2:
             break
         items = _fetch_gdelt(query, language=lang)
-        if not items:
-            gdelt_failed = True  # short-circuit on first failure
+        gdelt_empty_run = 0 if items else gdelt_empty_run + 1
         all_articles.extend(items)
         source_counts['gdelt'] += len(items)
         time.sleep(0.5)  # rate limit
@@ -1413,52 +1677,69 @@ def _fetch_all_articles():
 # ARTICLE CLASSIFIER + SCORER (Cuba pattern)
 # ════════════════════════════════════════════════════════════════════
 
+def _article_text(article):
+    return ((article.get('title', '') or '') + ' ' +
+            (article.get('description', '') or '') + ' ' +
+            (article.get('content', '') or '')).lower()
+
+
 def _score_article_for_actor(article, actor_key, actor_def):
     """
     Score one article against one actor's keywords + tripwires.
-    Returns (score 0-5, matched_phrase or None).
-    """
-    text = ((article.get('title', '') or '') + ' ' +
-            (article.get('description', '') or '') + ' ' +
-            (article.get('content', '') or '')).lower()
-    if not text.strip():
-        return 0, None
+    Returns (score 0-4, matched_phrase or None, kind).
 
-    # Tripwires (severity 4)
+    kind is 'tripwire', 'hedged_tripwire', 'keyword' or None. A tripwire's
+    FINAL weight is decided per actor in _classify_articles, once we know how
+    many distinct outlets carried it -- one headline is not an event.
+    """
+    text = _article_text(article)
+    if not text.strip():
+        return 0, None, None
+
     for tw in actor_def.get('tripwires', []):
         if tw.lower() in text:
-            return 4, tw
+            if _is_hedged(text):
+                # A possibility, not an event: falls through to keyword scoring.
+                kw_score, kw = _keyword_score(article, actor_def)
+                return max(kw_score, 1), (kw or tw), 'hedged_tripwire'
+            return 4, tw, 'tripwire'
 
-    # Keywords (severity 1 base, weighted by feed_type + source weight)
+    kw_score, kw = _keyword_score(article, actor_def)
+    if not kw:
+        return 0, None, None
+    return kw_score, kw, 'keyword'
+
+
+def _keyword_score(article, actor_def):
+    text = _article_text(article)
     matched_kw = None
     for kw in actor_def.get('keywords', []):
         if kw.lower() in text:
             matched_kw = kw
             break
-
     if not matched_kw:
         return 0, None
-
     feed_type = article.get('feed_type', 'rss')
     base_weight = article.get('source_weight_override',
                               SOURCE_WEIGHTS.get(feed_type, 0.85))
-
-    # Score = 1 (rhetoric detected) scaled by base_weight bucket
-    if base_weight >= 0.95:
-        return 2, matched_kw   # high-credibility = warning level
-    elif base_weight >= 0.85:
-        return 1, matched_kw   # standard = rhetoric level
-    else:
-        return 1, matched_kw
+    # high-credibility = warning level; standard = rhetoric level
+    return (2 if base_weight >= 0.95 else 1), matched_kw
 
 
 def _classify_articles(articles):
     """
     Classify articles against all actors. Returns actor_results dict.
     Each entry has: actor_score (max severity), statement_count,
-    escalation_level, escalation_label, top_articles, etc.
+    escalation_level, escalation_label, top_articles, evidence, etc.
+
+    v1.1.0 evidence rule for tripwires (per actor):
+      2+ distinct non-social outlets -> L4  (corroborated)
+      1 outlet                       -> L3  (single source -- approaching)
+      social feeds only              -> L2  (rumour lane)
+    Hedged tripwire text never counts as a tripwire.
     """
     actor_results = {}
+    tw_hits = {}
     for actor_key, actor_def in ACTORS.items():
         actor_results[actor_key] = {
             'name':                 actor_def['name'],
@@ -1477,28 +1758,68 @@ def _classify_articles(articles):
             'silence_alert':        True,
             'top_articles':         [],
             'articles':             [],
+            'outlets':              [],
         }
+        tw_hits[actor_key] = {'outlets': set(), 'social': set(), 'phrases': [],
+                              'hedged': 0}
 
     for art in articles:
+        outlet = _outlet_of(art)
+        is_social = art.get('feed_type') in SOCIAL_FEED_TYPES
         for actor_key, actor_def in ACTORS.items():
-            score, phrase = _score_article_for_actor(art, actor_key, actor_def)
+            score, phrase, kind = _score_article_for_actor(art, actor_key, actor_def)
             if score == 0:
                 continue
             result = actor_results[actor_key]
             result['statement_count'] += 1
-            if score > result['actor_score']:
+            if outlet not in result['outlets']:
+                result['outlets'].append(outlet)
+            hits = tw_hits[actor_key]
+            if kind == 'tripwire':
+                (hits['social'] if is_social else hits['outlets']).add(outlet)
+                if phrase not in hits['phrases']:
+                    hits['phrases'].append(phrase)
+            elif kind == 'hedged_tripwire':
+                hits['hedged'] += 1
+            if kind != 'tripwire' and score > result['actor_score']:
                 result['actor_score'] = score
                 result['escalation_phrase'] = phrase
-            # Top articles: keep up to 5, sorted by score desc
             art_record = dict(art)
             art_record['escalation_level'] = score
             art_record['trigger_phrase'] = phrase
+            art_record['match_kind'] = kind
+            art_record['outlet'] = outlet
             result['articles'].append(art_record)
-            if len(result['top_articles']) < 5:
-                result['top_articles'].append(art_record)
 
-    # Finalize per actor
+    # Finalize per actor: grade the tripwire evidence, then set the level.
     for actor_key, result in actor_results.items():
+        hits = tw_hits[actor_key]
+        n_out = len(hits['outlets'])
+        if n_out >= TRIPWIRE_CORROBORATION:
+            tw_level, grade = 4, 'corroborated'
+        elif n_out == 1:
+            tw_level, grade = 3, 'single_source'
+        elif hits['social']:
+            tw_level, grade = 2, 'rumint'
+        else:
+            tw_level, grade = 0, 'none'
+        if tw_level > result['actor_score']:
+            result['actor_score'] = tw_level
+            result['escalation_phrase'] = hits['phrases'][0] if hits['phrases'] else result['escalation_phrase']
+        # Tripwire articles carry the graded weight, not a flat 4.
+        for a in result['articles']:
+            if a.get('match_kind') == 'tripwire':
+                a['escalation_level'] = tw_level
+        result['articles'].sort(key=lambda a: -int(a.get('escalation_level') or 0))
+        result['top_articles'] = result['articles'][:5]
+        result['evidence'] = {
+            'tripwire_grade':    grade,
+            'tripwire_phrases':  hits['phrases'][:4],
+            'tripwire_outlets':  sorted(hits['outlets'])[:6],
+            'social_only':       bool(hits['social']) and not hits['outlets'],
+            'hedged_skipped':    hits['hedged'],
+            'outlet_count':      len(result['outlets']),
+        }
         lvl = result['actor_score']
         result['escalation_level'] = lvl
         meta = ESCALATION_LEVELS.get(lvl, ESCALATION_LEVELS[0])
@@ -1506,6 +1827,7 @@ def _classify_articles(articles):
         result['escalation_color'] = meta['color']
         if result['statement_count'] > 0:
             result['silence_alert'] = False
+        result['outlets'] = result['outlets'][:12]
 
     return actor_results
 
@@ -1514,31 +1836,76 @@ def _classify_articles(articles):
 # VECTOR COMPUTERS (6 vectors)
 # ════════════════════════════════════════════════════════════════════
 
-def _detect_civilian_pressure(articles):
-    """Civilian pressure: blackouts, scarcity, hyperinflation, healthcare."""
-    max_level = 0
-    signals = []
-    for lvl in [5, 4, 3, 2, 1]:
-        for phrase in CIVILIAN_PRESSURE_TRIGGERS[lvl]:
+def _ladder_detect(articles, ladder, max_signals=10):
+    """Shared ladder reader for every vector (v1.1.0).
+
+    Old behaviour: the highest phrase found in ANY single headline set the
+    level -- so one story containing 'caribbean war' made Essequibo L5.
+    New behaviour, per platform ruling (L3+ needs 2+ outlets):
+      * hedged text counts only toward L1-L2
+      * a rung at L3+ needs TRIPWIRE_CORROBORATION distinct outlets
+      * a rung at L3+ with one outlet reads as L2 and is flagged
+        'uncorroborated' in its signal, so the reader can still see it
+    Returns (level, signals). Signals carry outlet + evidence grade.
+    """
+    rung_outlets = {}     # lvl -> set(outlets) (unhedged)
+    rung_hedged = {}      # lvl -> set(outlets) (hedged)
+    first_hit = {}        # (lvl, outlet) -> signal dict
+    for lvl in sorted(ladder.keys(), reverse=True):
+        for phrase in ladder[lvl]:
+            ph = phrase.lower()
             for art in articles:
                 text = ((art.get('title', '') or '') + ' ' +
                         (art.get('description', '') or '')).lower()
-                if phrase.lower() in text:
-                    if lvl > max_level:
-                        max_level = lvl
-                    signals.append({
+                if ph not in text:
+                    continue
+                outlet = _outlet_of(art)
+                hedged = _is_hedged(text)
+                (rung_hedged if hedged else rung_outlets).setdefault(lvl, set()).add(outlet)
+                key = (lvl, outlet)
+                if key not in first_hit:
+                    first_hit[key] = {
                         'article':   art.get('title', ''),
                         'level':     lvl,
                         'phrase':    phrase,
                         'published': art.get('publishedAt', ''),
-                    })
-                    if len(signals) >= 10:
-                        break
-            if len(signals) >= 10:
-                break
-        if max_level >= lvl and signals:
+                        'outlet':    outlet,
+                        'url':       art.get('url', ''),
+                        'hedged':    hedged,
+                    }
+
+    level = 0
+    for lvl in sorted(ladder.keys(), reverse=True):
+        n = len(rung_outlets.get(lvl, ()))
+        if lvl >= 3 and n >= TRIPWIRE_CORROBORATION:
+            level = lvl
             break
-    return max_level, signals
+        if lvl >= 3 and n == 1:
+            level = max(level, 2)
+        elif lvl <= 2 and (n or rung_hedged.get(lvl)):
+            level = max(level, lvl)
+    # Hedged L3+ mentions are visible but only lift the reading to L1.
+    if level == 0 and any(l >= 3 for l in rung_hedged):
+        level = 1
+
+    signals = []
+    for (lvl, outlet), sig in first_hit.items():
+        n = len(rung_outlets.get(lvl, ()))
+        if sig['hedged']:
+            sig['evidence'] = 'hedged'
+        elif lvl >= 3:
+            sig['evidence'] = 'corroborated' if n >= TRIPWIRE_CORROBORATION else 'uncorroborated'
+        else:
+            sig['evidence'] = 'reported'
+        sig['outlets_at_level'] = n
+        signals.append(sig)
+    signals.sort(key=lambda x: (-x['level'], x['evidence'] != 'corroborated'))
+    return level, signals[:max_signals]
+
+
+def _detect_civilian_pressure(articles):
+    """Civilian pressure: blackouts, scarcity, hyperinflation, healthcare."""
+    return _ladder_detect(articles, CIVILIAN_PRESSURE_TRIGGERS, 10)
 
 
 def _detect_earthquake_political(articles):
@@ -1546,31 +1913,9 @@ def _detect_earthquake_political(articles):
     Legitimacy-under-strain from the disaster -- POLITICAL signals ONLY
     (government response capacity, aid bottlenecks, relief-failure unrest).
     Raw counts (magnitude / casualties / displaced) are SENSOR data and live
-    in venezuela_humanitarian.py, NOT here. Mirrors _detect_civilian_pressure.
+    in venezuela_humanitarian.py, NOT here.
     """
-    max_level = 0
-    signals = []
-    for lvl in [5, 4, 3, 2, 1]:
-        for phrase in EARTHQUAKE_POLITICAL_TRIGGERS[lvl]:
-            for art in articles:
-                text = ((art.get('title', '') or '') + ' ' +
-                        (art.get('description', '') or '')).lower()
-                if phrase.lower() in text:
-                    if lvl > max_level:
-                        max_level = lvl
-                    signals.append({
-                        'article':   art.get('title', ''),
-                        'level':     lvl,
-                        'phrase':    phrase,
-                        'published': art.get('publishedAt', ''),
-                    })
-                    if len(signals) >= 10:
-                        break
-            if len(signals) >= 10:
-                break
-        if max_level >= lvl and signals:
-            break
-    return max_level, signals
+    return _ladder_detect(articles, EARTHQUAKE_POLITICAL_TRIGGERS, 10)
 
 
 def _detect_relief_foothold(articles):
@@ -1587,11 +1932,12 @@ def _detect_relief_foothold(articles):
             for art in articles:
                 text = ((art.get('title', '') or '') + ' ' +
                         (art.get('description', '') or '')).lower()
-                if phrase.lower() in text:
+                if phrase.lower() in text and not _is_hedged(text):
                     foothold.setdefault(hub, []).append({
                         'article':   art.get('title', ''),
                         'phrase':    phrase,
                         'published': art.get('publishedAt', ''),
+                        'outlet':    _outlet_of(art),
                     })
                     break  # one hit per phrase is enough
     return foothold
@@ -1599,33 +1945,8 @@ def _detect_relief_foothold(articles):
 
 def _detect_migration(articles):
     """Bidirectional migration: out + return. Returns net modifier."""
-    out_max = 0
-    out_signals = []
-    return_max = 0
-    return_signals = []
-
-    for lvl in [5, 4, 3, 2, 1]:
-        for phrase in MIGRATION_OUT_TRIGGERS[lvl]:
-            for art in articles:
-                text = ((art.get('title', '') or '') + ' ' +
-                        (art.get('description', '') or '')).lower()
-                if phrase.lower() in text:
-                    if lvl > out_max:
-                        out_max = lvl
-                    out_signals.append({'article': art.get('title', ''),
-                                        'level': lvl, 'phrase': phrase})
-
-    for lvl in [5, 4, 3, 2, 1]:
-        for phrase in MIGRATION_RETURN_TRIGGERS[lvl]:
-            for art in articles:
-                text = ((art.get('title', '') or '') + ' ' +
-                        (art.get('description', '') or '')).lower()
-                if phrase.lower() in text:
-                    if lvl > return_max:
-                        return_max = lvl
-                    return_signals.append({'article': art.get('title', ''),
-                                           'level': lvl, 'phrase': phrase})
-
+    out_max, out_signals = _ladder_detect(articles, MIGRATION_OUT_TRIGGERS, 10)
+    return_max, return_signals = _ladder_detect(articles, MIGRATION_RETURN_TRIGGERS, 10)
     out_mod_map = {0: 0, 1: 1, 2: 3, 3: 5, 4: 7, 5: 8}
     ret_mod_map = {0: 0, 1: -1, 2: -3, 3: -5, 4: -7, 5: -8}
     net_mod = out_mod_map[out_max] + ret_mod_map[return_max]
@@ -1634,48 +1955,12 @@ def _detect_migration(articles):
 
 def _detect_oil_extraction(articles):
     """PDVSA / Chevron / dark fleet detection."""
-    max_level = 0
-    signals = []
-    for lvl in [5, 4, 3, 2, 1]:
-        for phrase in OIL_EXTRACTION_TRIGGERS[lvl]:
-            for art in articles:
-                text = ((art.get('title', '') or '') + ' ' +
-                        (art.get('description', '') or '')).lower()
-                if phrase.lower() in text:
-                    if lvl > max_level:
-                        max_level = lvl
-                    signals.append({'article': art.get('title', ''),
-                                    'level': lvl, 'phrase': phrase})
-                    if len(signals) >= 8:
-                        break
-            if len(signals) >= 8:
-                break
-        if max_level >= lvl and signals:
-            break
-    return max_level, signals
+    return _ladder_detect(articles, OIL_EXTRACTION_TRIGGERS, 8)
 
 
 def _detect_essequibo(articles):
     """Territorial dispute escalation."""
-    max_level = 0
-    signals = []
-    for lvl in [5, 4, 3, 2, 1]:
-        for phrase in ESSEQUIBO_TRIGGERS[lvl]:
-            for art in articles:
-                text = ((art.get('title', '') or '') + ' ' +
-                        (art.get('description', '') or '')).lower()
-                if phrase.lower() in text:
-                    if lvl > max_level:
-                        max_level = lvl
-                    signals.append({'article': art.get('title', ''),
-                                    'level': lvl, 'phrase': phrase})
-                    if len(signals) >= 6:
-                        break
-            if len(signals) >= 6:
-                break
-        if max_level >= lvl and signals:
-            break
-    return max_level, signals
+    return _ladder_detect(articles, ESSEQUIBO_TRIGGERS, 6)
 
 
 def _detect_diplomatic_track(articles):
@@ -1684,26 +1969,45 @@ def _detect_diplomatic_track(articles):
     Canonical pattern from Iran/Israel/Lebanon trackers.
     Returns (max_level, signals, modifier).
     """
-    max_level = 0
-    signals = []
-    for lvl in [5, 4, 3, 2, 1]:
-        for phrase in DIPLOMATIC_TRIGGERS[lvl]:
-            for art in articles:
-                text = ((art.get('title', '') or '') + ' ' +
-                        (art.get('description', '') or '')).lower()
-                if phrase.lower() in text:
-                    if lvl > max_level:
-                        max_level = lvl
-                    signals.append({'article': art.get('title', ''),
-                                    'level': lvl, 'phrase': phrase})
-                    if len(signals) >= 6:
-                        break
-            if len(signals) >= 6:
-                break
-        if max_level >= lvl and signals:
-            break
+    max_level, signals = _ladder_detect(articles, DIPLOMATIC_TRIGGERS, 6)
     modifier = DIPLOMATIC_MODIFIER_MAP.get(max_level, 0)
     return max_level, signals, modifier
+
+
+def _detect_transition_track(articles):
+    """Where the election/transition process has got to, plus spoilers.
+
+    Stage is read with the same ladder rule (stage 3+ needs two outlets) --
+    a single outlet saying 'election date set' is a claim, not a calendar.
+    Spoilers are unhedged mentions only, graded by outlet count.
+    Returns a dict ready for the payload.
+    """
+    stage, stage_signals = _ladder_detect(articles, TRANSITION_STAGES, 8)
+    spoiler_outlets, spoiler_social, spoiler_hits = set(), set(), []
+    for art in articles:
+        text = _article_text(art)
+        for ph in TRANSITION_SPOILERS:
+            if ph in text and not _is_hedged(text):
+                o = _outlet_of(art)
+                if art.get('feed_type') in SOCIAL_FEED_TYPES:
+                    spoiler_social.add(o)
+                else:
+                    spoiler_outlets.add(o)
+                if len(spoiler_hits) < 6:
+                    spoiler_hits.append({'article': art.get('title', ''), 'phrase': ph,
+                                         'outlet': o, 'url': art.get('url', '')})
+                break
+    spoiler_grade = _grade_evidence(spoiler_outlets or spoiler_social,
+                                    social_only=bool(spoiler_social) and not spoiler_outlets)
+    spoiler_level = {'corroborated': 3, 'single_source': 2, 'rumint': 1}.get(spoiler_grade, 0)
+    return {
+        'stage':          stage,
+        'stage_text':     TRANSITION_STAGE_TEXT.get(stage, ''),
+        'stage_signals':  stage_signals,
+        'spoiler_level':  spoiler_level,
+        'spoiler_grade':  spoiler_grade,
+        'spoiler_signals': spoiler_hits,
+    }
 
 
 def _compute_vectors(actor_results, civ_press_lvl, oil_lvl, essequibo_lvl,
@@ -1858,7 +2162,40 @@ HUB_AXIS_MAP = {
 }
 
 
-def _build_hub_presence(actor_results, prior_hubs, relief_foothold=None):
+HUB_PLAIN = {
+    'iran':   'Iran',
+    'russia': 'Russia',
+    'china':  'China',
+}
+
+
+def _hub_reading(hub, lvl, ar, feed_n, relief):
+    """One plain sentence on what this hub's reading means this cycle."""
+    name = HUB_PLAIN.get(hub, hub.title())
+    n = ar.get('statement_count', 0) or 0
+    ev = (ar.get('evidence') or {})
+    grade = ev.get('tripwire_grade', 'none')
+    outlets = ev.get('outlet_count', 0)
+    if n == 0 and not feed_n:
+        return (f'No {name}-Venezuela reporting reached the scanners this cycle, '
+                f'so this reading is unread, not calm.')
+    if n == 0:
+        return (f'The {name}-Venezuela feed returned {feed_n} items but none matched '
+                f'this axis -- a measured quiet.')
+    if grade == 'corroborated':
+        return (f'{name}: a high-impact development is reported by {len(ev.get("tripwire_outlets", []))} '
+                f'separate outlets ("{(ev.get("tripwire_phrases") or [""])[0]}").')
+    if grade == 'single_source':
+        return (f'{name}: one outlet reports a high-impact development '
+                f'("{(ev.get("tripwire_phrases") or [""])[0]}") -- not yet corroborated.')
+    if grade == 'rumint':
+        return f'{name}: a high-impact claim is circulating on social media only (rumour lane).'
+    tail = ' Relief offers since the earthquake count as access.' if relief else ''
+    return (f'{name}: routine coverage -- {n} item{"s" if n != 1 else ""} from '
+            f'{outlets} outlet{"s" if outlets != 1 else ""}, nothing high-impact.{tail}')
+
+
+def _build_hub_presence(actor_results, prior_hubs, relief_foothold=None, feed_counts=None):
     """
     Re-project the existing sponsor-axis scores into the canonical multi-hub
     presence schema -- NO new scanning, a new SHAPE over data already computed.
@@ -1901,12 +2238,21 @@ def _build_hub_presence(actor_results, prior_hubs, relief_foothold=None):
             trajectory = 'receding'
         else:
             trajectory = 'steady'
+        feed_n = (feed_counts or {}).get(AXIS_FEEDS.get(hub, ''), 0) if feed_counts is not None else None
+        n_items = ar.get('statement_count', 0) or 0
         hub_presence[hub] = {
             'level':           lvl,
             'role':            spec['role'],
             'trajectory':      trajectory,
             'signals':         signals,
             'relief_foothold': bool(rf),
+            # v1.1.0 -- what the number means, and whether it was read at all
+            'reading':         _hub_reading(hub, lvl, ar, feed_n or 0, bool(rf)),
+            'items':           n_items,
+            'axis_feed_items': feed_n,
+            'evidence':        (ar.get('evidence') or {}).get('tripwire_grade', 'none'),
+            'coverage':        ('unread' if (n_items == 0 and not feed_n) else
+                                'quiet' if n_items == 0 else 'reporting'),
         }
     return hub_presence
 
@@ -2008,6 +2354,127 @@ def _emit_vz_multihub(actor_results, vectors, theatre_level, hub_presence=None, 
     except Exception as e:
         print(f"[VZ Rhetoric] Multi-hub emit failed: {type(e).__name__}: {e}")
         return {}
+
+
+# ════════════════════════════════════════════════════════════════════
+# SPOKE KEYS  (v1.1.0 -- Nov 4 2026)
+# spoke:{hub}:venezuela is the first, richest convention spoke_wheel_reader
+# resolves. Writing it gives each wheel a plain top_signal and a trajectory
+# instead of a bare number inferred from the hub-agnostic fingerprint.
+# ════════════════════════════════════════════════════════════════════
+SPOKE_TTL = 30 * 3600         # outlasts the 12h scan; the reader's 24h freshness gate judges staleness
+_TRAJ_MAP = {'rising': 'expanding', 'receding': 'contracting', 'steady': 'holding'}
+
+
+def _write_hub_spokes(hub_presence, us_level, us_sentence):
+    written = []
+    now = datetime.now(timezone.utc).isoformat()
+    for hub, d in (hub_presence or {}).items():
+        conf = {'corroborated': 'corroborated', 'single_source': 'single_source',
+                'rumint': 'rumour'}.get(d.get('evidence'), 'reported' if d.get('items') else 'no_evidence')
+        payload = {
+            'ts':          now,
+            'hub':         hub,
+            'country':     'venezuela',
+            'level':       int(d.get('level', 0) or 0),
+            'role':        d.get('role', ''),
+            'top_signal':  d.get('reading', ''),
+            'coverage':    d.get('coverage', ''),
+            'items':       d.get('items', 0),
+            'relationship': 'sponsor_access',
+            'trajectory':  {'direction': _TRAJ_MAP.get(d.get('trajectory'), 'holding'),
+                            'level': int(d.get('level', 0) or 0),
+                            'confidence': conf},
+            'source':      'rhetoric_tracker_venezuela v1.1.0',
+        }
+        if _redis_set(f'spoke:{hub}:venezuela', payload, ttl=SPOKE_TTL):
+            written.append(hub)
+    # The US side: Washington is the dominant outside actor in Venezuela now.
+    if _redis_set('spoke:us:venezuela', {
+            'ts': now, 'hub': 'us', 'country': 'venezuela',
+            'level': int(us_level or 0), 'top_signal': us_sentence,
+            'relationship': 'transition_sponsor',
+            'source': 'rhetoric_tracker_venezuela v1.1.0'}, ttl=SPOKE_TTL):
+        written.append('us')
+    print(f'[VZ Rhetoric] Spoke keys written: {written}')
+    return written
+
+
+# ════════════════════════════════════════════════════════════════════
+# HIZBALLAH NODE  (v1.1.0 -- Nov 4 2026)
+# Margarita Island hook for the coming shared Latin America Hizballah module
+# (Tri-Border Area + Margarita). Two lanes, never merged:
+#   corroborated -- 2+ distinct outlets, unhedged
+#   rumint       -- one outlet, hedged wording, or social-only. In scope,
+#                   labelled, and graduates when a second outlet confirms.
+# Written to hizballah_latam:venezuela for that module (and ME Hizballah)
+# to read. It is deliberately NOT a spoke:* key -- Hizballah is not a hub
+# wheel, and a spoke key would make spoke_wheel_reader invent one.
+# ════════════════════════════════════════════════════════════════════
+HIZBALLAH_NODE_KEY = 'hizballah_latam:venezuela'
+MARGARITA_TERMS = ('margarita', 'nueva esparta', 'porlamar', 'isla margarita')
+HIZBALLAH_TERMS = ('hezbollah', 'hizballah', 'hizbollah', 'hezbolá', 'hizbulá', 'hizbolá')
+
+
+def _build_hizballah_node(articles):
+    corro_outlets, rum_outlets, items = set(), set(), []
+    margarita_hits = 0
+    for art in articles:
+        text = _article_text(art)
+        if not any(t in text for t in HIZBALLAH_TERMS):
+            continue
+        if 'venezuel' not in text and not any(m in text for m in MARGARITA_TERMS):
+            continue
+        outlet = _outlet_of(art)
+        margarita = any(m in text for m in MARGARITA_TERMS)
+        margarita_hits += 1 if margarita else 0
+        rumour = _is_hedged(text) or art.get('feed_type') in SOCIAL_FEED_TYPES
+        (rum_outlets if rumour else corro_outlets).add(outlet)
+        if len(items) < 6:
+            items.append({'title': art.get('title', ''), 'outlet': outlet,
+                          'url': art.get('url', ''), 'margarita': margarita,
+                          'lane': 'rumint' if rumour else 'reported',
+                          'published': art.get('publishedAt', '')})
+    if len(corro_outlets) >= TRIPWIRE_CORROBORATION:
+        lane, level = 'corroborated', 3
+    elif corro_outlets:
+        lane, level = 'single_source', 2
+    elif rum_outlets:
+        lane, level = 'rumint', 1
+    else:
+        lane, level = 'none', 0
+    if lane == 'none':
+        sentence = ('No Hizballah-Venezuela reporting this cycle. Absence of reporting '
+                    'is not evidence of absence -- this network is built to be quiet.')
+    elif lane == 'rumint':
+        sentence = ('Hizballah-Venezuela claims are circulating but only as rumour or '
+                    'hedged reporting -- held in the rumour lane until a second outlet confirms.')
+    elif lane == 'single_source':
+        sentence = ('One outlet reports Hizballah activity tied to Venezuela'
+                    + (' (Margarita Island)' if margarita_hits else '') +
+                    ' -- not yet corroborated.')
+    else:
+        sentence = (f'{len(corro_outlets)} separate outlets report Hizballah activity tied to Venezuela'
+                    + (' including Margarita Island' if margarita_hits else '') +
+                    '. Read it with the Tri-Border Area: the question is whether this is one network.')
+    node = {
+        'ts':              datetime.now(timezone.utc).isoformat(),
+        'country':         'venezuela',
+        'level':           level,
+        'lane':            lane,
+        'sentence':        sentence,
+        'margarita_items': margarita_hits,
+        'reported_outlets': sorted(corro_outlets)[:8],
+        'rumint_outlets':  sorted(rum_outlets)[:8],
+        'items':           items,
+        'local_read':      ('Local: a confirmed cell or financier on Margarita would test the '
+                            'interim government\'s promise to Washington to end Hizballah/Iran activity.'),
+        'regional_read':   ('Regional: links Venezuela to the Tri-Border Area (Argentina, Brazil, '
+                            'Paraguay) finance network.'),
+        'source':          'rhetoric_tracker_venezuela v1.1.0',
+    }
+    _redis_set(HIZBALLAH_NODE_KEY, node, ttl=SPOKE_TTL)
+    return node
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -2139,61 +2606,133 @@ def _compute_vz_l5_gate(actor_results, vectors, civ_press_lvl, oil_lvl,
 # SIGNAL TEXT BUILDER (theatre_high for WHA BLUF)
 # ════════════════════════════════════════════════════════════════════
 
+VECTOR_PLAIN = {
+    'us_pressure':       'US pressure',
+    'regime_legitimacy': 'pressure on the interim government',
+    'adversary_access':  'Russia / China / Iran activity',
+    'oil_extraction':    'oil-sector stress',
+    'migration_outflow': 'migration outflow',
+    'essequibo_dispute': 'the Essequibo dispute with Guyana',
+}
+LEVEL_WORDS = {0: 'quiet', 1: 'low', 2: 'elevated', 3: 'high', 4: 'very high', 5: 'at crisis level'}
+
+
+def _plain_vectors(vectors, min_level=2, n=3):
+    top = sorted(((k, v) for k, v in (vectors or {}).items() if v >= min_level),
+                 key=lambda kv: -kv[1])[:n]
+    return [f'{VECTOR_PLAIN.get(k, k.replace("_", " "))} is {LEVEL_WORDS.get(v, "elevated")}'
+            for k, v in top]
+
+
 def _build_vz_signal_text(theatre_level, theatre_score, vectors, civ_press_lvl,
                           oil_lvl, migration_net_mod, diplomatic_lvl,
                           essequibo_lvl, l5_gate, l5_capped=False):
-    """Build short_text + long_text for VZ's theatre_high signal."""
+    """Plain-language short_text + long_text for VZ's theatre signal (v1.1.0).
+
+    Written for a reader who has never seen the level scale: what is
+    happening, how strong it is, and what is NOT happening.
+    """
     label = THEATRE_LABELS.get(theatre_level, 'Stable')
-
-    # Top vector contributors
-    top_vectors = sorted(vectors.items(), key=lambda kv: kv[1], reverse=True)[:3]
-    vector_brief = ', '.join(f'{k.replace("_", " ")} L{v}' for k, v in top_vectors if v > 0)
-
     suppressed = l5_gate.get('l5_ceasefire_suppressed_sources', []) if isinstance(l5_gate, dict) else []
+    drivers = _plain_vectors(vectors)
 
-    # SHORT TEXT (<=120 chars)
-    if suppressed:
-        short = f'🇻🇪 VZ L{theatre_level} {label} — détente holding; underlying L5 pressure'
-    elif theatre_level >= 4:
-        short = f'🇻🇪 VZ L{theatre_level} {label} — {vector_brief}'
-    elif theatre_level >= 2:
-        short = f'🇻🇪 VZ L{theatre_level} {label} — {vector_brief}'
+    if l5_gate.get('any'):
+        short = 'Venezuela: crisis conditions -- ' + _plain_l5_reason(l5_gate)
+    elif suppressed:
+        short = ('Venezuela: serious military or border pressure is being reported, but the '
+                 'US-Venezuela cooperation track is holding it back')
+    elif drivers:
+        short = 'Venezuela: ' + '; '.join(drivers[:2])
     else:
-        short = f'🇻🇪 VZ L{theatre_level} {label}'
+        short = 'Venezuela: no strong pressure signal this cycle'
+    if len(short) > 230:
+        short = short[:227] + '...'
 
-    if len(short) > 120:
-        short = short[:117] + '...'
-
-    # LONG TEXT (full picture)
-    long_parts = [
-        f'🇻🇪 Venezuela at L{theatre_level} {label} (theatre score {theatre_score}/100).'
-    ]
-    if vector_brief:
-        long_parts.append(f'Active vectors: {vector_brief}.')
+    long_parts = [f'Venezuela reads "{label}" this cycle (score {theatre_score} of 100).']
+    if drivers:
+        long_parts.append('What is driving it: ' + '; '.join(drivers) + '.')
     if diplomatic_lvl >= 2:
-        long_parts.append(f'US-VZ détente: level {diplomatic_lvl} (de-escalator).')
+        long_parts.append('The US-Venezuela cooperation track is active, which pulls the reading down.')
     if civ_press_lvl >= 3:
-        long_parts.append(f'Civilian pressure L{civ_press_lvl} (scarcity/blackouts/hyperinflation signals).')
+        long_parts.append('Everyday hardship (power cuts, shortages, prices) is being widely reported.')
     if oil_lvl >= 3:
-        long_parts.append(f'PDVSA/oil sector pressure L{oil_lvl}.')
+        long_parts.append('The oil sector, which funds the state, is under strain.')
     if essequibo_lvl >= 2:
-        long_parts.append(f'Essequibo dispute L{essequibo_lvl} (ICJ active).')
+        long_parts.append('The Essequibo dispute with Guyana is active, with an ICJ ruling expected.')
     if migration_net_mod >= 5:
-        long_parts.append(f'Migration outflow net +{migration_net_mod} (exodus rising).')
+        long_parts.append('More reporting of people leaving than returning.')
     elif migration_net_mod <= -3:
-        long_parts.append(f'Migration return flow net {migration_net_mod} (returnees rising).')
-    if suppressed:
-        for s in suppressed:
-            long_parts.append(
-                f'⚠️ L5 conditions present ({s.get("reason")}) but suppressed by active US-VZ détente (level {s.get("ceasefire_level", 0)}).'
-            )
+        long_parts.append('More reporting of people returning than leaving.')
+    for s_ in suppressed:
+        long_parts.append('Serious military or border pressure is in the reporting, but the cooperation '
+                          'track is holding it back -- if that track breaks, this reading jumps.')
+        break
     if l5_capped:
-        long_parts.append('L5 axis gate did not fire — capped at L4 ceiling per platform L5 Reservation Contract.')
-    long_parts.append('VZ is a hybrid command-node/absorber tracker; reads US/CU/IR/RU/CN fingerprints.')
-
+        long_parts.append('The raw score reached crisis range, but no crisis condition is confirmed, '
+                          'so the reading is held one step below crisis.')
     return {'short': short, 'long': ' '.join(long_parts)}
 
 
+def _plain_l5_reason(l5_gate):
+    bits = []
+    if l5_gate.get('kinetic'):
+        bits.append('military or border conflict without a working cooperation track')
+    if l5_gate.get('humanitarian'):
+        bits.append('a humanitarian emergency')
+    if l5_gate.get('economic'):
+        bits.append('collapse of the oil economy')
+    if l5_gate.get('diplomatic'):
+        bits.append('a diplomatic rupture')
+    return ', '.join(bits) or 'confirmed by more than one outlet'
+
+
+def _build_top_indicator(theatre_level, vectors, l5_gate, red_lines, transition,
+                         essequibo_lvl, disaster_state, articles_scanned,
+                         hizballah_node=None, hub_presence=None):
+    """The one plain sentence a reader should leave with (v1.1.0).
+
+    Ordered by what changes the picture most. Always answers 'so what', and
+    says what is NOT happening where that matters.
+    """
+    breached = [r for r in (red_lines or []) if r.get('status') == 'breached']
+    approaching = [r for r in (red_lines or []) if r.get('status') == 'approaching']
+    tr = transition or {}
+    stage = tr.get('stage', 0)
+    thin = (articles_scanned or 0) < 25
+    tail = (' Coverage is thin this cycle, so quiet here may be unread rather than calm.'
+            if thin else '')
+
+    if l5_gate.get('any'):
+        main = ('Venezuela is in crisis conditions: ' + _plain_l5_reason(l5_gate) + '.')
+    elif breached:
+        main = (f'A red line is confirmed by more than one outlet: {breached[0].get("name")}. '
+                f'{breached[0].get("plain", "")}').strip()
+    elif tr.get('spoiler_grade') == 'corroborated':
+        main = ('The transition is under strain: more than one outlet reports a move against '
+                'the election process. That is the signal to watch, not the daily headlines.')
+    elif essequibo_lvl >= 3:
+        main = ('The Essequibo dispute with Guyana is escalating beyond the courtroom, '
+                'confirmed by more than one outlet.')
+    elif stage >= 2:
+        main = ('The main story is the US-backed transition toward elections: '
+                + tr.get('stage_text', '') + '.')
+        if tr.get('spoiler_grade') == 'single_source':
+            main += ' One outlet reports a move against the process -- not yet corroborated.'
+        else:
+            main += ' No move to derail it is corroborated.'
+    elif disaster_state and (disaster_state.get('severity_band') in ('catastrophic', 'major'))             and float(disaster_state.get('recency_weight', 0) or 0) > 0:
+        main = ('The earthquake aftermath is the main pressure: a disaster of this size '
+                'strains a new government\'s capacity to deliver.')
+    else:
+        drivers = _plain_vectors(vectors)
+        if drivers:
+            main = ('No single development dominates this cycle; '
+                    + '; '.join(drivers[:2]) + '.')
+        else:
+            main = 'Nothing is pushing Venezuela hard this cycle.'
+    if approaching and not breached:
+        main += (f' Watching: {approaching[0].get("name")}, so far reported by one outlet only.')
+    return main + tail
 # ════════════════════════════════════════════════════════════════════
 # COMPOSITE SCORE
 # ════════════════════════════════════════════════════════════════════
@@ -2276,12 +2815,16 @@ def _composite_to_theatre_level(composite):
 
 def _build_top_signals(theatre_level, theatre_score, signal_text, vectors,
                        civ_press_lvl, oil_lvl, essequibo_lvl, l5_gate,
-                       eq_political_lvl=0, disaster_state=None):
-    """Build top_signals[] list for BLUF consumption."""
+                       eq_political_lvl=0, disaster_state=None, transition=None,
+                       hizballah_node=None):
+    """Build top_signals[] for BLUF consumption (v1.1.0 plain language).
+
+    Every signal carries level / priority / theatre / pressure_type (the
+    canonical shape). short_text reads as a sentence, never as a code.
+    """
     signals = []
 
     # ── Natural-disaster strain (sensor cross-read -- Jul 2026) ──
-    # Flows tracker -> WHA BLUF -> GPI humanitarian axis (emit once, consume many).
     if disaster_state and isinstance(disaster_state, dict):
         _band = (disaster_state.get('severity_band') or 'none').lower()
         _rw   = float(disaster_state.get('recency_weight', 0) or 0)
@@ -2298,86 +2841,131 @@ def _build_top_signals(theatre_level, theatre_score, signal_text, vectors,
                 'icon':          '\U0001f30b',
                 'color':         '#dc2626' if _cat else '#f97316',
                 'pressure_type': 'humanitarian',
-                'short_text':    (f'\U0001f1fb\U0001f1ea VENEZUELA: Earthquake disaster strain -- '
-                                  f'M{_peak}, {_n} events in 30d'),
-                'long_text':     (f'VENEZUELA natural-disaster strain: peak M{_peak} seismic event '
-                                  f'{_days} day(s) ago ({_n} qualifying events in 30 days; sensor: '
-                                  f'venezuela_humanitarian, USGS bounding-box). A disaster of this scale '
-                                  f'is consistent with degraded state capacity and compounds existing '
-                                  f'legitimacy and service-delivery pressure -- the pattern that has '
-                                  f'historically preceded acute-need surges and relief-politics '
-                                  f'contestation. Convergence read, not a prediction of outcome.'),
+                'short_text':    (f'Venezuela: a magnitude {_peak} earthquake {_days} day(s) ago is '
+                                  f'straining the government\'s capacity to respond'),
+                'long_text':     (f'Venezuela natural-disaster strain: peak magnitude {_peak}, {_days} day(s) ago '
+                                  f'({_n} qualifying quakes in 30 days; source: USGS via the humanitarian sensor). '
+                                  f'A disaster this size strains a new government\'s ability to deliver, and '
+                                  f'relief politics -- who helps, who gets credit -- becomes part of the '
+                                  f'transition. Convergence read, not a prediction of outcome.'),
             })
 
-    # theatre_high signal (always emitted)
-    if theatre_level >= 2:
+    # ── Theatre read -- always emitted (v1.1.0): a quiet Venezuela is a finding too ──
+    signals.append({
+        'category':      'theatre_high' if theatre_level >= 2 else 'theatre_read',
+        'theatre':       'venezuela',
+        'level':         theatre_level,
+        'score':         theatre_score,
+        'short_text':    signal_text['short'],
+        'long_text':     signal_text['long'],
+        'icon':          ESCALATION_LEVELS.get(theatre_level, ESCALATION_LEVELS[0])['icon'],
+        'color':         ESCALATION_LEVELS.get(theatre_level, ESCALATION_LEVELS[0])['color'],
+        'priority':      11 if theatre_level >= 2 else 4,
+        'pressure_type': 'composite',
+        'l5_gate':       l5_gate,
+    })
+
+    # ── Transition track (v1.1.0) -- the governance story ──
+    tr = transition or {}
+    if tr.get('stage', 0) >= 2 or tr.get('spoiler_level', 0) >= 2:
+        spoil = tr.get('spoiler_grade')
+        lvl = 3 if spoil == 'corroborated' else (2 if spoil == 'single_source' else 1)
+        if spoil == 'corroborated':
+            short = 'Venezuela: more than one outlet reports a move against the election process'
+        elif spoil == 'single_source':
+            short = ('Venezuela: transition under way (' + tr.get('stage_text', '') +
+                     '); one outlet reports a move against it, not yet corroborated')
+        else:
+            short = ('Venezuela: the transition toward elections is moving -- ' +
+                     tr.get('stage_text', '') + '; no move to derail it is corroborated')
         signals.append({
-            'category':    'theatre_high',
-            'theatre':     'venezuela',
-            'level':       theatre_level,
-            'score':       theatre_score,
-            'short_text':  signal_text['short'],
-            'long_text':   signal_text['long'],
-            'icon':        ESCALATION_LEVELS.get(theatre_level, ESCALATION_LEVELS[0])['icon'],
-            'color':       ESCALATION_LEVELS.get(theatre_level, ESCALATION_LEVELS[0])['color'],
-            'priority':    11,
-            'l5_gate':     l5_gate,
+            'category':      'transition_track',
+            'theatre':       'venezuela',
+            'level':         lvl,
+            'short_text':    short[:230],
+            'long_text':     ('Transition stage: ' + tr.get('stage_text', '') + '. The reading measures how '
+                              'far the process has got (commitments, then binding steps such as a vacancy '
+                              'declaration, a new electoral council and a calendar, then the campaign). '
+                              'Pressure comes from spoilers: a postponement, a court blocking the vote, or an '
+                              'attack on a candidate. Binding steps count only when two outlets report them.'),
+            'icon':          '🗳️',
+            'color':         '#f97316' if lvl >= 3 else '#38bdf8',
+            'priority':      9 if lvl >= 2 else 6,
+            'pressure_type': 'governance',
         })
 
-    # Essequibo as its own signal if elevated
     if essequibo_lvl >= 3:
         signals.append({
-            'category':    'essequibo_dispute',
-            'theatre':     'venezuela',
-            'level':       essequibo_lvl,
-            'short_text':  f'🗺️ Essequibo dispute L{essequibo_lvl} — ICJ active, territorial tensions',
-            'long_text':   f'Venezuela-Guyana Essequibo territorial dispute at L{essequibo_lvl}. ICJ case active. ExxonMobil Stabroek oil blocks in disputed area. Delcy attended The Hague May 9.',
-            'icon':        '🗺️',
-            'color':       '#16a34a',
-            'priority':    9,
+            'category':      'essequibo_dispute',
+            'theatre':       'venezuela',
+            'level':         essequibo_lvl,
+            'short_text':    'Venezuela: the Essequibo dispute with Guyana is escalating, confirmed by 2+ outlets',
+            'long_text':     ('The Venezuela-Guyana dispute over Essequibo (two-thirds of Guyana, and the '
+                              'ExxonMobil Stabroek oil blocks) is escalating beyond the ICJ case. A ruling is '
+                              'expected soon; the key test is whether Caracas says it will respect it.'),
+            'icon':          '🗺️',
+            'color':         '#16a34a',
+            'priority':      9,
+            'pressure_type': 'kinetic',
         })
 
-    # Civilian pressure signal if high
     if civ_press_lvl >= 3:
         signals.append({
-            'category':    'civilian_pressure',
-            'theatre':     'venezuela',
-            'level':       civ_press_lvl,
-            'short_text':  f'⚡ VZ civilian pressure L{civ_press_lvl} — scarcity/blackouts',
-            'long_text':   f'Venezuelan civilian pressure at L{civ_press_lvl}. Blackouts, food/medicine scarcity, hyperinflation signals detected.',
-            'icon':        '⚡',
-            'color':       '#f97316',
-            'priority':    8,
+            'category':      'civilian_pressure',
+            'theatre':       'venezuela',
+            'level':         civ_press_lvl,
+            'short_text':    'Venezuela: power cuts, shortages or price spikes are widely reported',
+            'long_text':     ('Everyday hardship is reported by more than one outlet. In Venezuela this is '
+                              'the classic protest trigger, and it lands on an interim government asking '
+                              'people to trust a transition.'),
+            'icon':          '⚡',
+            'color':         '#f97316',
+            'priority':      8,
+            'pressure_type': 'humanitarian',
         })
 
-    # Oil extraction signal if high
     if oil_lvl >= 3:
         signals.append({
-            'category':    'oil_extraction',
-            'theatre':     'venezuela',
-            'level':       oil_lvl,
-            'short_text':  f'🛢️ PDVSA pressure L{oil_lvl}',
-            'long_text':   f'Venezuelan oil sector pressure at L{oil_lvl}. PDVSA production, Chevron license, dark fleet signals.',
-            'icon':        '🛢️',
-            'color':       '#71717a',
-            'priority':    7,
+            'category':      'oil_extraction',
+            'theatre':       'venezuela',
+            'level':         oil_lvl,
+            'short_text':    'Venezuela: the oil sector, which funds the state, is under strain',
+            'long_text':     ('Oil-sector stress is reported by more than one outlet. Oil pays for the '
+                              'Venezuelan state and is the core of the US arrangement, so stress here '
+                              'is both an economic and a political signal.'),
+            'icon':          '🛢️',
+            'color':         '#71717a',
+            'priority':      7,
+            'pressure_type': 'economic',
         })
 
-    # Earthquake legitimacy-strain signal (POLITICAL, not raw counts)
     if eq_political_lvl >= 2:
         signals.append({
-            'category':    'earthquake_legitimacy_strain',
-            'theatre':     'venezuela',
-            'level':       eq_political_lvl,
-            'short_text':  f'🏚️ VZ post-quake legitimacy strain L{eq_political_lvl} — transitional govt response under pressure',
-            'long_text':   ('Post-earthquake POLITICAL strain at L%d: the disaster is straining the '
-                            'transitional government\'s response capacity (aid bottlenecks, relief-failure '
-                            'friction). A major disaster can erode a nascent government\'s legitimacy. Raw '
-                            'humanitarian counts (magnitude/casualties/displaced) are tracked separately on '
-                            'the stability page, not here.' % eq_political_lvl),
-            'icon':        '🏚️',
-            'color':       '#dc2626',
-            'priority':    8,
+            'category':      'earthquake_legitimacy_strain',
+            'theatre':       'venezuela',
+            'level':         eq_political_lvl,
+            'short_text':    'Venezuela: anger or delays over earthquake relief are being reported',
+            'long_text':     ('Political strain from the earthquake response: aid bottlenecks or relief '
+                              'complaints. A badly handled disaster can drain a new government\'s '
+                              'legitimacy. Casualty and damage counts are on the stability page.'),
+            'icon':          '🏚️',
+            'color':         '#dc2626',
+            'priority':      8,
+            'pressure_type': 'governance',
+        })
+
+    hz = hizballah_node or {}
+    if hz.get('lane') in ('corroborated', 'single_source'):
+        signals.append({
+            'category':      'hizballah_node',
+            'theatre':       'venezuela',
+            'level':         hz.get('level', 0),
+            'short_text':    'Venezuela: ' + hz.get('sentence', '')[:200],
+            'long_text':     hz.get('sentence', '') + ' ' + hz.get('local_read', '') + ' ' + hz.get('regional_read', ''),
+            'icon':          '🕵️',
+            'color':         '#facc15',
+            'priority':      8 if hz.get('lane') == 'corroborated' else 5,
+            'pressure_type': 'kinetic',
         })
 
     return signals
@@ -2422,6 +3010,11 @@ def run_venezuela_rhetoric_scan(force=False):
         # Phase 1: fetch articles
         print('[VZ Rhetoric] Phase 1: fetching articles...')
         articles, source_counts = _fetch_all_articles()
+        feed_counts = source_counts.get('feeds', {}) if isinstance(source_counts, dict) else {}
+        # v1.1.0: stale evidence out before anything is scored
+        articles, stale_dropped = _drop_stale(articles)
+        if stale_dropped:
+            print(f'[VZ Rhetoric] Dropped {stale_dropped} items older than {MAX_ARTICLE_AGE_DAYS} days')
 
         # Phase 2: classify by actor
         print('[VZ Rhetoric] Phase 2: classifying by actor...')
@@ -2436,6 +3029,8 @@ def run_venezuela_rhetoric_scan(force=False):
         diplomatic_lvl, diplomatic_signals, diplomatic_mod = _detect_diplomatic_track(articles)
         eq_political_lvl, eq_political_signals = _detect_earthquake_political(articles)
         relief_foothold = _detect_relief_foothold(articles)
+        transition = _detect_transition_track(articles)
+        hizballah_node = _build_hizballah_node(articles)
 
         # Phase 4: cross-theater reads
         print('[VZ Rhetoric] Phase 4: reading cross-theater fingerprints...')
@@ -2504,7 +3099,9 @@ def run_venezuela_rhetoric_scan(force=False):
         top_signals = _build_top_signals(theatre_level, composite, signal_text,
                                          vectors, civ_press_lvl, oil_lvl,
                                          essequibo_lvl, l5_gate, eq_political_lvl,
-                                         disaster_state=disaster_state)
+                                         disaster_state=disaster_state,
+                                         transition=transition,
+                                         hizballah_node=hizballah_node)
 
         # Phase 9.4: multi-hub compute (ONCE) -- single source of truth feeding
         # BOTH the interpreter (local coalition surfacing) and the crosstheater
@@ -2513,7 +3110,8 @@ def run_venezuela_rhetoric_scan(force=False):
         _ct_prior = _redis_get(CROSSTHEATER_KEY) or {}
         _vz_prior = _ct_prior.get('venezuela') if isinstance(_ct_prior.get('venezuela'), dict) else {}
         hub_presence = _build_hub_presence(actor_results, (_vz_prior or {}).get('hub_presence', {}),
-                                           relief_foothold=relief_foothold)
+                                           relief_foothold=relief_foothold,
+                                           feed_counts=feed_counts)
         coalition    = _compute_coalition(hub_presence)
 
         # Phase 9.5: signal interpreter (red lines + executive summary + so-what)
@@ -2545,6 +3143,17 @@ def run_venezuela_rhetoric_scan(force=False):
                     'coalition':                coalition,
                     'earthquake_political_level':   eq_political_lvl,
                     'earthquake_political_signals': eq_political_signals,
+                    # v1.1.0: red lines need every item (with its outlet) to grade evidence
+                    'articles':                 [{'title': a.get('title', ''),
+                                                  'description': a.get('description', ''),
+                                                  'url': a.get('url', ''),
+                                                  'outlet': _outlet_of(a),
+                                                  'feed_type': a.get('feed_type', ''),
+                                                  'publishedAt': a.get('publishedAt', '')}
+                                                 for a in articles],
+                    'transition':               transition,
+                    'hizballah_node':           hizballah_node,
+                    'articles_scanned':         len(articles),
                 }
                 interpreter_output = interpret_venezuela_signals(prelim_scan_data)
                 print(f"[VZ Rhetoric] Interpreter: {interpreter_output.get('red_lines_count', 0)} red lines, "
@@ -2566,6 +3175,15 @@ def run_venezuela_rhetoric_scan(force=False):
                 print(f'[VZ Rhetoric] Interpreter failed: {type(e).__name__}: {e}')
                 interpreter_output = {}
 
+        # Strongest signal first, always (the pages show the first one or two).
+        top_signals.sort(key=lambda s_: -s_.get('priority', 0))
+
+        # Phase 9.6 (v1.1.0): the one plain sentence
+        red_lines_all = interpreter_output.get('red_lines_all', []) if interpreter_output else []
+        top_indicator = _build_top_indicator(theatre_level, vectors, l5_gate, red_lines_all,
+                                             transition, essequibo_lvl, disaster_state,
+                                             len(articles), hizballah_node, hub_presence)
+
         # Phase 10: fingerprint write
         fingerprint = _write_vz_fingerprint(actor_results, vectors, civ_press_lvl,
                                             mig_net_mod, diplomatic_lvl,
@@ -2576,6 +3194,13 @@ def run_venezuela_rhetoric_scan(force=False):
         # can read hub_presence. Expeditionary node, not a regional proxy.
         vz_multihub_slice = _emit_vz_multihub(actor_results, vectors, theatre_level,
                                               hub_presence=hub_presence, coalition=coalition)
+
+        # Phase 10c (v1.1.0): explicit spoke keys for every wheel that reads Venezuela
+        _us_lvl = vectors.get('us_pressure', 0)
+        _us_sentence = ('US: ' + ('the transition plan is the frame -- '
+                                  if transition.get('stage', 0) >= 2 else '')
+                        + f'US pressure on Venezuela is {LEVEL_WORDS.get(_us_lvl, "quiet")} this cycle.')
+        spokes_written = _write_hub_spokes(hub_presence, _us_lvl, _us_sentence)
 
         # Phase 11: build full result
         elapsed = round(time.time() - start_time, 1)
@@ -2588,6 +3213,21 @@ def run_venezuela_rhetoric_scan(force=False):
             'theatre_band':             THEATRE_BANDS.get(theatre_level, 'STABLE'),
             'theatre_color':            ESCALATION_LEVELS.get(theatre_level, ESCALATION_LEVELS[0])['color'],
             'theatre_escalation_label': theatre_label,
+            # ── v1.1.0 plain-language layer ──
+            'top_indicator':            top_indicator,
+            'bluf':                     top_indicator,
+            'transition':               transition,
+            'hizballah_node':           hizballah_node,
+            'spokes_written':           spokes_written,
+            'evidence_rules':           {
+                'max_article_age_days':   MAX_ARTICLE_AGE_DAYS,
+                'tripwire_outlets_needed': TRIPWIRE_CORROBORATION,
+                'stale_dropped':          stale_dropped,
+                'note': ('A high-impact phrase needs two separate outlets to count in full; one '
+                         'outlet reads as "approaching"; social-only or hedged wording is the '
+                         'rumour lane.'),
+            },
+            'feed_counts':              feed_counts,
             'signal_text_short':        signal_text['short'],
             'signal_text_long':         signal_text['long'],
             'l5_gate':                  l5_gate,
@@ -2648,6 +3288,8 @@ def run_venezuela_rhetoric_scan(force=False):
 
             # ── Signal interpreter output ──
             'red_lines':                interpreter_output.get('red_lines', []) if interpreter_output else [],
+            'red_lines_watch':          interpreter_output.get('red_lines_watch', []) if interpreter_output else [],
+            'milestones':               interpreter_output.get('milestones', []) if interpreter_output else [],
             'red_lines_count':          interpreter_output.get('red_lines_count', 0) if interpreter_output else 0,
             'executive_summary':        interpreter_output.get('executive_summary', {}) if interpreter_output else {},
             'so_what':                  interpreter_output.get('so_what', {}) if interpreter_output else {},
@@ -2670,7 +3312,7 @@ def run_venezuela_rhetoric_scan(force=False):
             'source_counts':            _compute_source_counts(articles),
             'scanned_at':               datetime.now(timezone.utc).isoformat(),
             'timestamp':                datetime.now(timezone.utc).isoformat(),
-            'version':                  '1.0.0 - May 21 2026 (contract-native build)',
+            'version':                  '1.1.0 - Nov 4 2026 (evidence layer + transition track)',
         }
 
         # Phase 12: cache writes
@@ -2680,7 +3322,7 @@ def run_venezuela_rhetoric_scan(force=False):
             'signal_text_short', 'signal_text_long', 'l5_gate',
             'top_signals', 'civilian_pressure_level',
             'oil_extraction_level', 'essequibo_level',
-            'diplomatic_level', 'scanned_at',
+            'diplomatic_level', 'scanned_at', 'top_indicator', 'transition',
         )}
         _redis_set(SUMMARY_CACHE_KEY, compact, ttl=CACHE_TTL)
 
@@ -2697,6 +3339,7 @@ def run_venezuela_rhetoric_scan(force=False):
             'oil_extraction':    oil_lvl,
             'essequibo':         essequibo_lvl,
             'diplomatic':        diplomatic_lvl,
+            'transition_stage':  transition.get('stage', 0),
         }
         _redis_lpush_trim(HISTORY_KEY, snapshot, max_len=336)
 
@@ -2738,12 +3381,43 @@ def _background_refresh():
         time.sleep(SCAN_INTERVAL_HOURS * 3600)
 
 
+_bg_thread = None
+
+
 def start_background_refresh():
-    """Start the persistent background refresh thread (12hr cadence)."""
-    t = threading.Thread(target=_background_refresh, daemon=True)
-    t.start()
+    """Start the persistent background refresh thread (12hr cadence).
+
+    v1.1.0: idempotent. It used to start a NEW infinite loop on every call,
+    and the public /refresh route called it -- so each visit to that URL
+    added another thread that re-ran the paid NewsAPI / Brave fallbacks
+    forever. Now there is only ever one.
+    """
+    global _bg_thread
+    if _bg_thread is not None and _bg_thread.is_alive():
+        return _bg_thread
+    _bg_thread = threading.Thread(target=_background_refresh, daemon=True)
+    _bg_thread.start()
     print(f'[VZ Rhetoric] Background refresh thread started — every {SCAN_INTERVAL_HOURS}hr')
-    return t
+    return _bg_thread
+
+
+# ── Public force gate (v1.1.0) ──
+# Same rule as the WHA app's _public_force_allowed: one forced rescan per
+# 15 minutes, however many people press the button. A forced scan can reach
+# the NewsAPI / Brave fallbacks, so this is a cost guard, not just politeness.
+FORCE_MIN_GAP_SECONDS = 15 * 60
+_last_forced_scan = 0.0
+_force_lock = threading.Lock()
+
+
+def _force_allowed():
+    global _last_forced_scan
+    with _force_lock:
+        now = time.time()
+        if now - _last_forced_scan < FORCE_MIN_GAP_SECONDS:
+            return False
+        _last_forced_scan = now
+        return True
 
 
 # ════════════════════════════════════════════════════════════════════
@@ -2756,6 +3430,8 @@ def register_venezuela_rhetoric_endpoints(app):
     @app.route('/api/rhetoric/venezuela', methods=['GET'])
     def venezuela_rhetoric():
         force = request.args.get('force', '').lower() in ('true', '1', 'yes')
+        if force and not _force_allowed():
+            force = False   # rate-limited: serve the cache instead
 
         if not force:
             cached = _redis_get(RHETORIC_CACHE_KEY)
@@ -2819,8 +3495,14 @@ def register_venezuela_rhetoric_endpoints(app):
 
     @app.route('/api/rhetoric/venezuela/refresh', methods=['POST', 'GET'])
     def venezuela_rhetoric_refresh():
-        """Trigger a background scan; returns immediately."""
-        start_background_refresh()
+        """Trigger ONE background scan (rate-limited); returns immediately."""
+        if not _force_allowed():
+            return jsonify({'success': False,
+                            'message': 'A scan ran in the last 15 minutes -- serving cache.'}), 429
+        if _scan_running:
+            return jsonify({'success': True, 'message': 'Scan already running'})
+        threading.Thread(target=run_venezuela_rhetoric_scan, kwargs={'force': True},
+                         daemon=True).start()
         return jsonify({'success': True, 'message': 'Background scan triggered'})
 
     print('[VZ Rhetoric] Endpoints registered: /api/rhetoric/venezuela, /summary, /history, /refresh')
@@ -2829,5 +3511,5 @@ def register_venezuela_rhetoric_endpoints(app):
 # ════════════════════════════════════════════════════════════════════
 # MODULE LOAD BANNER
 # ════════════════════════════════════════════════════════════════════
-print(f'[VZ Rhetoric] Module loaded — {len(ACTORS)} actors, 6 vectors, '
-      f'L5 contract-native (v1.0.0 May 21 2026)')
+print(f'[VZ Rhetoric] Module loaded — {len(ACTORS)} actors, 6 vectors + transition track, '
+      f'evidence layer on (v1.1.0 Nov 4 2026)')

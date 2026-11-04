@@ -1,29 +1,36 @@
 """
-Venezuela Signal Interpreter — v1.0.0 (May 21 2026)
+Venezuela Signal Interpreter — v1.1.0 (Nov 4 2026)   [v1.0.0 May 21 2026]
 
-MVP build: red lines + executive summary + so-what factor.
-Historical matches deferred to v1.1 (research-intensive).
-
-Imported by rhetoric_tracker_venezuela.py at scan-time (Phase 9+).
-Output feeds: top_signals tuning, frontend prose, BLUF context.
-
-Mirrors Peru/Chile pattern (build_top_signals + build_so_what_factor +
-interpret_X_signals wrapper).
+Red lines + executive summary + so-what factor + commodity coupling +
+coalition signals. Imported by rhetoric_tracker_venezuela.py at scan time.
 
 ═══════════════════════════════════════════════════════════════════
-KEY PATTERNS (May 2026 reality)
+v1.1.0 (Nov 4 2026)
 ═══════════════════════════════════════════════════════════════════
-1. US-VZ DÉTENTE: Trump cooperation rhetoric + Delcy delisting +
-   embassy reopening + Chevron license + 621+ political prisoner
-   releases. ACTS AS L5 SUPPRESSOR for kinetic axis.
-2. DELCY 90-DAY CAP EXPIRY: May 4 deadline came and went without
-   public NA vote. Legal continuity contested. Real fracture signal.
-3. CABELLO DUAL ROLE: sitting Interior Minister + sole at-large
-   indicted co-defendant. He's the wild card.
-4. ESSEQUIBO: ICJ active, Delcy went to Hague May 9. Territorial
-   vector overlaps with ExxonMobil oil blocks.
-5. CHAVISMO RESIDUAL: Maduro court appearances, Nicolasito speeches,
-   Argentina extradition pending, defense legal fees fight.
+- EVIDENCE-GRADED RED LINES. A red line used to "fire" on one phrase in
+  one headline. Now each has a status:
+     breached    -- 2+ distinct outlets, unhedged wording
+     approaching -- exactly one outlet
+     watching    -- hedged wording or social media only (rumour lane)
+  Only BREACHED red lines go in `red_lines` (and red_lines_count), so the
+  BLUF's "N red lines breached" is true. The rest are in red_lines_watch.
+- MILESTONES. Under the US plan a vacancy declaration and an election
+  date are transition steps, not ruptures. They moved out of RED_LINES
+  into `milestones`.
+- NEW RED LINE: transition spoiler (postponement, a court blocking the
+  vote, an attack on a candidate).
+- PLAIN LANGUAGE everywhere: no "L3", no actor_key names in reader text.
+- Stale May-2026 claims removed (90-day cap, the Hague trip, the James
+  Story quote, USS Nimitz).
+
+KEY PATTERNS (as of Nov 4 2026 -- re-verify)
+1. A US-backed transition toward 2027 elections: Machado back in the
+   country (Oct 25), Rodríguez promising elections (Oct 29), Rubio-Blanco
+   talks (Nov 3).
+2. Cabello remains the wild card: indicted, and positioned to spoil.
+3. Essequibo: an ICJ ruling is expected soon.
+4. Earthquake aftermath (Jun 24) strains state capacity.
+5. Chavismo residual: Maduro's New York case (new charges Oct 15).
 
 Author: Asifah Analytics
 """
@@ -32,899 +39,657 @@ import re
 
 
 # ════════════════════════════════════════════════════════════════════
-# LEVEL HELPERS
+# EVIDENCE HELPERS (mirror the tracker's rules)
 # ════════════════════════════════════════════════════════════════════
+CORROBORATION = 2
+SOCIAL = ('reddit', 'bluesky', 'telegram')
 
-_LEVEL_RANK = {
-    'baseline':       0,
-    'rhetoric':       1,
-    'warning':        2,
-    'confrontation': 3,
-    'coercion':       4,
-    'active crisis':  5,
+_HEDGE_RX = re.compile(
+    r"\b(could|may|might|would|warns?|warning of|fears?|feared|risk of|"
+    r"threat(?:ens)? to|possible|possibly|potential|rumou?rs?|rumou?red|"
+    r"reportedly considering|weighs|mulls|if\b|unconfirmed|alleged plan|"
+    r"podr[íi]a|podr[íi]an|posible|posiblemente|advierte|teme|temen|"
+    r"rumores?|presunto plan|no confirmad[oa]|eventual)\b",
+    re.IGNORECASE)
+_MONTH_MAY_RX = re.compile(
+    r"\b(?:in|of|since|by|until|early|late|mid-?|next|last|this|on)\s+May\b|\bMay\s+\d",
+    re.IGNORECASE)
+
+
+def _hedged(text):
+    return bool(_HEDGE_RX.search(_MONTH_MAY_RX.sub(' ', text or '')))
+
+
+ACTOR_PLAIN = {
+    'us_government':            'the US government',
+    'us_sanctions_regulatory':  'US sanctions policy',
+    'us_military_posture':      'US military posture',
+    'us_vz_envoys':             'the US-Venezuela diplomatic channel',
+    'vz_delcy_rodriguez':       'Delcy Rodríguez',
+    'vz_jorge_rodriguez':       'the National Assembly',
+    'vz_yvan_gil':              'the foreign ministry',
+    'vz_diosdado_cabello':      'Diosdado Cabello',
+    'vz_internal_security':     'the security forces',
+    'vz_opposition':            'the opposition',
+    'vz_chavismo_residual':     'Maduro loyalists',
+    'russia_vz_axis':           'Russia',
+    'china_vz_axis':            'China',
+    'iran_vz_axis':             'Iran',
+    'hizballah_vz_signals':     'Hizballah-linked networks',
+    'essequibo_guyana_dispute': 'the Essequibo dispute',
 }
 
-def _level_rank(label_or_int):
-    if isinstance(label_or_int, int):
-        return label_or_int
-    if isinstance(label_or_int, str):
-        return _LEVEL_RANK.get(label_or_int.lower(), 0)
-    return 0
-
-
-def _max_level(levels):
-    return max((_level_rank(l) for l in levels), default=0)
-
 
 # ════════════════════════════════════════════════════════════════════
-# RED LINES MODULE
-# Explicit tripwires that, when crossed, fire emergency flags.
-# These are the platform's "we are watching for THIS" surface.
+# RED LINES
+# 'plain' says what crossing the line would MEAN, in one sentence.
 # ════════════════════════════════════════════════════════════════════
-
 RED_LINES = {
-
-    # ── DETENTE COLLAPSE (kinetic L5 firing condition) ──
     'rl_detente_collapse': {
-        'name':         'US-VZ Détente Collapse',
-        'severity':     5,
-        'category':     'kinetic',
-        'short_text':   '🚨 US-VZ DÉTENTE COLLAPSE — kinetic posture re-escalation',
-        'long_text':    (
-            'US-VZ détente has collapsed. Signals: second-wave strikes threatened, '
-            'embassy withdrawal signals, sanctions re-imposed, Delcy delisting reversed, '
-            'or Trump publicly reverses on Venezuela. Kinetic L5 axis fires.'
-        ),
-        'triggers':     [
-            'us reverses venezuela', 'second wave venezuela',
-            'detente collapse', 'venezuela ultimatum',
-            'sanctions reimposed venezuela', 'embassy withdrawn venezuela',
-            'delcy delisting reversed', 'trump threatens venezuela',
-            'us strike venezuela imminent', 'pentagon escalates venezuela',
-        ],
-        'actor_check':  ['us_government', 'us_military_posture', 'us_sanctions_regulatory'],
+        'name':       'US-Venezuela cooperation collapses',
+        'severity':   5,
+        'category':   'kinetic',
+        'short_text': '🚨 US-Venezuela cooperation collapses -- military pressure returns',
+        'long_text':  ('The cooperation track has broken: renewed strike threats, embassy '
+                       'withdrawal, sanctions snapped back, or Washington publicly abandoning '
+                       'the Rodríguez government.'),
+        'plain':      ('If this holds, the military option is back on the table and the '
+                       'election plan loses its sponsor.'),
+        'triggers':   ['us reverses venezuela', 'second wave venezuela', 'detente collapse',
+                       'venezuela ultimatum', 'sanctions reimposed venezuela',
+                       'embassy withdrawn venezuela', 'trump threatens venezuela',
+                       'us strike venezuela imminent', 'pentagon escalates venezuela'],
     },
-
-    # ── DELCY OUSTED / RESIGNS / ARRESTED ──
     'rl_delcy_ousted': {
-        'name':         'Delcy Rodríguez Out',
-        'severity':     5,
-        'category':     'regime_legitimacy',
-        'short_text':   '🚨 DELCY OUT — interim presidency ends',
-        'long_text':    (
-            'Delcy Rodríguez has stepped down, been removed, or arrested. '
-            'Major regime fracture. Succession question wide open: NA action, '
-            'snap election, military intervention, or Cabello play all possible.'
-        ),
-        'triggers':     [
-            'delcy steps down', 'delcy resigns', 'delcy removed',
-            'delcy arrested', 'delcy ousted', 'rodriguez ousted',
-            'delcy detention', 'delcy challenges trump',
-        ],
-        'actor_check':  ['vz_delcy_rodriguez'],
+        'name':       'Rodríguez removed outside the process',
+        'severity':   5,
+        'category':   'regime_legitimacy',
+        'short_text': '🚨 Rodríguez out -- removed, arrested or resigns outside the transition plan',
+        'long_text':  ('Delcy Rodríguez has been removed, arrested, or resigned in a way that '
+                       'is not the planned vacancy declaration.'),
+        'plain':      ('The transition would lose its manager mid-process; watch Cabello, the '
+                       'high command and Washington within hours.'),
+        'triggers':   ['delcy arrested', 'delcy ousted', 'rodriguez ousted', 'delcy detention',
+                       'delcy removed by', 'rodríguez destituida', 'golpe contra delcy'],
     },
-
-    # ── NA DECLARES PRESIDENCY VACANT / SNAP ELECTION ──
-    'rl_snap_election': {
-        'name':         'Snap Election / NA Declares Vacancy',
-        'severity':     4,
-        'category':     'regime_legitimacy',
-        'short_text':   '⚠️ NA declares presidency vacant — snap election triggered',
-        'long_text':    (
-            'Maduro-aligned National Assembly has declared the presidency '
-            'permanently vacant (post 90-day cap, expired May 4 2026) or '
-            'triggered a snap election. Major constitutional event — opposition '
-            '(Machado/González) likely to push for fair contest.'
-        ),
-        'triggers':     [
-            'na declares vacancy', 'snap election called venezuela',
-            'permanently vacant venezuela', 'na refuses extension',
-            'venezuela snap election', 'assembly dissolves venezuela',
-        ],
-        'actor_check':  ['vz_jorge_rodriguez'],
-    },
-
-    # ── MILITARY UPRISING / COUP ──
     'rl_military_uprising': {
-        'name':         'FANB Defection / Coup',
-        'severity':     5,
-        'category':     'kinetic',
-        'short_text':   '🚨 FANB DEFECTS / military coup signals',
-        'long_text':    (
-            'Venezuelan armed forces have defected, mutinied, or staged a coup. '
-            'Padrino López position critical. Kinetic L5 fires automatically.'
-        ),
-        'triggers':     [
-            'fanb defects', 'military coup venezuela',
-            'padrino defies delcy', 'venezuela military uprising',
-            'soldiers fire on civilians', 'padrino arrested',
-        ],
-        'actor_check':  ['vz_internal_security'],
+        'name':       'Armed forces split or coup',
+        'severity':   5,
+        'category':   'kinetic',
+        'short_text': '🚨 Armed forces split -- defections, mutiny or a coup attempt',
+        'long_text':  ('Units of the FANB have defected, mutinied, or moved against the '
+                       'government, or troops have fired on civilians.'),
+        'plain':      ('The new high command built in March would have failed its first real '
+                       'test; force, not the election plan, would decide what happens next.'),
+        'triggers':   ['fanb defects', 'military coup venezuela', 'golpe de estado venezuela',
+                       'venezuela military uprising', 'soldiers fire on civilians',
+                       'militares se alzan', 'alzamiento militar'],
     },
-
-    # ── MASS OPPOSITION RALLY / GENERAL STRIKE ──
+    'rl_transition_spoiler': {
+        'name':       'Move against the election process',
+        'severity':   4,
+        'category':   'regime_legitimacy',
+        'short_text': '⚠️ Move against the election process -- postponement, court block or attack',
+        'long_text':  ('Elections postponed or suspended, a court or the Assembly blocking the '
+                       'vote, a leading candidate detained or attacked.'),
+        'plain':      ('This is the clearest sign that someone inside the system has decided '
+                       'the transition costs them too much.'),
+        'triggers':   ['elections postponed venezuela', 'elecciones aplazadas',
+                       'elecciones suspendidas', 'postpones elections', 'machado arrested',
+                       'machado detenida', 'machado attacked', 'atentado contra machado',
+                       'attack on machado', 'tsj blocks', 'tsj suspende',
+                       'cabello rejects elections', 'cabello rechaza elecciones',
+                       'assembly blocks elections'],
+    },
     'rl_mass_opposition': {
-        'name':         'Mass Opposition Mobilization',
-        'severity':     4,
-        'category':     'regime_legitimacy',
-        'short_text':   '⚠️ Mass opposition rally / general strike',
-        'long_text':    (
-            'Machado, González, or MUD has mobilized mass opposition protests '
-            'or called a general strike. Tests Delcy government legitimacy '
-            'and may force US to take position on opposition recognition.'
-        ),
-        'triggers':     [
-            'mass opposition rally', 'general strike venezuela',
-            'opposition declares victory', 'parallel government venezuela',
-            'machado mass rally', 'gonzalez declares victory',
-        ],
-        'actor_check':  ['vz_opposition'],
+        'name':       'General strike or parallel government',
+        'severity':   4,
+        'category':   'regime_legitimacy',
+        'short_text': '⚠️ General strike or a parallel government declared',
+        'long_text':  ('A general strike, a declared victory outside any vote, or a parallel '
+                       'government. Big rallies alone are normal in a campaign and do not count.'),
+        'plain':      ('The opposition would be leaving the negotiated path, which forces '
+                       'Washington to choose between its partners.'),
+        'triggers':   ['general strike venezuela', 'paro nacional venezuela',
+                       'opposition declares victory', 'parallel government venezuela',
+                       'gobierno paralelo'],
     },
-
-    # ── CABELLO MOVES (he's the wild card) ──
     'rl_cabello_event': {
-        'name':         'Cabello Event',
-        'severity':     5,
-        'category':     'regime_legitimacy',
-        'short_text':   '🚨 CABELLO EVENT — Interior Minister / fugitive co-defendant',
-        'long_text':    (
-            'Diosdado Cabello — sitting Interior Minister AND only remaining '
-            'at-large co-defendant in Maduro indictment — has been arrested, '
-            'extradited, has defected, fled, or staged action. Wild card with '
-            'cross-cutting implications for US-VZ détente AND regime stability.'
-        ),
-        'triggers':     [
-            'cabello arrested', 'cabello extradited', 'cabello flees',
-            'cabello defies delcy', 'cabello coup', 'cabello detention',
-            'us targets cabello', 'cabello sanctioned',
-        ],
-        'actor_check':  ['vz_diosdado_cabello'],
+        'name':       'Cabello event (arrest, flight or open defiance)',
+        'severity':   5,
+        'category':   'regime_legitimacy',
+        'short_text': '🚨 Cabello event -- arrested, extradited, flees or defies the government',
+        'long_text':  ('Diosdado Cabello -- indicted in the US and still powerful at home -- has '
+                       'been arrested or extradited, has fled, or has openly defied the government.'),
+        'plain':      ('Cabello is the person best placed to spoil the transition; any move by '
+                       'or against him changes who can.'),
+        'triggers':   ['cabello arrested', 'cabello extradited', 'cabello flees',
+                       'cabello defies delcy', 'cabello coup', 'cabello detention',
+                       'cabello detenido', 'cabello huye'],
     },
-
-    # ── MADURO COURT EVENTS ──
     'rl_maduro_custody': {
-        'name':         'Maduro Custody Event',
-        'severity':     4,
-        'category':     'chavismo_residual',
-        'short_text':   '⚠️ Maduro custody event — death, plea deal, or extradition',
-        'long_text':    (
-            'Major event in Maduro\'s ongoing US detention: death in custody, '
-            'plea deal, hunger strike, extradition (e.g. Argentina), or major '
-            'trial ruling. Will trigger Chavismo loyalist response and likely '
-            'mass mobilization in VZ. Watch for Nicolasito (son) reactions.'
-        ),
-        'triggers':     [
-            'maduro dies in custody', 'maduro hunger strike',
-            'maduro convicted', 'maduro acquitted',
-            'maduro plea deal', 'maduro extradited argentina',
-            'cilia flores released',
-        ],
-        'actor_check':  ['vz_chavismo_residual'],
+        'name':       'Maduro case turning point',
+        'severity':   4,
+        'category':   'chavismo_residual',
+        'short_text': '⚠️ Maduro case turning point -- verdict, plea deal, or death in custody',
+        'long_text':  ('A decisive event in Maduro\'s New York case: a verdict, a plea deal, a '
+                       'death or hunger strike in custody, or an extradition.'),
+        'plain':      ('Loyalists would have a rallying point -- or lose their last one -- just '
+                       'as the election plan needs calm.'),
+        'triggers':   ['maduro dies in custody', 'maduro hunger strike', 'maduro convicted',
+                       'maduro acquitted', 'maduro plea deal', 'maduro found guilty',
+                       'maduro extradited argentina', 'cilia flores released'],
     },
-
-    # ── ESSEQUIBO ESCALATION ──
     'rl_essequibo_escalation': {
-        'name':         'Essequibo Kinetic Escalation',
-        'severity':     5,
-        'category':     'kinetic',
-        'short_text':   '🚨 ESSEQUIBO kinetic event — territorial dispute → conflict',
-        'long_text':    (
-            'Venezuela-Guyana Essequibo dispute has moved from ICJ litigation '
-            'to kinetic event: VZ troops cross border, Guyana mobilizes, '
-            'ExxonMobil evacuates Stabroek block, US/UK military responds, '
-            'or oil block seized. CARICOM in emergency mode.'
-        ),
-        'triggers':     [
-            'venezuela invades guyana', 'venezuela seizes essequibo',
-            'venezuela troops essequibo', 'guyana mobilizes',
-            'us troops guyana', 'uk troops guyana',
-            'exxon evacuates guyana', 'oil block seized',
-        ],
-        'actor_check':  ['essequibo_guyana_dispute'],
+        'name':       'Essequibo turns military',
+        'severity':   5,
+        'category':   'kinetic',
+        'short_text': '🚨 Essequibo -- troops cross, oil blocks seized, or Guyana mobilises',
+        'long_text':  ('The dispute with Guyana has left the courtroom: Venezuelan troops in '
+                       'Essequibo, Guyana mobilising, ExxonMobil evacuating, or foreign forces '
+                       'deploying to defend Guyana.'),
+        'plain':      ('A border war in the middle of a transition would hand nationalists the '
+                       'agenda and put US and UK forces in the frame.'),
+        'triggers':   ['venezuela invades guyana', 'venezuela seizes essequibo',
+                       'venezuela troops essequibo', 'guyana mobilizes', 'guyana mobilises',
+                       'exxon evacuates guyana', 'oil block seized'],
     },
-
-    # ── HEZBOLLAH-VZ DEDICATED WATCH ──
     'rl_hezbollah_event': {
-        'name':         'Hezbollah-VZ Operative Event',
-        'severity':     4,
-        'category':     'special_watch',
-        'short_text':   '⚠️ Hezbollah-VZ event — named operative or designation',
-        'long_text':    (
-            'Hezbollah-Venezuela watch tripped: arrest, designation, or named '
-            'operative event in VZ (likely Margarita Island or Lebanese diaspora '
-            'financial flow). Watch for OFAC CT designations naming VZ entities.'
-        ),
-        'triggers':     [
-            'hezbollah cell arrested venezuela',
-            'hezbollah attack venezuela', 'hezbollah uranium venezuela',
-            'us designates hezbollah venezuela', 'margarita raid',
-            'hezbollah operative captured venezuela',
-        ],
-        'actor_check':  ['hizballah_vz_signals'],
+        'name':       'Hizballah operative or designation in Venezuela',
+        'severity':   4,
+        'category':   'special_watch',
+        'short_text': '⚠️ Hizballah in Venezuela -- arrest, raid or designation',
+        'long_text':  ('An arrest, raid or sanctions designation tying Hizballah to Venezuela '
+                       '(Margarita Island, diaspora finance, dual-use trade).'),
+        'plain':      ('It would test the interim government\'s promise to Washington to end '
+                       'Hizballah and Iran activity, and connect to the Tri-Border Area.'),
+        'triggers':   ['hezbollah cell arrested venezuela', 'hezbollah attack venezuela',
+                       'hezbollah uranium venezuela', 'us designates hezbollah venezuela',
+                       'margarita raid', 'hezbollah operative captured venezuela',
+                       'hezbolá detenidos venezuela'],
     },
-
-    # ── HUMANITARIAN CRISIS L5 ──
     'rl_humanitarian_crisis': {
-        'name':         'Humanitarian L5 Crisis',
-        'severity':     5,
-        'category':     'humanitarian',
-        'short_text':   '🚨 Humanitarian L5 — famine / mass exodus / grid collapse',
-        'long_text':    (
-            'Venezuela has reached humanitarian L5 conditions: declared famine, '
-            'total grid collapse, mass exodus surge (>500K/month), or healthcare '
-            'system implosion. Triggers L5 axis fire and likely international '
-            'response (CARICOM, OAS, UN OCHA).'
-        ),
-        'triggers':     [
-            'venezuela famine declared', 'venezuela hambruna declarada',
-            'venezuela total grid collapse', 'venezuela mass exodus',
-            'venezuela healthcare implodes', 'venezuela border emergency',
-        ],
-        'actor_check':  [],  # detected via civilian_pressure_signals + migration_signals
+        'name':       'Humanitarian emergency',
+        'severity':   5,
+        'category':   'humanitarian',
+        'short_text': '🚨 Humanitarian emergency -- famine, grid collapse or mass exodus',
+        'long_text':  ('Declared famine, total grid collapse, a mass-exodus surge, or the health '
+                       'system failing.'),
+        'plain':      ('People would be leaving faster than any election can help, and the '
+                       'shock would land on Colombia, Brazil and Peru first.'),
+        'triggers':   ['venezuela famine declared', 'venezuela hambruna declarada',
+                       'venezuela total grid collapse', 'venezuela mass exodus',
+                       'venezuela healthcare implodes', 'venezuela border emergency'],
     },
-
-    # ── ECONOMIC L5 CRISIS ──
     'rl_economic_collapse': {
-        'name':         'Economic L5 Collapse',
-        'severity':     5,
-        'category':     'economic',
-        'short_text':   '🚨 Economic L5 — bolívar collapse / PDVSA halt / sovereign default',
-        'long_text':    (
-            'Venezuelan economy has reached L5 conditions: total bolívar collapse, '
-            'PDVSA cease operations, or sovereign default declared. Triggers '
-            'L5 axis fire. Will cascade to humanitarian crisis if not addressed.'
-        ),
-        'triggers':     [
-            'pdvsa total halt', 'pdvsa cease operations',
-            'venezuela sovereign default oil',
-            'venezuela bolivar zero', 'venezuela currency total collapse',
-        ],
-        'actor_check':  [],  # detected via oil_extraction_signals
+        'name':       'Economic collapse',
+        'severity':   5,
+        'category':   'economic',
+        'short_text': '🚨 Economic collapse -- currency gone, oil halted, or default',
+        'long_text':  'Total bolívar collapse, PDVSA ceasing operations, or a declared default.',
+        'plain':      ('The money that keeps the state and the transition running would stop; '
+                       'humanitarian strain usually follows within weeks.'),
+        'triggers':   ['pdvsa total halt', 'pdvsa cease operations',
+                       'venezuela sovereign default oil', 'venezuela bolivar zero',
+                       'venezuela currency total collapse'],
     },
 }
 
+# Transition milestones -- progress, not rupture (moved out of RED_LINES).
+MILESTONE_TEXT = {
+    3: 'Binding transition step reported',
+    4: 'Campaign phase reported',
+    5: 'Voting or results reported',
+}
 
-# ════════════════════════════════════════════════════════════════════
-# CHECK RED LINES
-# ════════════════════════════════════════════════════════════════════
+
+def _scan_articles(scan_data):
+    """Every item the scan saw, with its outlet. Falls back to the old shape."""
+    arts = scan_data.get('articles')
+    if isinstance(arts, list) and arts:
+        return arts
+    out = []
+    for actor in (scan_data.get('actors', {}) or {}).values():
+        for a in (actor.get('top_articles') or []):
+            src = a.get('source') or {}
+            out.append({'title': a.get('title', ''), 'description': a.get('description', ''),
+                        'url': a.get('url', ''), 'feed_type': a.get('feed_type', ''),
+                        'outlet': (a.get('outlet') or (src.get('name') if isinstance(src, dict) else src)
+                                   or 'unknown').lower()})
+    return out
+
+
+def evaluate_red_lines(scan_data):
+    """Grade every red line. Returns list of dicts with a status, most severe first."""
+    articles = _scan_articles(scan_data)
+    results = []
+    for rl_id, rl in RED_LINES.items():
+        firm, soft, first = set(), set(), None
+        for art in articles:
+            text = ((art.get('title') or '') + ' ' + (art.get('description') or '')).lower()
+            hit = next((t for t in rl['triggers'] if t in text), None)
+            if not hit:
+                continue
+            outlet = (art.get('outlet') or 'unknown').lower()
+            if _hedged(text) or art.get('feed_type') in SOCIAL:
+                soft.add(outlet)
+            else:
+                firm.add(outlet)
+            if first is None or (outlet in firm and first.get('hedged')):
+                first = {'matched_phrase': hit, 'article_title': art.get('title', ''),
+                         'url': art.get('url', ''), 'hedged': outlet not in firm}
+        if not firm and not soft:
+            continue
+        if len(firm) >= CORROBORATION:
+            status = 'breached'
+        elif firm:
+            status = 'approaching'
+        else:
+            status = 'watching'
+        results.append({
+            'rl_id':          rl_id,
+            'name':           rl['name'],
+            'severity':       rl['severity'],
+            'category':       rl['category'],
+            'status':         status,
+            'status_text':    {'breached': 'Breached -- 2+ outlets',
+                               'approaching': 'Approaching -- 1 outlet, not yet corroborated',
+                               'watching': 'Watching -- rumour or hedged wording only'}[status],
+            'short_text':     rl['short_text'],
+            'long_text':      rl['long_text'],
+            'description':    rl['long_text'],
+            'plain':          rl['plain'],
+            'outlets':        sorted(firm)[:6],
+            'rumint_outlets': sorted(soft)[:6],
+            'matched_phrase': (first or {}).get('matched_phrase'),
+            'article_title':  (first or {}).get('article_title'),
+            'url':            (first or {}).get('url'),
+        })
+    rank = {'breached': 0, 'approaching': 1, 'watching': 2}
+    results.sort(key=lambda r: (rank[r['status']], -r['severity']))
+    return results
+
 
 def check_red_lines(scan_data):
-    """
-    Scan articles + actor results against all red lines.
-    Returns list of triggered red lines (most severe first).
-    """
-    articles = []
-    actor_results = scan_data.get('actors', {}) or {}
-    civ_signals = scan_data.get('civilian_pressure_signals', []) or []
-    mig_out_signals = scan_data.get('migration_out_signals', []) or []
-    oil_signals = scan_data.get('oil_extraction_signals', []) or []
-    essequibo_signals = scan_data.get('essequibo_signals', []) or []
+    """Back-compat: BREACHED red lines only."""
+    return [r for r in evaluate_red_lines(scan_data) if r['status'] == 'breached']
 
-    # Collect article texts from top_articles per actor
-    for actor_key, actor in actor_results.items():
-        for art in (actor.get('top_articles', []) or []):
-            articles.append({
-                'title':       art.get('title', '') or '',
-                'description': art.get('description', '') or '',
-                'url':         art.get('url', ''),
-                'actor_key':   actor_key,
-            })
-    # Plus signal-context articles
-    for sig in civ_signals + mig_out_signals + oil_signals + essequibo_signals:
-        articles.append({
-            'title':       sig.get('article', '') or '',
-            'description': sig.get('phrase', '') or '',
-            'url':         '',
-            'actor_key':   None,
+
+def build_milestones(scan_data):
+    """Transition steps with 2+ outlets (stage 3+), from the tracker's transition read."""
+    tr = scan_data.get('transition') or {}
+    out, seen = [], set()
+    for sig in (tr.get('stage_signals') or []):
+        lvl = sig.get('level', 0)
+        if lvl < 3 or sig.get('phrase') in seen:
+            continue
+        seen.add(sig.get('phrase'))
+        out.append({
+            'stage':     lvl,
+            'name':      MILESTONE_TEXT.get(lvl, 'Transition step'),
+            'phrase':    sig.get('phrase'),
+            'article':   sig.get('article'),
+            'outlet':    sig.get('outlet'),
+            'url':       sig.get('url'),
+            'evidence':  sig.get('evidence'),
         })
-
-    triggered = []
-    for rl_id, rl in RED_LINES.items():
-        for art in articles:
-            text = (art['title'] + ' ' + art['description']).lower()
-            for trigger in rl['triggers']:
-                if trigger.lower() in text:
-                    # Optional actor_check: trigger must come from a designated actor
-                    if rl['actor_check']:
-                        if art['actor_key'] in rl['actor_check']:
-                            triggered.append({
-                                'rl_id':      rl_id,
-                                'name':       rl['name'],
-                                'severity':   rl['severity'],
-                                'category':   rl['category'],
-                                'short_text': rl['short_text'],
-                                'long_text':  rl['long_text'],
-                                'matched_phrase': trigger,
-                                'article_title':  art['title'],
-                            })
-                            break  # one match per RL is enough
-                    else:
-                        # Severity-driven RLs (humanitarian/economic) — no actor_check
-                        triggered.append({
-                            'rl_id':      rl_id,
-                            'name':       rl['name'],
-                            'severity':   rl['severity'],
-                            'category':   rl['category'],
-                            'short_text': rl['short_text'],
-                            'long_text':  rl['long_text'],
-                            'matched_phrase': trigger,
-                            'article_title':  art['title'],
-                        })
-                        break
-            if any(t['rl_id'] == rl_id for t in triggered):
-                break  # dedupe
-
-    # Sort by severity desc
-    triggered.sort(key=lambda t: -t['severity'])
-    return triggered
+    return out[:6]
 
 
 # ════════════════════════════════════════════════════════════════════
-# BUILD EXECUTIVE SUMMARY
-# Short prose paragraph for frontend "Executive Summary" card
+# EXECUTIVE SUMMARY  (full sentences, no level codes)
 # ════════════════════════════════════════════════════════════════════
+LEVEL_WORDS = {0: 'quiet', 1: 'low', 2: 'elevated', 3: 'high', 4: 'very high', 5: 'at crisis level'}
 
-def build_executive_summary(scan_data):
-    """
-    Build a 2-3 sentence executive summary paragraph from scan_data.
-    Returns dict with 'headline' + 'paragraph'.
-    """
-    theatre_level = scan_data.get('theatre_level', 0)
-    theatre_label = scan_data.get('theatre_label', 'Baseline')
-    composite     = scan_data.get('theatre_score', 0)
 
-    vectors = scan_data.get('vectors', {}) or {}
-    civ_press_lvl = scan_data.get('civilian_pressure_level', 0)
-    oil_lvl       = scan_data.get('oil_extraction_level', 0)
-    essequibo_lvl = scan_data.get('essequibo_level', 0)
-    diplomatic_lvl = scan_data.get('diplomatic_level', 0)
-    mig_net_mod   = scan_data.get('migration_net_modifier', 0)
-    l5_gate       = scan_data.get('l5_gate', {}) or {}
-    suppressed    = l5_gate.get('l5_ceasefire_suppressed_sources', []) or []
+def build_executive_summary(scan_data, red_lines_all=None):
+    level   = scan_data.get('theatre_level', 0)
+    label   = scan_data.get('theatre_label', 'Stable')
+    actors  = scan_data.get('actors', {}) or {}
+    tr      = scan_data.get('transition') or {}
+    l5_gate = scan_data.get('l5_gate', {}) or {}
+    red_lines_all = red_lines_all or []
+    breached = [r for r in red_lines_all if r['status'] == 'breached']
+    approaching = [r for r in red_lines_all if r['status'] == 'approaching']
 
-    actor_results = scan_data.get('actors', {}) or {}
+    def a(key):
+        return (actors.get(key, {}) or {}).get('actor_score', 0)
 
-    # Headline
+    # Headline: the main story in one line.
     if l5_gate.get('any'):
-        headline = f'🇻🇪 Venezuela at L{theatre_level} {theatre_label} — L5 axis fired ({l5_gate.get("reason", "")})'
-    elif suppressed:
-        headline = f'🇻🇪 Venezuela at L{theatre_level} {theatre_label} — détente holding, L5 conditions suppressed'
+        headline = 'Venezuela: crisis conditions confirmed'
+    elif breached:
+        headline = f'Venezuela: red line breached -- {breached[0]["name"]}'
+    elif tr.get('spoiler_grade') == 'corroborated':
+        headline = 'Venezuela: the election process is under attack'
+    elif tr.get('stage', 0) >= 2:
+        headline = 'Venezuela: the transition toward elections is the main story'
     else:
-        headline = f'🇻🇪 Venezuela at L{theatre_level} {theatre_label} (composite {composite}/100)'
+        headline = f'Venezuela reads "{label}" -- no single development dominates'
 
-    # Build paragraph
     parts = []
-
-    # Lead with regime status
-    delcy_lvl = actor_results.get('vz_delcy_rodriguez', {}).get('actor_score', 0)
-    if delcy_lvl >= 3:
-        parts.append('Delcy Rodríguez under active rhetorical pressure')
-    elif delcy_lvl >= 1:
-        parts.append('Delcy Rodríguez continues interim presidency')
+    stage = tr.get('stage', 0)
+    if stage >= 2:
+        parts.append(f'The transition has reached this point: {tr.get("stage_text")}.')
+    elif stage == 1:
+        parts.append('Elections and the transition are being discussed, but this cycle shows no binding step.')
     else:
-        parts.append('Delcy Rodríguez governing quietly')
+        parts.append('This cycle\'s reporting says little about the transition itself -- unread, not stalled.')
 
-    # US-VZ posture
-    if diplomatic_lvl >= 3:
-        parts.append(f'US-VZ détente active at level {diplomatic_lvl} (de-escalator)')
-    elif diplomatic_lvl >= 2:
-        parts.append(f'US-VZ diplomatic signals emerging at level {diplomatic_lvl}')
+    if a('vz_opposition') >= 2:
+        parts.append('The opposition is active and visible.')
+    if a('vz_diosdado_cabello') >= 3 and not any(r['rl_id'] == 'rl_cabello_event' for r in red_lines_all):
+        parts.append('Diosdado Cabello is in the news at a level that matters: he is the most likely spoiler.')
+    if scan_data.get('diplomatic_level', 0) >= 2:
+        parts.append('The US-Venezuela channel is working, which keeps military pressure in the background.')
 
-    # Key pressure axes
     pressures = []
-    if civ_press_lvl >= 3:
-        pressures.append(f'civilian pressure L{civ_press_lvl}')
-    if oil_lvl >= 3:
-        pressures.append(f'oil sector pressure L{oil_lvl}')
-    if essequibo_lvl >= 3:
-        pressures.append(f'Essequibo dispute L{essequibo_lvl}')
-    if mig_net_mod >= 5:
-        pressures.append(f'migration outflow surge (+{mig_net_mod})')
+    if scan_data.get('civilian_pressure_level', 0) >= 3:
+        pressures.append('everyday hardship')
+    if scan_data.get('oil_extraction_level', 0) >= 3:
+        pressures.append('oil-sector stress')
+    if scan_data.get('essequibo_level', 0) >= 3:
+        pressures.append('the Essequibo dispute')
+    if scan_data.get('earthquake_political_level', 0) >= 2:
+        pressures.append('anger over earthquake relief')
     if pressures:
-        parts.append('active pressures: ' + ', '.join(pressures))
+        parts.append('Pressure is coming from ' + ', '.join(pressures) + '.')
 
-    # Cabello wild card
-    cabello_lvl = actor_results.get('vz_diosdado_cabello', {}).get('actor_score', 0)
-    if cabello_lvl >= 3:
-        parts.append('Cabello rhetoric elevated (wild card)')
+    if breached:
+        parts.append(f'Red line breached (2+ outlets): {breached[0]["name"]}. {breached[0]["plain"]}')
+    elif approaching:
+        parts.append(f'One red line is approaching on a single outlet\'s report: {approaching[0]["name"]}. '
+                     f'It counts once a second outlet confirms it.')
+    else:
+        parts.append('No red line is breached.')
 
-    # Opposition
-    opp_lvl = actor_results.get('vz_opposition', {}).get('actor_score', 0)
-    if opp_lvl >= 3:
-        parts.append(f'opposition (Machado/González) at L{opp_lvl}')
-
-    # Chavismo residual / Maduro court
-    chav_lvl = actor_results.get('vz_chavismo_residual', {}).get('actor_score', 0)
-    if chav_lvl >= 3:
-        parts.append('Maduro detention signals elevated')
-
-    paragraph = '. '.join(p.capitalize() for p in parts) + '.' if parts else 'Venezuela quiet baseline.'
-
-    return {
-        'headline':  headline,
-        'paragraph': paragraph,
-    }
+    return {'headline': headline, 'paragraph': ' '.join(parts)}
 
 
 # ════════════════════════════════════════════════════════════════════
 # SO WHAT FACTOR
-# The analyst's "why this matters" — feeds front-page Three-Altitude
-# pattern (Country → Regional → GPI).
 # ════════════════════════════════════════════════════════════════════
-
-def build_so_what_factor(scan_data, red_lines_triggered):
-    """
-    Build the so-what factor: strategic implication of current readings.
-    Returns dict with 'scenario', 'factor', 'description', 'watch_for'.
-    """
-    theatre_level = scan_data.get('theatre_level', 0)
+def build_so_what_factor(scan_data, red_lines_all):
     diplomatic_lvl = scan_data.get('diplomatic_level', 0)
-    civ_press_lvl = scan_data.get('civilian_pressure_level', 0)
-    oil_lvl       = scan_data.get('oil_extraction_level', 0)
-    essequibo_lvl = scan_data.get('essequibo_level', 0)
-    l5_gate       = scan_data.get('l5_gate', {}) or {}
-    suppressed    = l5_gate.get('l5_ceasefire_suppressed_sources', []) or []
+    civ_press_lvl  = scan_data.get('civilian_pressure_level', 0)
+    oil_lvl        = scan_data.get('oil_extraction_level', 0)
+    essequibo_lvl  = scan_data.get('essequibo_level', 0)
+    l5_gate        = scan_data.get('l5_gate', {}) or {}
+    suppressed     = l5_gate.get('l5_ceasefire_suppressed_sources', []) or []
+    actors         = scan_data.get('actors', {}) or {}
+    tr             = scan_data.get('transition') or {}
+    cabello_lvl    = (actors.get('vz_diosdado_cabello', {}) or {}).get('actor_score', 0)
+    commodity_alert = ((scan_data.get('commodity_pressure') or {}).get('alert_level') or '').lower()
+    breached = [r for r in (red_lines_all or []) if r['status'] == 'breached']
 
-    actor_results = scan_data.get('actors', {}) or {}
-    cabello_lvl = actor_results.get('vz_diosdado_cabello', {}).get('actor_score', 0)
-    delcy_lvl   = actor_results.get('vz_delcy_rodriguez', {}).get('actor_score', 0)
-    us_mil_lvl  = actor_results.get('us_military_posture', {}).get('actor_score', 0)
-
-    # May 22 2026: commodity pressure feeds scenario classification
-    commodity_pressure = scan_data.get('commodity_pressure', {}) or {}
-    commodity_alert    = (commodity_pressure.get('alert_level') or '').lower()
-
-    # Scenario classification (priority cascade)
     if l5_gate.get('kinetic') and l5_gate.get('any'):
-        scenario = 'kinetic_l5_active'
-        factor   = 'KINETIC CRISIS'
-        description = (
-            'Venezuela has entered active kinetic crisis. US-VZ détente has either '
-            'collapsed or never held, and military posture is L5. This is the '
-            'pre-conflict scenario the platform was designed to surface. Watch '
-            'Caribbean naval positioning, SOUTHCOM exercises, Caracas civilian '
-            'reactions, and FANB cohesion signals.'
-        )
-        watch_for = [
-            'USS Nimitz movements',
-            'Second-wave strike threats',
-            'Caracas civilian protests',
-            'Russia/China condemnation language',
-            'Padrino López public statements',
-        ]
+        scenario, factor = 'kinetic_l5_active', 'MILITARY CRISIS'
+        description = ('Military or border conflict is confirmed and the cooperation track is not '
+                       'holding it back. Local: the transition stops being the story. Regional: '
+                       'Colombia, Guyana and the Caribbean brace for spillover. Global: US forces '
+                       'are back in the frame and oil markets will price it.')
+        watch_for = ['US naval and air movements in the Caribbean', 'Statements from the high command',
+                     'Russia / China condemnation language', 'Civilian movement toward borders']
     elif l5_gate.get('humanitarian') and l5_gate.get('any'):
-        scenario = 'humanitarian_l5_active'
-        factor   = 'HUMANITARIAN CRISIS'
-        description = (
-            'Venezuela has crossed into L5 humanitarian crisis: famine, grid collapse, '
-            'mass exodus, or healthcare implosion. Major regional cascade risk — '
-            'Colombia, Brazil, Peru migration shocks. International response (UN OCHA, '
-            'OAS, CARICOM) will follow.'
-        )
-        watch_for = [
-            'CARICOM emergency convening',
-            'UN OCHA appeal',
-            'Colombian border crisis declaration',
-            'Brazilian/Peruvian border tightening',
-        ]
+        scenario, factor = 'humanitarian_l5_active', 'HUMANITARIAN EMERGENCY'
+        description = ('Conditions have crossed into a humanitarian emergency. Local: survival '
+                       'crowds out politics. Regional: Colombia, Brazil and Peru absorb the first '
+                       'wave of departures. Global: a UN appeal and donor politics follow.')
+        watch_for = ['UN OCHA appeal', 'Colombian border measures', 'Brazil and Peru border posture',
+                     'Who delivers relief -- and who gets credit']
     elif l5_gate.get('economic') and l5_gate.get('any'):
-        scenario = 'economic_l5_active'
-        factor   = 'ECONOMIC COLLAPSE'
-        description = (
-            'Venezuela in L5 economic collapse: bolívar gone, PDVSA halted, or '
-            'sovereign default. Will cascade to humanitarian within weeks. '
-            'US-VZ détente will face stress test — does Washington intervene with '
-            'aid or step back?'
-        )
-        watch_for = [
-            'Bolívar exchange rate cascading',
-            'PDVSA production zero confirmation',
-            'IMF/World Bank engagement signals',
-            'Chevron force majeure declaration',
-        ]
+        scenario, factor = 'economic_l5_active', 'ECONOMIC COLLAPSE'
+        description = ('The oil economy has stopped working. Local: salaries and services fail '
+                       'first. Regional: migration pressure rises within weeks. Global: the US '
+                       'arrangement built on Venezuelan oil is under direct strain.')
+        watch_for = ['Bolívar exchange rate', 'PDVSA output confirmation',
+                     'IMF / IDB engagement', 'US oil-marketing arrangement']
+    elif breached:
+        rl = breached[0]
+        scenario, factor = 'red_line_breached', 'RED LINE BREACHED'
+        description = f'{rl["name"]} -- confirmed by 2+ outlets. {rl["plain"]}'
+        watch_for = ['A second, independent confirmation of scale', 'Washington\'s response',
+                     'Whether the election timetable is mentioned at all']
+    elif tr.get('spoiler_grade') == 'corroborated':
+        scenario, factor = 'transition_under_strain', 'TRANSITION UNDER STRAIN'
+        description = ('More than one outlet reports a move against the election process. Local: '
+                       'this is the moment the interim government shows whether it owns the '
+                       'transition or only manages it. Regional: neighbours that absorbed eight '
+                       'million Venezuelans watch for a new exodus. Global: Washington\'s plan has '
+                       'its first real test.')
+        watch_for = ['Rodríguez\'s response within 48 hours', 'Cabello\'s position',
+                     'US statements on consequences', 'Opposition call to the street']
     elif suppressed:
-        scenario = 'detente_suppressing_pressure'
-        factor   = 'DÉTENTE SUSTAINING'
-        description = (
-            'Underlying L5 conditions present (military / Essequibo / civilian) but '
-            'US-VZ détente is actively suppressing kinetic axis fire. Platform is '
-            'reading this correctly via ceasefire-aware gate. Détente fragility is '
-            'the dominant variable — any reversal cascades fast.'
-        )
-        watch_for = [
-            'Chevron license renewal status',
-            'Treasury sanctions actions',
-            'Trump direct statements on Delcy',
-            'Cabello positioning (wild card)',
-            'NA legitimacy vote on Delcy term',
-        ]
+        scenario, factor = 'detente_suppressing_pressure', 'COOPERATION HOLDING PRESSURE BACK'
+        description = ('Serious military or border pressure is in the reporting, but the US-Venezuela '
+                       'cooperation track is holding it back. That track is now the load-bearing '
+                       'wall: if it cracks, the reading jumps fast.')
+        watch_for = ['Sanctions waivers and oil licences', 'Direct US statements on Rodríguez',
+                     'Cabello positioning', 'Election-plan deadlines']
     elif cabello_lvl >= 4:
-        scenario = 'cabello_volatility'
-        factor   = 'CABELLO WILD CARD'
-        description = (
-            'Diosdado Cabello rhetoric elevated. He sits in dual role — Interior '
-            'Minister AND sole at-large indicted co-defendant. If US targets him, '
-            'détente strains. If he defies Delcy, regime fractures. If he flees, '
-            'questions about Cuban DGI involvement (he\'s long suspected of '
-            'sponsoring Cartel de los Soles).'
-        )
-        watch_for = [
-            'Cabello public appearances',
-            'Daniella Cabello (daughter, Tourism Min) signals',
-            'US OFAC actions against PSUV elite',
-            'Cabello travel pattern signals',
-        ]
+        scenario, factor = 'cabello_volatility', 'CABELLO WILD CARD'
+        description = ('High-impact reporting on Diosdado Cabello, confirmed by 2+ outlets. He is '
+                       'indicted in the US and still powerful at home -- the person with the most '
+                       'to lose from an election and the most ability to disrupt one.')
+        watch_for = ['Cabello public appearances', 'Security-force posture toward the opposition',
+                     'US actions against senior PSUV figures']
     elif essequibo_lvl >= 3:
-        scenario = 'essequibo_escalation_watch'
-        factor   = 'ESSEQUIBO TERRITORIAL PRESSURE'
-        description = (
-            'Venezuela-Guyana Essequibo dispute escalating at ICJ. ExxonMobil '
-            'Stabroek block tensions. Delcy went to Hague May 9 — first international '
-            'trip. Possible new domestic narrative play if détente strains internal '
-            'cohesion.'
-        )
-        watch_for = [
-            'ICJ procedural rulings',
-            'CARICOM positioning',
-            'ExxonMobil operations posture',
-            'Guyana defense announcements',
-            'VZ referendum revival signals',
-        ]
+        scenario, factor = 'essequibo_escalation_watch', 'ESSEQUIBO PRESSURE'
+        description = ('The Essequibo dispute is escalating beyond the ICJ case. Local: '
+                       'nationalism is the easiest card for anyone who wants to slow the '
+                       'transition. Regional: Guyana, CARICOM and Brazil are exposed. Global: '
+                       'ExxonMobil\'s Stabroek blocks sit in the disputed zone.')
+        watch_for = ['The ICJ ruling and Caracas\'s response to it', 'Guyana defence announcements',
+                     'ExxonMobil operating posture', 'Any referendum revival']
+    elif tr.get('stage', 0) >= 2:
+        scenario, factor = 'transition_in_motion', 'TRANSITION IN MOTION'
+        description = ('The US-backed transition is moving: ' + tr.get('stage_text', '') + '. '
+                       'Local: every binding step (a vacancy declaration, a new electoral council, '
+                       'a date) raises the stakes for those who lose power in a fair vote. '
+                       'Regional: a credible vote is the best chance in a decade of migrants '
+                       'returning. Global: it decides whether the Maduro operation is remembered '
+                       'as a transition or a takeover.')
+        watch_for = ['A vacancy declaration or election date (needs 2 outlets)',
+                     'Naming of a new electoral council (CNE)',
+                     'Security for Machado and opposition campaigning',
+                     'Whether Washington keeps the pace after the US midterms']
     elif civ_press_lvl >= 3 or oil_lvl >= 3:
-        scenario = 'structural_pressure_elevated'
-        factor   = 'STRUCTURAL PRESSURE BUILD'
-        description = (
-            'Background structural pressures (civilian / oil) elevated. These are the '
-            'long-running pre-conditions that, combined with a Cabello event, '
-            'détente shift, or Maduro-court development, could cascade quickly.'
-        )
-        watch_for = [
-            'Blackout duration trends',
-            'PDVSA monthly production',
-            'Bolívar black-market rate',
-            'Food/medicine scarcity reports',
-        ]
+        scenario, factor = 'structural_pressure_elevated', 'EVERYDAY PRESSURE BUILDING'
+        description = ('Hardship or oil-sector stress is widely reported. These are slow pressures, '
+                       'but they are what turns a political spoiler into a street crisis.')
+        watch_for = ['Blackout duration', 'PDVSA monthly output', 'Bolívar parallel rate',
+                     'Food and medicine shortages']
     elif diplomatic_lvl >= 3:
-        scenario = 'detente_steady'
-        factor   = 'DÉTENTE STEADY STATE'
-        description = (
-            'US-VZ détente is the dominant frame. Sanctions easing, embassy '
-            'reopened, prisoner releases ongoing. Delcy performing cooperation '
-            'while James Story\'s observation holds — "doing just enough to make '
-            'it look as if they\'re complying" while waiting for US midterms.'
-        )
-        watch_for = [
-            'Chevron license actions',
-            'Political prisoner release pace',
-            'Delcy vs. NA 90-day cap dynamics',
-            'Sponsor-axis (RU/CN/IR) quiescence signals',
-        ]
+        scenario, factor = 'detente_steady', 'COOPERATION STEADY'
+        description = ('US-Venezuela cooperation is the dominant frame and nothing in this cycle '
+                       'challenges it. Steady is not the same as settled: the plan still needs '
+                       'binding steps toward a vote.')
+        watch_for = ['Oil licence actions', 'Political prisoner releases',
+                     'Binding transition steps', 'Russia / China / Iran quiet or not']
     elif commodity_alert == 'surge':
-        # ── May 22 2026: commodity-driven scenarios ─────────────────────
-        # Surge in oil/gold/wheat = real-world commercial/strategic activity
-        # that the rhetoric tracker may not yet have picked up in actor signals.
-        # Most likely an oil-recovery acceleration (Exxon/Chevron expansion,
-        # sanctions-lift trajectory, Rubio-India oil pivot).
-        scenario = 'commodity_surge_pressure'
-        factor   = 'COMMODITY SURGE — STRATEGIC REPOSITIONING'
-        description = (
-            'Commodity pressure at SURGE level even as rhetoric tracker reads '
-            'baseline-quiet on domestic actors. This pattern is consistent with '
-            'oil-recovery acceleration (Exxon, Chevron, Repsol license expansions), '
-            'sanctions-lift trajectory, or sponsor-axis commercial repositioning '
-            '(Rosneft tanker continuity, CNPC offtake adjustments, Rodriguez '
-            'India oil pivot). Strategic activity is happening in the commercial '
-            'arena before it surfaces in political rhetoric.'
-        )
-        watch_for = [
-            'Chevron/Exxon/Repsol OFAC license actions',
-            'PDVSA monthly export volumes + Jose Terminal traffic',
-            'Rodriguez foreign-visit oil agenda (India, China)',
-            'White House Venezuela mineral-deal announcements',
-            'Rosneft/CNPC tanker continuity at Venezuelan ports',
-        ]
+        scenario, factor = 'commodity_surge_pressure', 'COMMERCIAL MOVES AHEAD OF POLITICS'
+        description = ('Commodity pressure on Venezuela is at surge while political reporting is '
+                       'quiet. Money is moving before the rhetoric -- usually oil licences, new '
+                       'offtake deals, or sponsors repositioning.')
+        watch_for = ['US licence actions for oil majors', 'PDVSA export volumes',
+                     'New oil partners and who backs them', 'Chinese and Russian tanker continuity']
     elif commodity_alert in ('high', 'elevated'):
-        scenario = 'commodity_pressure_building'
-        factor   = 'COMMODITY PRESSURE BUILDING'
-        description = (
-            'Commodity pressure elevated. Oil/gold/wheat dynamics ahead of '
-            'political rhetoric — worth watching whether this leads, lags, or '
-            'predicts domestic political moves on PDVSA, Chevron, or sanctions.'
-        )
-        watch_for = [
-            'Oil sector regulatory signals',
-            'Food/agricultural import flows',
-            'Gold/Orinoco mining arc reporting',
-            'Whether rhetoric tracker catches up next cycle',
-        ]
+        scenario, factor = 'commodity_pressure_building', 'COMMODITY PRESSURE BUILDING'
+        description = ('Commodity pressure is elevated. Watch whether politics follows the money '
+                       'over the next cycles.')
+        watch_for = ['Oil-sector regulatory moves', 'Food import flows', 'Gold / Orinoco mining reporting']
     else:
-        scenario = 'baseline_quiet'
-        factor   = 'BASELINE'
-        description = (
-            'Venezuela quiet baseline. Tracker is operational and reading low '
-            'signal volume across actors.'
-        )
-        watch_for = [
-            'New actor signal emergence',
-            'Cross-theater fingerprint changes',
-        ]
+        scenario, factor = 'baseline_quiet', 'QUIET CYCLE'
+        description = ('Little high-impact reporting this cycle. In a country mid-transition, a '
+                       'quiet cycle is worth noting but is not evidence that the hard steps are done.')
+        watch_for = ['First binding transition step', 'Any move against the process']
 
-    # Add red lines triggered (if any) to watch_for
-    if red_lines_triggered:
-        for rl in red_lines_triggered[:3]:
-            watch_for.insert(0, f"🚨 {rl['name']} — TRIGGERED")
+    for rl in [r for r in (red_lines_all or []) if r['status'] != 'watching'][:3]:
+        tag = 'BREACHED' if rl['status'] == 'breached' else 'APPROACHING (1 outlet)'
+        watch_for.insert(0, f"{rl['name']} -- {tag}")
 
-    return {
-        'scenario':    scenario,
-        'factor':      factor,
-        'description': description,
-        'watch_for':   watch_for,
-    }
+    return {'scenario': scenario, 'factor': factor, 'description': description,
+            'watch_for': watch_for}
 
 
 # ════════════════════════════════════════════════════════════════════
 # COMMODITY COUPLING SIGNALS
-# Detect convergence between commodity pressure (oil/gold/wheat) and
-# actor-driven rhetoric pressure. Two-factor risk = both elevated.
 # ════════════════════════════════════════════════════════════════════
-
-# Commodity-to-actor coupling rules. When commodity pressure is high
-# AND specific actors are also elevated, fire a convergence signal.
 COMMODITY_COUPLINGS = {
     'oil': {
-        'related_actors':   ['us_sanctions_regulatory', 'us_government', 'iran_vz_axis',
-                             'russia_vz_axis', 'china_vz_axis'],
-        'icon':             '🛢️',
-        'color':            '#71717a',
-        'name':             'Oil',
-        'narrative_short':  'Oil pressure + sanctions/sponsor actors elevated → PDVSA convergence risk',
+        'related_actors': ['us_sanctions_regulatory', 'us_government', 'iran_vz_axis',
+                           'russia_vz_axis', 'china_vz_axis'],
+        'icon': '🛢️', 'color': '#71717a', 'name': 'Oil',
         'narrative_long': (
-            'Venezuelan oil sector under multi-front pressure: commodity-market oil '
-            'stress combined with elevated US sanctions/regulatory rhetoric and/or '
-            'sponsor-axis (RU/CN/IR) activity. Watch for: Chevron license actions, '
-            'PDVSA production reports, dark-fleet tanker activity, refinery rehab '
-            'announcements from Iran, Rosneft positioning.'
-        ),
+            'Oil-market pressure on Venezuela is coinciding with active reporting on US '
+            'sanctions or a sponsor state. Oil pays for the Venezuelan state and anchors the '
+            'US arrangement, so the two moving together matters more than either alone. '
+            'Watch: oil licences, PDVSA output, tanker traffic, new offtake partners.'),
     },
     'gold': {
-        'related_actors':   ['us_sanctions_regulatory', 'vz_diosdado_cabello',
-                             'vz_internal_security', 'hizballah_vz_signals'],
-        'icon':             '🥇',
-        'color':            '#facc15',
-        'name':             'Gold',
-        'narrative_short':  'Gold pressure + Cabello/security/Hezbollah → Arco Minero sanctions-evasion risk',
+        'related_actors': ['us_sanctions_regulatory', 'vz_diosdado_cabello',
+                           'vz_internal_security', 'hizballah_vz_signals'],
+        'icon': '🥇', 'color': '#facc15', 'name': 'Gold',
         'narrative_long': (
-            'Venezuelan gold sector pressure converging with regime-security or '
-            'illicit-finance actors. Arco Minero del Orinoco is the primary '
-            'sanctions-evasion vehicle; gold-for-gasoline trades with Iran are a '
-            'recurring pattern. Hezbollah-VZ watch sits exactly at this intersection. '
-            'Watch for: OFAC gold sanctions, named gold-trader designations, gold '
-            'export route signals (UAE/Turkey/Iran).'
-        ),
+            'Gold pressure is coinciding with reporting on the security apparatus, Cabello or '
+            'illicit-finance networks. The Orinoco Mining Arc has been the main sanctions-evasion '
+            'channel; the gold held at the Bank of England is now a live diplomatic file. '
+            'Watch: gold designations, export routes (UAE, Türkiye, Iran).'),
     },
     'wheat': {
-        'related_actors':   ['russia_vz_axis', 'vz_delcy_rodriguez'],
-        'icon':             '🌾',
-        'color':            '#84cc16',
-        'name':             'Wheat',
-        'narrative_short':  'Wheat pressure + Russia-VZ axis → food-security cascade risk',
+        'related_actors': ['russia_vz_axis', 'vz_delcy_rodriguez'],
+        'icon': '🌾', 'color': '#84cc16', 'name': 'Wheat',
         'narrative_long': (
-            'Venezuelan wheat imports (largely Russian) under pressure. Bread '
-            'and arepa flour scarcity has historically triggered protest waves. '
-            'A Russian wheat shock combined with VZ détente fragility could '
-            'cascade quickly to civilian-pressure L4+. Watch for: Black Sea grain '
-            'corridor signals, VZ wheat reserve announcements, bread-line reports.'
-        ),
+            'Wheat pressure is coinciding with reporting on Russia or the government. Most '
+            'Venezuelan wheat is imported; bread and flour shortages have triggered protests '
+            'before. Watch: import flows, bread-price reports, Black Sea grain signals.'),
     },
 }
 
 
 def _commodity_coupling_signal(commodity_id, commodity_data, actor_results):
-    """
-    Build a coupling signal when a commodity is under pressure AND
-    related actors are elevated. Returns signal dict or None.
-    """
     coupling = COMMODITY_COUPLINGS.get(commodity_id)
     if not coupling:
         return None
-
-    # Extract commodity pressure level (0-5 or alert_level string)
-    commodity_lvl = 0
     alert_level = commodity_data.get('alert_level', 'normal') if isinstance(commodity_data, dict) else 'normal'
-    alert_to_level = {
-        'normal': 0, 'baseline': 0,
-        'low': 1, 'elevated': 2, 'warning': 2,
-        'high': 3, 'severe': 4, 'critical': 5,
-    }
-    commodity_lvl = alert_to_level.get(str(alert_level).lower(), 0)
-
-    # Also try numeric pressure if available
+    commodity_lvl = {'normal': 0, 'baseline': 0, 'low': 1, 'elevated': 2, 'warning': 2,
+                     'high': 3, 'severe': 4, 'critical': 5}.get(str(alert_level).lower(), 0)
     pressure_score = commodity_data.get('commodity_pressure', 0) if isinstance(commodity_data, dict) else 0
-    if pressure_score >= 80:
-        commodity_lvl = max(commodity_lvl, 5)
-    elif pressure_score >= 65:
-        commodity_lvl = max(commodity_lvl, 4)
-    elif pressure_score >= 50:
-        commodity_lvl = max(commodity_lvl, 3)
-    elif pressure_score >= 35:
-        commodity_lvl = max(commodity_lvl, 2)
-    elif pressure_score >= 20:
-        commodity_lvl = max(commodity_lvl, 1)
-
+    for thr, lv in ((80, 5), (65, 4), (50, 3), (35, 2), (20, 1)):
+        if (pressure_score or 0) >= thr:
+            commodity_lvl = max(commodity_lvl, lv)
+            break
     if commodity_lvl < 2:
-        return None  # not elevated enough to couple
-
-    # Check related actor scores
-    related_max = 0
-    related_top = []
+        return None
+    related_top, related_max = [], 0
     for actor_key in coupling['related_actors']:
-        actor = actor_results.get(actor_key, {})
-        score = actor.get('actor_score', 0)
+        score = (actor_results.get(actor_key, {}) or {}).get('actor_score', 0)
         if score >= 2:
             related_top.append({'actor': actor_key, 'score': score})
-            if score > related_max:
-                related_max = score
-
+            related_max = max(related_max, score)
     if related_max < 2:
-        return None  # no coupling — commodity-only stress, not convergence
-
-    # Fire coupling signal
-    convergence_level = min(5, max(commodity_lvl, related_max))
-    actor_brief = ', '.join(t['actor'].replace('_', ' ') for t in related_top[:3])
-
+        return None
+    level = min(5, max(commodity_lvl, related_max))
+    who = ', '.join(ACTOR_PLAIN.get(t['actor'], t['actor']) for t in related_top[:3])
     return {
-        'category':    'commodity_coupling',
-        'commodity':   commodity_id,
-        'theatre':     'venezuela',
-        'level':       convergence_level,
-        'short_text':  f"{coupling['icon']} VZ {coupling['name']} L{convergence_level} convergence — {actor_brief}",
-        'long_text':   coupling['narrative_long'] + f' Related actors at L{related_max}+: {actor_brief}.',
-        'icon':        coupling['icon'],
-        'color':       coupling['color'],
-        'priority':    9 + convergence_level,  # higher convergence = higher priority
+        'category':      'commodity_coupling',
+        'commodity':     commodity_id,
+        'theatre':       'venezuela',
+        'level':         level,
+        'short_text':    (f"Venezuela: {coupling['name'].lower()} pressure is moving together with "
+                          f"reporting on {who}"),
+        'long_text':     coupling['narrative_long'],
+        'icon':          coupling['icon'],
+        'color':         coupling['color'],
+        'priority':      9 + level,
+        'pressure_type': 'economic',
         'related_actors': related_top,
     }
 
 
 def build_commodity_coupling_signals(scan_data):
-    """
-    Build commodity coupling signals for all three VZ commodities.
-    Returns list of triggered coupling signal dicts.
-    """
     commodity_pressure = scan_data.get('commodity_pressure', {}) or {}
-    commodity_fingerprints = scan_data.get('commodity_fingerprints', {}) or {}
+    fps = (scan_data.get('commodity_fingerprints', {}) or {}).get('fingerprints', {}) or {}
     actor_results = scan_data.get('actors', {}) or {}
-
     signals = []
-
-    # Try per-commodity fingerprints first (richer data)
-    fps = commodity_fingerprints.get('fingerprints', {}) or {}
-
     for commodity_id in ('oil', 'gold', 'wheat'):
-        # Prefer per-commodity fingerprint if available
-        commodity_data = fps.get(commodity_id)
-        if not commodity_data:
-            # Fall back to country-level pressure (less granular)
-            commodity_data = commodity_pressure
-
-        signal = _commodity_coupling_signal(commodity_id, commodity_data, actor_results)
-        if signal:
-            signals.append(signal)
-
+        sig = _commodity_coupling_signal(commodity_id, fps.get(commodity_id) or commodity_pressure,
+                                         actor_results)
+        if sig:
+            signals.append(sig)
     return signals
 
 
 def build_coalition_signals(scan_data):
-    """
-    Local Coalition convergence signal -- fires ONLY when >=2 external sponsor
-    hubs (Iran/Russia/China) are simultaneously elevated on Venezuela. A lone
-    patron is NOT a local signal (it surfaces at the GPI as that hub's global
-    spread, per the three-altitude rule); a coalition IS -- multiple external
-    pressures converging can bend Venezuela's internal and regional dynamics.
-    Absence-honest: below the 2-hub gate, returns [] (no manufactured signal).
-    """
+    """Fires ONLY when >=2 sponsor hubs (Iran/Russia/China) are elevated at once."""
     coalition    = scan_data.get('coalition', {}) or {}
     hub_presence = scan_data.get('hub_presence', {}) or {}
     level  = coalition.get('level', 0)
     detail = coalition.get('detail', {}) or {}
     hub_count = detail.get('hub_count', 0)
-
-    # Gate: >=2 hubs elevated (coalition level >= 3 on the non-linear ladder)
     if hub_count < 2 or level < 3:
         return []
-
     elevated = detail.get('elevated_hubs', {}) or {}
-    hubs_str = ', '.join(f"{h.title()} L{lv}"
-                         for h, lv in sorted(elevated.items(), key=lambda x: -x[1]))
-    reading  = detail.get('reading', 'sponsor coalition converging')
-    roles = []
-    for h in elevated:
-        role = (hub_presence.get(h, {}) or {}).get('role')
-        if role:
-            roles.append(f"{h.title()} ({role})")
-
+    names = [h.title() for h, _ in sorted(elevated.items(), key=lambda x: -x[1])]
+    roles = [f"{h.title()} ({(hub_presence.get(h, {}) or {}).get('role')})"
+             for h in elevated if (hub_presence.get(h, {}) or {}).get('role')]
     return [{
-        'category':   'coalition_convergence',
-        'theatre':    'venezuela',
-        'level':      level,
-        'short_text': f"🕸️ VZ sponsor coalition L{level} — {hub_count} hubs converging ({hubs_str})",
-        'long_text':  (
-            f"Coalition convergence: {reading}. Elevated sponsor hubs on Venezuela: "
-            f"{'; '.join(roles) if roles else hubs_str}. Multiple external patrons "
-            f"activating at once erodes US leverage over Caracas and can bend Venezuela's "
-            f"internal and regional dynamics. This is a CONVERGENCE indicator, NOT a "
-            f"probability of action; each hub is independently sourced and the reader "
-            f"completes the inference."
-        ),
-        'icon':       '🕸️',
-        'color':      '#be185d',
-        'priority':   9 + level,
+        'category':      'coalition_convergence',
+        'theatre':       'venezuela',
+        'level':         level,
+        'short_text':    (f"Venezuela: {' and '.join(names)} are active at the same time -- "
+                          f"outside sponsors converging"),
+        'long_text':     (f"{hub_count} outside sponsors show elevated activity in Venezuela at once: "
+                          f"{'; '.join(roles) if roles else ', '.join(names)}. Several patrons moving "
+                          f"together gives Caracas options beyond Washington, which weakens US leverage "
+                          f"over the transition. This is a convergence indicator, not a probability of "
+                          f"action; each hub is sourced separately."),
+        'icon':          '🕸️',
+        'color':         '#be185d',
+        'priority':      9 + level,
+        'pressure_type': 'kinetic',
     }]
 
 
 # ════════════════════════════════════════════════════════════════════
-# MAIN INTERPRETER WRAPPER
+# MAIN WRAPPER
 # ════════════════════════════════════════════════════════════════════
-
 def interpret_venezuela_signals(scan_data):
-    """
-    Main interpreter wrapper called by rhetoric_tracker_venezuela or
-    by external consumers (BLUF, GPI). Returns dict with:
-        - red_lines: list of triggered red line dicts
-        - executive_summary: dict with headline + paragraph
-        - so_what: dict with scenario / factor / description / watch_for
-        - red_lines_count: int (convenience)
-    """
-    red_lines_triggered    = check_red_lines(scan_data)
-    executive_summary      = build_executive_summary(scan_data)
-    commodity_top_signals  = build_commodity_coupling_signals(scan_data)
-    coalition_top_signals  = build_coalition_signals(scan_data)
-    so_what                = build_so_what_factor(scan_data, red_lines_triggered)
+    red_lines_all         = evaluate_red_lines(scan_data)
+    red_lines_breached    = [r for r in red_lines_all if r['status'] == 'breached']
+    red_lines_watch       = [r for r in red_lines_all if r['status'] != 'breached']
+    executive_summary     = build_executive_summary(scan_data, red_lines_all)
+    commodity_top_signals = build_commodity_coupling_signals(scan_data)
+    coalition_top_signals = build_coalition_signals(scan_data)
+    so_what               = build_so_what_factor(scan_data, red_lines_all)
+    milestones            = build_milestones(scan_data)
 
-    # Augment so-what watch_for with commodity-coupling alerts
-    # (sig['short_text'] already includes the icon, so don't double it)
-    if commodity_top_signals and 'watch_for' in so_what:
-        for sig in commodity_top_signals[:2]:
-            so_what['watch_for'].insert(0, sig['short_text'])
-
-    # Coalition convergence surfaces in the So-What (watch_for + narrative) at >=2 hubs
+    for sig in commodity_top_signals[:2]:
+        so_what['watch_for'].insert(0, sig['short_text'])
     if coalition_top_signals:
-        cs = coalition_top_signals[0]
-        if 'watch_for' in so_what:
-            so_what['watch_for'].insert(0, cs['short_text'])
-        _cdetail = (scan_data.get('coalition', {}) or {}).get('detail', {}) or {}
-        so_what['description'] = (
-            so_what.get('description', '').rstrip()
-            + f" Sponsor-coalition read: {_cdetail.get('reading', 'multiple sponsors converging')}"
-              f" -- multiple external patrons activating at once erode US leverage over Caracas."
-        )
-
-    # Earthquake legitimacy-strain surfaces in the So-What when the disaster is
-    # straining the transitional government's response (>=L2 political). Ties the
-    # legitimacy risk to the relief-as-access opening (the Coalition vector).
-    _eq_lvl = scan_data.get('earthquake_political_level', 0)
-    if _eq_lvl >= 2 and 'watch_for' in so_what:
-        so_what['watch_for'].insert(0,
-            f"🏚️ Post-quake legitimacy strain L{_eq_lvl} — transitional govt response capacity")
-        so_what['description'] = (
-            so_what.get('description', '').rstrip()
-            + f" Post-earthquake strain (L{_eq_lvl}): the disaster is testing the transitional"
-              f" government's response capacity -- a legitimacy risk for a nascent government, and"
-              f" an opening sponsors can exploit via relief-as-access."
-        )
+        so_what['watch_for'].insert(0, coalition_top_signals[0]['short_text'])
+        so_what['description'] = (so_what['description'].rstrip() +
+                                  ' Several outside sponsors are active at once, which gives '
+                                  'Caracas options beyond Washington.')
+    eq = scan_data.get('earthquake_political_level', 0)
+    if eq >= 2:
+        so_what['watch_for'].insert(0, 'Earthquake relief -- delays, anger, and who gets credit')
+        so_what['description'] = (so_what['description'].rstrip() +
+                                  ' The earthquake response is also testing the government; '
+                                  'outside sponsors can use relief as a way in.')
 
     return {
-        'red_lines':              red_lines_triggered,
-        'red_lines_count':        len(red_lines_triggered),
-        'executive_summary':      executive_summary,
-        'commodity_top_signals':  commodity_top_signals,
-        'coalition_top_signals':  coalition_top_signals,
-        'coalition':              scan_data.get('coalition', {}),
-        'so_what':                so_what,
+        'red_lines':             red_lines_breached,
+        'red_lines_count':       len(red_lines_breached),
+        'red_lines_watch':       red_lines_watch,
+        'red_lines_all':         red_lines_all,
+        'milestones':            milestones,
+        'executive_summary':     executive_summary,
+        'commodity_top_signals': commodity_top_signals,
+        'coalition_top_signals': coalition_top_signals,
+        'coalition':             scan_data.get('coalition', {}),
+        'so_what':               so_what,
     }
 
 
-# ════════════════════════════════════════════════════════════════════
-# MODULE LOAD
-# ════════════════════════════════════════════════════════════════════
-print(f'[VZ Interpreter] Module loaded — {len(RED_LINES)} red lines defined, MVP v1.0.0')
+print(f'[VZ Interpreter] Module loaded — {len(RED_LINES)} red lines, evidence-graded (v1.1.0)')
