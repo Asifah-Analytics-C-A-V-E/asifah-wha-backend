@@ -348,7 +348,7 @@ def get_commodity_fingerprint_pair(country, commodity, force=False):
 # WHA-active stability/rhetoric pages get their commodity pressure +
 # fingerprints proactively refreshed so users don't see slow first-loads.
 # Add new countries here as their pages ship.
-PROACTIVE_REFRESH_TARGETS = ['peru', 'cuba', 'chile', 'venezuela']
+PROACTIVE_REFRESH_TARGETS = ['peru', 'cuba', 'chile', 'venezuela', 'argentina', 'mexico', 'paraguay', 'canada']  # v1.0.1 Nov 4 2026: new WHA stability pages
 
 _refresh_lock = threading.Lock()
 _last_pressure_refresh    = {}   # target -> ts
@@ -471,7 +471,7 @@ def register_wha_commodity_proxy(app, start_background=True):
     def api_wha_commodity_debug():
         """Diagnostic — what's cached, how old, ME reachability."""
         debug = {
-            'version':                  '1.0.0',
+            'version':                  '1.0.1',
             'me_backend_url':           ME_BACKEND_URL,
             'pressure_cache_ttl_hours': COMMODITY_PRESSURE_TTL_SECONDS / 3600,
             'fingerprint_cache_ttl_hours': FINGERPRINT_TTL_SECONDS / 3600,

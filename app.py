@@ -239,7 +239,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 # CONFIGURATION
 # ========================================
 
-VERSION = '1.6.2'   # Nov 3 2026: WHA market quotes (6 pulses) | advisories from the State Dept JSON feed (matches ME) | Argentina/Paraguay/Canada, NOTAM route, military key, advisories | Nov 1 2026: Flight Watch (first flight sensor) | Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
+VERSION = '1.6.3'   # Nov 4 2026: regional sweep drops stale items (>10d) and counts real outlets behind Google News (evidence_gate) | 1.6.2 Nov 3 2026: WHA market quotes (6 pulses) | advisories from the State Dept JSON feed (matches ME) | Argentina/Paraguay/Canada, NOTAM route, military key, advisories | Nov 1 2026: Flight Watch (first flight sensor) | Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
 
 # v1.3.1 (Oct 3 2026) -- the UA now derives from VERSION above.
 # WHA was already the cleanest backend on the platform: two call sites, both
@@ -1346,6 +1346,14 @@ COUNTRY_CONFIG = {
 # gateway was carefully protecting, and spending Brave quota that appeared
 # in no budget. Optional imports: a missing file changes nothing except
 # what /health honestly reports.
+# v1.6.3: shared evidence rules for the regional sweep (stale filter + real outlet names)
+try:
+    from evidence_gate import drop_stale as _drop_stale, outlet_of as _outlet_of
+except ImportError:
+    _drop_stale = None
+    _outlet_of = None
+    print('[WHA] evidence_gate not available -- sweep keeps stale items and aggregator source names')
+
 try:
     from gdelt_gateway import gdelt_fetch as _gw_gdelt
     _GDELT_GATEWAY = True
@@ -1679,6 +1687,14 @@ REGIONAL_PRESSURE_TERMS = {
 
 
 def _regional_source_name(article):
+    # v1.6.3: the real outlet behind an aggregator. Google News items all
+    # carried source 'news.google.com', so 30 articles from 20 papers counted
+    # as ONE source (the Argentina read showed "1 outlet").
+    if _outlet_of is not None:
+        try:
+            return _outlet_of(article)
+        except Exception:
+            pass
     source = article.get('source', 'Unknown')
     if isinstance(source, dict):
         return source.get('name', 'Unknown')
@@ -1816,7 +1832,16 @@ def scan_country(country_id, days=7):
             seen_urls.add(url)
             unique_articles.append(a)
 
-    print(f'[WHA Scan] {country_id}: {len(unique_articles)} unique articles')
+    # v1.6.3: drop stale items (>10 days, readable dates only). The Argentina
+    # sweep was scoring the July AMIA anniversary coverage in November.
+    stale_dropped = 0
+    if _drop_stale is not None:
+        try:
+            unique_articles, stale_dropped = _drop_stale(unique_articles)
+        except Exception as _e:
+            print(f'[WHA Scan] stale filter skipped: {str(_e)[:80]}')
+
+    print(f'[WHA Scan] {country_id}: {len(unique_articles)} unique articles ({stale_dropped} stale dropped)')
 
     # ---- Scoring ----
     base = config['base_conflict_pct']

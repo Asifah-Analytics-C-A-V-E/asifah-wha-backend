@@ -1,6 +1,7 @@
 """
 evidence_gate.py -- Asifah Analytics -- SHARED MODULE (WHA backend)
-v1.0.0 -- Nov 4 2026
+v1.0.1 -- Nov 4 2026 (pm): outlet_of treats 'news.google.com' (any name containing
+          'google') as the aggregator, not the outlet. v1.0.0 Nov 4 2026.
 
 One set of evidence rules for every rhetoric tracker, so "a keyword is not a
 war" is enforced the same way everywhere instead of re-typed per tracker.
@@ -30,7 +31,7 @@ to any backend.
 import re
 from datetime import datetime, timezone
 
-__version__ = '1.0.0'
+__version__ = '1.0.1'
 
 MAX_ARTICLE_AGE_DAYS = 10
 CORROBORATION = 2
@@ -79,7 +80,7 @@ def outlet_of(article):
         return m.group(1).strip().lower()
     if re.match(r'(?i)^(gdelt|brave|newsapi|rss)\b', name):
         name = ''
-    if not name or name.lower().startswith('google'):
+    if not name or 'google' in name.lower():
         m = re.search(r'\s[-–—]\s([^-–—]{2,40})$', title)
         if m:
             return m.group(1).strip().lower()

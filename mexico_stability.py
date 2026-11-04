@@ -1,6 +1,14 @@
 """
 mexico_stability.py -- Mexico Financial Pulse module (WHA backend)
-v1.0.0 -- June 12, 2026
+v1.1.0 -- Nov 4, 2026   (v1.0.0 June 12, 2026)
+
+v1.1.0 (Nov 4 2026):
+  * PLAIN READ. Each tile carries `tier_text` (what the move means for
+    Mexico, in words) and the payload carries `read` -- one sentence the page
+    shows under the tiles. It names any tile that could not be fetched: a
+    missing tile is a fetch failure, never a quiet market.
+  * ?force=true is limited to one forced Yahoo pull per 15 minutes (same
+    public-force rule as the other WHA endpoints).
 
 Powers the Financial Pulse card on mexico-stability.html.
 Clones the canonical financial_pulse contract established by the Russia
@@ -43,7 +51,7 @@ import requests
 from datetime import datetime, timezone, timedelta
 from flask import request, jsonify
 
-VERSION = '1.0.0'
+VERSION = '1.1.0'
 CACHE_KEY = 'stability:mexico:financial_pulse'
 CACHE_TTL_HOURS = 12
 
@@ -207,6 +215,45 @@ def _bmv_market_status():
 
 
 # ------------------------------------------------------------
+# Plain words (v1.1.0)
+# ------------------------------------------------------------
+TIER_TEXT = {
+    'IPC': {'stress': 'Shares falling hard -- investors are pulling back from Mexico.',
+            'warning': 'Shares under some pressure.',
+            'stable': 'Shares steady.',
+            'rally': 'Shares rising strongly.'},
+    'MXNUSD': {'stress': 'The peso is falling fast -- the market\'s quickest read of tariff or cartel-strike fears.',
+               'warning': 'The peso is weakening.',
+               'stable': 'The peso is steady.',
+               'rally': 'The peso is strengthening.'},
+    'WTI': {'stress': 'Oil falling hard -- less money for Pemex and the budget.',
+            'warning': 'Oil softening -- a squeeze on Pemex revenue.',
+            'stable': 'Oil steady.',
+            'rally': 'Oil rising -- more revenue for Pemex.'},
+}
+_TILE_NAMES = {'IPC': 'the stock index', 'MXNUSD': 'the peso', 'WTI': 'oil'}
+
+
+def _pulse_read(tiles):
+    """One plain sentence for the page."""
+    missing = [_TILE_NAMES[k] for k in ('IPC', 'MXNUSD', 'WTI') if k not in tiles]
+    hot = [k for k, t in tiles.items() if t.get('tier') in ('stress', 'warning')]
+    if 'MXNUSD' in tiles and tiles['MXNUSD'].get('tier') == 'stress':
+        read = ('The peso is under stress -- in Mexico that is usually the first market sign of a '
+                'US tariff threat, a cartel-strike scare or a capital pull-back.')
+    elif hot:
+        read = 'Some pressure: ' + ' '.join(TIER_TEXT[k][tiles[k]['tier']] for k in hot if k in TIER_TEXT)
+    elif tiles:
+        read = 'Markets read calm: no tile moved past its stress band today.'
+    else:
+        read = ''
+    if missing:
+        read += (' Not read this cycle: ' + ', '.join(missing) +
+                 ' -- a fetch failure, not a quiet market.')
+    return read.strip()
+
+
+# ------------------------------------------------------------
 # Pulse builder
 # ------------------------------------------------------------
 def _build_financial_pulse():
@@ -256,10 +303,14 @@ def _build_financial_pulse():
     if not tiles:
         return None
 
+    for key, t in tiles.items():
+        t['tier_text'] = TIER_TEXT.get(key, {}).get(t.get('tier', 'stable'), '')
+
     return {
         'market_status': _bmv_market_status(),
         'updated_at': datetime.now(timezone.utc).isoformat(),
         'tiles': tiles,
+        'read': _pulse_read(tiles),
     }
 
 
@@ -276,6 +327,19 @@ def _is_fresh(payload):
 # ------------------------------------------------------------
 # Flask endpoint registration
 # ------------------------------------------------------------
+_FORCE_GAP_SECONDS = 15 * 60
+_last_forced = [0.0]
+
+
+def _force_allowed():
+    import time
+    now = time.time()
+    if now - _last_forced[0] < _FORCE_GAP_SECONDS:
+        return False
+    _last_forced[0] = now
+    return True
+
+
 def register_mexico_stability_endpoints(app):
 
     @app.route('/api/mexico/stability', methods=['GET', 'OPTIONS'])
@@ -284,6 +348,8 @@ def register_mexico_stability_endpoints(app):
             return '', 200
 
         force = request.args.get('force', 'false').lower() == 'true'
+        if force and not _force_allowed():
+            force = False   # v1.1.0: one forced Yahoo pull per 15 minutes
 
         if not force:
             cached = _redis_get(CACHE_KEY)
@@ -297,6 +363,7 @@ def register_mexico_stability_endpoints(app):
                 'success': True,
                 'country': 'mexico',
                 'financial_pulse': pulse,
+                'read': pulse.get('read', ''),
                 'last_updated': pulse['updated_at'],
                 'cached': False,
                 'version': VERSION,
