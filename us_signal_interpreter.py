@@ -508,6 +508,9 @@ def compute_top_signals(actor_results, articles, cross_theater_fps, capability=N
                 f"governance and foreign-policy signals."
             ),
             'severity': 'high' if exec_trip > 0 else 'medium',
+            # v1.4.0: pace is VOLUME. It stays on the page but enters the GPI
+            # governance axis only at L1 (context) unless escalation language hit.
+            'level': 2 if exec_trip > 0 else 1,
             'category': 'domestic',
             'actor_key': 'us_executive',
         })

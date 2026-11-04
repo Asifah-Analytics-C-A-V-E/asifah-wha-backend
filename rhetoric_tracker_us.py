@@ -1844,7 +1844,8 @@ _SEV_TO_LEVEL    = {'critical': 4, 'high': 3, 'medium': 2, 'low': 1}
 _SEV_TO_PRIORITY = {'critical': 12, 'high': 10, 'medium': 7, 'low': 4}
 _SEV_ICON        = {'critical': '🚨', 'high': '🔶', 'medium': '🔸', 'low': '·'}
 _KINETIC_HINTS   = ('cadence', 'capability', 'dod posture', 'pre-kinetic', 'the gap',
-                    'quiet preparation', 'credible buildup')
+                    'quiet preparation', 'credible buildup', 'pentagon', 'deterrence signalling',
+                    'force posture', 'forces are moving')   # v1.5.0: plain-word card titles
 
 
 def _canonicalize_signals(signals):
