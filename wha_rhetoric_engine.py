@@ -1,6 +1,6 @@
 """
 wha_rhetoric_engine.py -- Asifah Analytics -- SHARED MODULE (WHA backend)
-v1.0.0 -- Nov 4 2026
+v1.0.1 -- Nov 4 2026 (night)  (v1.0.0 Nov 4 2026 evening)
 
 ONE ENGINE, MANY COUNTRIES
 The Chile and Peru trackers are ~1,600 lines each, and ~1,300 of those lines
@@ -47,7 +47,7 @@ from urllib.parse import quote_plus
 
 import requests
 
-__version__ = '1.0.0'
+__version__ = '1.0.1'   # Nov 4 2026 night: no duplicate So What when an event bullet already covers its vector
 
 try:
     import feedparser
@@ -856,17 +856,23 @@ class CountryRhetoricTracker:
 
     def build_so_what(self, ctx):
         bullets = []
+        covered_vectors = set()        # v1.0.1: an event bullet already speaks for its vector
         for rule in self.c.get('so_what_rules', []):
             ids = set(rule['tripwires'])
+            hit = (ids & ctx['corro_ids']) or (ids & ctx['single_ids'] if rule.get('single') else set())
             if ids & ctx['corro_ids']:
                 bullets.append({'bullet': rule['confirmed'], 'weight': rule.get('weight', 5.0)})
             elif ids & ctx['single_ids'] and rule.get('single'):
                 bullets.append({'bullet': rule['single'], 'weight': rule.get('weight', 5.0) - 1.2})
+            for t in hit:
+                aid = (ctx['tw_by_id'].get(t) or {}).get('actor')
+                if aid in self.actors:
+                    covered_vectors.add(self.actors[aid]['vector'])
         d = ctx.get('drift')
         if d and d.get('band') in ('Contested', 'Drifting', 'Realigning'):
             bullets.append({'bullet': 'China and the US: ' + d['so_what_factor'], 'weight': 5.0})
         for vid, (w, text) in (self.c.get('vector_so_what') or {}).items():
-            if ctx['vector_levels'].get(vid) in ESCALATORY:
+            if ctx['vector_levels'].get(vid) in ESCALATORY and vid not in covered_vectors:
                 bullets.append({'bullet': text, 'weight': w})
         for fn in (self.c.get('extra_so_what') or []):
             try:

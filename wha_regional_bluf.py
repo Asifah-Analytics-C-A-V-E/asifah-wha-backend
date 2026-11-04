@@ -1,7 +1,7 @@
 """
 wha_regional_bluf.py
 Asifah Analytics -- Western Hemisphere Backend Module
-v2.8.0 -- Nov 4 2026  (v2.7.1 / v2.7.0 earlier today; v2.6.0 Nov 1 2026; v1.0.0 April 2026)
+v2.8.1 -- Nov 4 2026  (v2.8.1 night: Canada + Paraguay join TRACKER_KEYS; v2.8.0 evening; v2.7.1 / v2.7.0 earlier today; v2.6.0 Nov 1 2026; v1.0.0 April 2026)
 
 v2.8.0 (Nov 4 2026, evening): Mexico and Argentina join TRACKER_KEYS. Both run
   on the shared engine (wha_rhetoric_engine.py) and emit the canonical contract
@@ -96,6 +96,8 @@ TRACKER_KEYS = {
     'us':        'rhetoric:us:latest',          # Jun 13 2026 — command-node anchor (writes rhetoric:us:latest, no TTL)
     'mexico':    'rhetoric:mexico:latest',      # v2.8.0 Nov 4 2026 — shared engine (wha_rhetoric_engine)
     'argentina': 'rhetoric:argentina:latest',   # v2.8.0 Nov 4 2026 — shared engine (wha_rhetoric_engine)
+    'canada':    'rhetoric:canada:latest',      # v2.8.1 Nov 4 2026
+    'paraguay':  'rhetoric:paraguay:latest',    # v2.8.1 Nov 4 2026
     # Future WHA trackers slot in here:
     # 'haiti':      'rhetoric:haiti:latest',
     # 'panama':     'rhetoric:panama:latest',
@@ -111,6 +113,8 @@ THEATRE_FLAGS = {
     'haiti':     '\U0001f1ed\U0001f1f9',  # 🇭🇹
     'mexico':    '\U0001f1f2\U0001f1fd',  # 🇲🇽
     'argentina': '\U0001f1e6\U0001f1f7',  # 🇦🇷
+    'canada':    '\U0001f1e8\U0001f1e6',  # 🇨🇦
+    'paraguay':  '\U0001f1f5\U0001f1fe',  # 🇵🇾
     'panama':    '\U0001f1f5\U0001f1e6',  # 🇵🇦
     'colombia':  '\U0001f1e8\U0001f1f4',  # 🇨🇴
     'brazil':    '\U0001f1e7\U0001f1f7',  # 🇧🇷
@@ -125,6 +129,8 @@ THEATRE_DISPLAY = {
     'haiti':     'HAITI',
     'mexico':    'MEXICO',
     'argentina': 'ARGENTINA',
+    'canada':    'CANADA',
+    'paraguay':  'PARAGUAY',
     'panama':    'PANAMA',
     'colombia':  'COLOMBIA',
     'brazil':    'BRAZIL',
@@ -998,6 +1004,8 @@ THEATRE_DISPLAY_NAMES = {
     'haiti':     'Haiti',
     'mexico':    'Mexico',
     'argentina': 'Argentina',
+    'canada':    'Canada',
+    'paraguay':  'Paraguay',
     'panama':    'Panama',
     'colombia':  'Colombia',
     'brazil':    'Brazil',
