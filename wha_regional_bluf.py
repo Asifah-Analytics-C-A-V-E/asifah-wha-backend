@@ -1,7 +1,7 @@
 """
 wha_regional_bluf.py
 Asifah Analytics -- Western Hemisphere Backend Module
-v2.8.1 -- Nov 4 2026  (v2.8.1 night: Canada + Paraguay join TRACKER_KEYS; v2.8.0 evening; v2.7.1 / v2.7.0 earlier today; v2.6.0 Nov 1 2026; v1.0.0 April 2026)
+v2.9.0 -- Nov 4 2026  (v2.9.0: polar gateway signals (gateway:arctic / gateway:antarctic) join the pool at L2+; v2.8.1 night: Canada + Paraguay join TRACKER_KEYS; v2.8.0 evening; v2.7.1 / v2.7.0 earlier today; v2.6.0 Nov 1 2026; v1.0.0 April 2026)
 
 v2.8.0 (Nov 4 2026, evening): Mexico and Argentina join TRACKER_KEYS. Both run
   on the shared engine (wha_rhetoric_engine.py) and emit the canonical contract
@@ -1719,6 +1719,47 @@ def _build_convergence_panel():
         return None
 
 
+# ════════════════════════════════════════════════════════════════════
+# v2.9.0 (Nov 4 2026): POLAR GATEWAYS -- spokes on the chokepoint wheel
+# ════════════════════════════════════════════════════════════════════
+# polar_gateways.py writes gateway:arctic and gateway:antarctic. At L2+ each
+# becomes ONE signal here, with an explicit `countries` list so the GPI tags
+# the gateway states (and never a single claimant of disputed waters).
+_GATEWAY_PRESSURE = {'coupling': 'economic', 'volume': 'economic'}
+
+
+def _merge_polar_gateway_signals(signals):
+    out = list(signals or [])
+    for gid in ('arctic', 'antarctic'):
+        g = _redis_get('gateway:%s' % gid)
+        if not isinstance(g, dict):
+            continue
+        lvl = _safe_int(g.get('level'))
+        if lvl < 2:
+            continue
+        top = max(g.get('events') or [{}], key=lambda e: _safe_int(e.get('level')))
+        kinetic = top.get('event') in ('unauthorized_transit', 'arctic_clash', 'south_atlantic_incident',
+                                       'adversary_vessel') and top.get('lane') == 'corroborated'
+        ptype = 'kinetic' if kinetic else _GATEWAY_PRESSURE.get(g.get('lane'), 'economic')
+        out.append({
+            'priority':      {2: 7, 3: 10, 4: 12}.get(lvl, 7),
+            'category':      'polar_gateway',
+            'type':          'polar_gateway',
+            'theatre':       '%s_gateway' % gid,
+            'countries':     list(g.get('countries') or []),
+            'level':         lvl,
+            'level_name':    ['low', 'normal', 'elevated', 'high', 'surge'][min(4, lvl)],
+            'pressure_type': ptype,
+            'icon':          g.get('icon') or '🧭',
+            'color':         '#38bdf8' if lvl < 3 else '#f97316',
+            'short_text':    '%s: %s' % (g.get('name', gid.title()), g.get('sentence', ''))[:230],
+            'long_text':     (g.get('sentence', '') + ' ' + g.get('so_what', '')).strip(),
+            'meaning':       g.get('so_what', ''),
+        })
+    out.sort(key=lambda s: _safe_int(s.get('priority')), reverse=True)
+    return out
+
+
 def build_regional_bluf(force=False):
     """
     Build the WHA regional BLUF. Reads all WHA caches, synthesizes,
@@ -1766,6 +1807,7 @@ def build_regional_bluf(force=False):
             bluf_v2_md = None
             bluf_v2 = []
         all_signals = _build_signals(posture, trackers)            # v2.3.0: full pool — for GPI axis aggregation
+        all_signals = _merge_polar_gateway_signals(all_signals)    # v2.9.0: Arctic / Antarctic gateways
         all_signals = _wha_tag_signal_axes(all_signals)            # Jun 13 2026: multi-axis pills
         top_signals = all_signals[:TOP_SIGNALS_COUNT]                # v2.3.0: capped for display
 
