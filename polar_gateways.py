@@ -52,7 +52,7 @@ from urllib.parse import quote_plus
 
 import requests
 
-__version__ = '1.0.0'
+__version__ = '1.0.1'   # Nov 5 2026: quiet partner chokepoints read 'open' from the military scan, not 'Not reporting'
 
 try:
     import feedparser
@@ -256,12 +256,34 @@ def _google(q, hl, gl):
     return out
 
 
+def _military_postures(reader):
+    """v1.0.1 (Nov 5 2026): the military tracker's full scan lists every WATCHED
+    chokepoint, quiet ones included ('open', signal_count 0). The per-chokepoint
+    fingerprints are written only when there ARE signals, so reading those alone
+    turned a quiet Red Sea into "Not reporting". Fresh scan only (< 14h)."""
+    try:
+        d = reader('military_tracker_cache') or {}
+        ts = d.get('last_updated')
+        if not ts:
+            return {}
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(str(ts).replace('Z', '+00:00'))).total_seconds()
+        return (d.get('chokepoint_postures') or {}) if age < 14 * 3600 else {}
+    except Exception:
+        return {}
+
+
 def _partner_status(chokepoints, reader):
-    """Worst status across the partner chokepoints, from the military tracker's
-    fingerprints. Missing = unread (the tracker writes only when it has signals)."""
+    """Worst status across the partner chokepoints. Fingerprint first; then the
+    military tracker's fresh full scan (which lists quiet watched chokepoints as
+    open). Only when neither has it is it unread."""
     best, rows = None, []
+    postures = None
     for cp in chokepoints:
         fp = reader('military:chokepoint:%s' % cp) or {}
+        if not fp.get('alert_level'):
+            if postures is None:
+                postures = _military_postures(reader)
+            fp = postures.get(cp) or {}
         lvl = fp.get('alert_level')
         rows.append({'chokepoint': cp, 'status': lvl or 'unread', 'label': fp.get('alert_label') or 'Not reporting',
                      'signal_count': fp.get('signal_count', 0), 'scanned_at': fp.get('scanned_at')})
