@@ -112,7 +112,7 @@ DEFAULT_MAX_ARTICLES   = 25
 UPSTASH_URL   = os.environ.get('UPSTASH_REDIS_URL', '') or os.environ.get('UPSTASH_REDIS_REST_URL', '')
 UPSTASH_TOKEN = os.environ.get('UPSTASH_REDIS_TOKEN', '') or os.environ.get('UPSTASH_REDIS_REST_TOKEN', '')
 NEWSAPI_KEY   = os.environ.get('NEWSAPI_KEY', '')   # legacy; deleted from Render 18 Oct 2026
-TRACKER_VERSION = '1.6.0'   # Nov 4 2026 late: US wheel spoke count (how many hub spokes are reporting) + RSS with articles reads 'partial' even when some feeds 403 | 1.5.1: Nov 4 2026 pm: So What leads with the election result in the post-election window; RSS with some failed feeds reads 'partial', not 'http error' | 1.5.0 Nov 4 2026: results phase -- hedged mentions skipped, rung-2 needs corroboration, acceptance/concession lane, reported chamber control, plain headline | 1.4.1 Nov 1: pre-election gating, commentary + past-cycle guards
+TRACKER_VERSION = '1.6.1'   # Nov 6 2026: chamber-control call is attributed (N outlets, not certified) | 1.6.0 Nov 4 2026 late: US wheel spoke count (how many hub spokes are reporting) + RSS with articles reads 'partial' even when some feeds 403 | 1.5.1: Nov 4 2026 pm: So What leads with the election result in the post-election window; RSS with some failed feeds reads 'partial', not 'http error' | 1.5.0 Nov 4 2026: results phase -- hedged mentions skipped, rung-2 needs corroboration, acceptance/concession lane, reported chamber control, plain headline | 1.4.1 Nov 1: pre-election gating, commentary + past-cycle guards
 # v1.4.0: NewsAPI through the shared gateway (budget, cache, stand-down).
 try:
     from newsapi_gateway import newsapi_fetch_probed as _newsapi_gw
@@ -2234,7 +2234,10 @@ def _governance_block(articles, cross_theater_fps, mobilization):
     if sensed and level <= 1 and post_election:
         parts = []
         if results_bits:
-            parts.append('Reporting says ' + ' and '.join(results_bits) + ' (called by the media, not yet certified)')
+            _n = max([(control.get(ch) or {}).get('sources_' + (_w[ch] or ''), 0) for ch in ('house', 'senate')
+                      if _w[ch]] or [0])
+            parts.append('Reporting says ' + ' and '.join(results_bits)
+                         + ' (called by %d outlet%s in the media, not yet certified)' % (_n, '' if _n == 1 else 's'))
         else:
             parts.append('Results are being counted and called')
         if accepted:
@@ -2242,7 +2245,14 @@ def _governance_block(articles, cross_theater_fps, mobilization):
         parts.append('no disputes, threats or federal interference corroborated')
         headline = '; '.join(parts)
     elif sensed and post_election and results_bits:
-        headline += ' | ' + '; '.join(results_bits)
+        # Nov 6 2026: say who says so. The bare "Democrats won the House and the
+        # Senate" travelled to the GPI voice as flat fact.
+        _n = max([(control.get(ch) or {}).get('sources_' + (_w[ch] or ''), 0) for ch in ('house', 'senate')
+                  if _w[ch]] or [0])
+        _ex = next(((control.get(ch) or {}).get('example') or {} for ch in ('house', 'senate') if _w[ch]), {})
+        headline += (' | reporting says ' + ' and '.join(results_bits)
+                     + ' (called by %d outlet%s%s; not yet certified)'
+                     % (_n, '' if _n == 1 else 's', (', e.g. ' + _ex['source']) if _ex.get('source') else ''))
 
     so_what = [_GOV_SO_WHAT[c] for c in drivers if c in _GOV_SO_WHAT][:3]
     # v1.5.0 -- what a change of control MEANS (reported, not yet certified)
