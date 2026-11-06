@@ -239,7 +239,7 @@ CORS(app, resources={r"/*": {"origins": "*"}})
 # CONFIGURATION
 # ========================================
 
-VERSION = '1.6.7'   # Nov 4 2026 (late night): polar gateways | 1.6.6 Canada + Paraguay rhetoric trackers | 1.6.5 Nov 4 2026 (eve): Mexico + Argentina rhetoric trackers (shared engine) | 1.6.4 Nov 4 2026 (late): Hizballah LatAm module | 1.6.3 Nov 4 2026: regional sweep drops stale items (>10d) and counts real outlets behind Google News (evidence_gate) | 1.6.2 Nov 3 2026: WHA market quotes (6 pulses) | advisories from the State Dept JSON feed (matches ME) | Argentina/Paraguay/Canada, NOTAM route, military key, advisories | Nov 1 2026: Flight Watch (first flight sensor) | Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
+VERSION = '1.6.8'   # Nov 6 2026: card scores kept 36h, page loads never scan, no made-up % for unscanned cards, /api/wha/cache-status | 1.6.7 Nov 4 2026 (late night): polar gateways | 1.6.6 Canada + Paraguay rhetoric trackers | 1.6.5 Nov 4 2026 (eve): Mexico + Argentina rhetoric trackers (shared engine) | 1.6.4 Nov 4 2026 (late): Hizballah LatAm module | 1.6.3 Nov 4 2026: regional sweep drops stale items (>10d) and counts real outlets behind Google News (evidence_gate) | 1.6.2 Nov 3 2026: WHA market quotes (6 pulses) | advisories from the State Dept JSON feed (matches ME) | Argentina/Paraguay/Canada, NOTAM route, military key, advisories | Nov 1 2026: Flight Watch (first flight sensor) | Oct 3 2026 -- one derived User-Agent (was hardcoded 1.0)
 
 # v1.3.1 (Oct 3 2026) -- the UA now derives from VERSION above.
 # WHA was already the cleanest backend on the platform: two call sites, both
@@ -508,7 +508,10 @@ def cache_get(key):
 
 def cache_set(key, value):
     value['cached_at'] = datetime.now(timezone.utc).isoformat()
-    ok = _redis_set(key, value)
+    # v1.6.8: card scores keep 3 cycles (36h). They expired at 12h -- the same
+    # length as the refresh cycle -- so every score vanished before its rescan.
+    ttl = CACHE_TTL_HOURS * 3600 * 3 if str(key).startswith('wha:threat:') else None
+    ok = _redis_set(key, value, ttl_seconds=ttl)
     if ok:
         print(f'[WHA Cache] Redis write: {key}')
     _file_set(key, value)
@@ -1984,6 +1987,7 @@ def scan_country(country_id, days=7):
 
 _scan_locks = {c: threading.Lock() for c in WHA_COUNTRIES}
 _scan_running = {c: False for c in WHA_COUNTRIES}
+_SCAN_LAST = {}   # v1.6.8: country -> last background result (this instance)
 
 
 def _background_scan_country(country_id, days=7):
@@ -1997,7 +2001,11 @@ def _background_scan_country(country_id, days=7):
         if result:
             cache_set(f'wha:threat:{country_id}', result)
             print(f'[WHA Background] {country_id} cached OK')
+        _SCAN_LAST[country_id] = {'at': datetime.now(timezone.utc).isoformat(),
+                                  'ok': bool(result), 'note': '' if result else 'scan returned nothing'}
     except Exception as e:
+        _SCAN_LAST[country_id] = {'at': datetime.now(timezone.utc).isoformat(),
+                                  'ok': False, 'note': f'{type(e).__name__}: {str(e)[:160]}'}
         print(f'[WHA Background] {country_id} error: {e}')
     finally:
         with _scan_locks[country_id]:
@@ -2336,7 +2344,15 @@ def api_wha_threat(country_id):
             ).start()
             return jsonify(cached)
 
-    # Force or no cache -- run scan now
+        # v1.6.8: nothing stored and not forced -> never scan on a page load.
+        threading.Thread(target=_background_scan_country,
+                         args=(country_id, days), daemon=True).start()
+        return jsonify({'success': True, 'country': country_id,
+                        'conflict_probability': None, 'awaiting_scan': True,
+                        'last_updated': None,
+                        'message': 'No stored scan yet -- background scan queued.'})
+
+    # Force (Scan OSINT button) -- run scan now
     result = scan_country(country_id, days=days)
     if result:
         cache_set(cache_key, result)
@@ -2393,9 +2409,11 @@ def api_wha_stability(country_id):
         'country': country_id,
         'country_name': config.get('name', country_id),
         'flag': config.get('flag', ''),
-        'conflict_probability': base,
-        'level': level,
-        'level_label': label,
+        # v1.6.8: no made-up % for an unscanned card (was the hand-set base).
+        'conflict_probability': None,
+        'awaiting_scan': True,
+        'level': None,
+        'level_label': 'Awaiting first scan',
         'context': config.get('context', ''),
         'articles_scanned': 0,
         'last_updated': None,
@@ -2404,6 +2422,27 @@ def api_wha_stability(country_id):
         'message': 'Initial scan in progress. Data will populate within 2-3 minutes.',
         'version': VERSION
     })
+
+
+@app.route('/api/wha/cache-status', methods=['GET'])
+def api_wha_cache_status():
+    """v1.6.8 -- every card: stored? how old? last background result (this instance)."""
+    now = datetime.now(timezone.utc)
+    rows = {}
+    for cid in WHA_COUNTRIES:
+        cached = cache_get(f'wha:threat:{cid}')
+        row = {'cached': bool(cached), 'refresh_every_h': 12,
+               'scan_running': bool(_scan_running.get(cid)),
+               'last_background_try': _SCAN_LAST.get(cid)}
+        if cached:
+            try:
+                row['age_hours'] = round((now - datetime.fromisoformat(cached.get('cached_at'))).total_seconds() / 3600, 1)
+            except Exception:
+                row['age_hours'] = 'unknown'
+            row['probability'] = cached.get('conflict_probability')
+        rows[cid] = row
+    return jsonify({'success': True, 'version': VERSION,
+                    'timestamp': now.isoformat(), 'targets': rows})
 
 
 @app.route('/api/wha/countries', methods=['GET'])
@@ -2420,10 +2459,14 @@ def api_wha_countries():
             level_label  = cached.get('level_label', '')
             last_updated = cached.get('last_updated', '')
         else:
-            conflict_pct = base
-            level        = 'medium'
-            level_label  = config.get('labels', {}).get('medium', 'Pending')
+            # v1.6.8: no stored scan -> say so. The old fallback showed the
+            # hand-set base_conflict_pct as if it had been read.
+            conflict_pct = None
+            level        = None
+            level_label  = 'Awaiting first scan'
             last_updated = None
+            threading.Thread(target=_background_scan_country,
+                             args=(country_id, 7), daemon=True).start()
 
         summaries.append({
             'country': country_id,
@@ -2436,7 +2479,7 @@ def api_wha_countries():
             'cached': bool(cached)
         })
 
-    summaries.sort(key=lambda x: x['conflict_probability'], reverse=True)
+    summaries.sort(key=lambda x: (x['conflict_probability'] if x['conflict_probability'] is not None else -1), reverse=True)
 
     return jsonify({
         'success': True,
