@@ -1,5 +1,5 @@
 """
-rhetoric_tracker_paraguay.py -- Paraguay Rhetoric & Pressure Tracker v1.0.0
+rhetoric_tracker_paraguay.py -- Paraguay Rhetoric & Pressure Tracker v1.1.0
 Asifah Analytics -- WHA backend -- built Nov 4 2026 (shared engine: wha_rhetoric_engine.py)
 
 THE SO WHAT (why Paraguay matters)
@@ -18,8 +18,15 @@ THE SO WHAT (why Paraguay matters)
 Honesty rule (Hizballah): the local effect is crime and money; the So What is
 money flowing to Lebanon. Attack risk needs 2+ outlets reporting a plot.
 
-Dated facts (re-verify ~Dec 19 2026): President Santiago Peña (Colorado, Aug 2023-
-Aug 2028, single term); Peña reaffirmed Taiwan ties in Taipei May 7 2026;
+v1.1.0 (Nov 6 2026): Peña resigned on Nov 5 2026 as the Chamber of Deputies moved
+to impeach him; the tracker only knew "impeachment move" (L3) and its background
+still said "his single term ends in 2028". Added: president_resigns /
+president_removed tripwires (L4, governance crisis), a red line for a president
+forced out, a So What that asks the unasked question (does the Taiwan tie
+survive a new government?), and a dated background line.
+
+Dated facts (re-verify ~Dec 19 2026): Santiago Peña (Colorado) took office Aug 2023
+for a single term to 2028 and RESIGNED Nov 5 2026 ahead of impeachment; Peña reaffirmed Taiwan ties in Taipei May 7 2026;
 Hizballah listed as terrorist 2019; US sanctions on Cartes 2023; 2020 Pedro Juan
 Caballero prison escape (75 inmates, mostly PCC); Itaipú debt paid off 2023,
 Annex C renegotiation open.
@@ -29,7 +36,7 @@ COPYRIGHT (c) 2025-2026 Asifah Analytics. All rights reserved.
 
 from wha_rhetoric_engine import CountryRhetoricTracker
 
-VERSION = '1.0.0'
+VERSION = '1.1.0'
 
 ACTORS = {
     'pena_government': {
@@ -40,7 +47,17 @@ ACTORS = {
                      'gobierno paraguayo', 'paraguayan government', 'congreso paraguayo', 'senado paraguayo',
                      'camara de diputados', 'juicio politico', 'gabinete'],
         'tripwires': [
-            ('impeachment_move', 3, ['juicio politico a pena', 'juicio politico al presidente', 'impeachment pena']),
+            ('impeachment_move', 3, ['juicio politico a pena', 'juicio politico al presidente', 'impeachment pena',
+                                    'juicio politico contra pena', 'juicio politico contra santiago pena',
+                                    'impeach pena', 'impeachment against pena']),
+            # v1.1.0 (Nov 6 2026): a head of state forced out is a governance crisis (L4)
+            ('president_resigns', 4, ['renuncia de pena', 'pena renuncia', 'renuncio pena', 'renuncio el presidente',
+                                      'renuncia del presidente', 'renuncia a la presidencia', 'pena resigns',
+                                      'pena resigned', 'resignation of president pena', 'paraguay president resigns',
+                                      'paraguayan president resigns']),
+            ('president_removed', 4, ['destituyen a pena', 'pena destituido', 'destitucion de pena',
+                                      'destitucion del presidente', 'senado destituye', 'pena removed from office',
+                                      'pena ousted', 'removed from office in paraguay']),
             ('cabinet_crisis', 2, ['crisis de gabinete', 'renuncia masiva de ministros']),
         ],
     },
@@ -141,6 +158,10 @@ VECTORS = {
 }
 
 RED_LINES = [
+    {'id': 'forced_out', 'label': 'The president is forced out (resignation under pressure or removal)',
+     'tripwires': ['president_resigns', 'president_removed'],
+     'why': 'A stable, single-party system losing its head of state mid-term is the governance break the tracker exists '
+            'to catch; succession, the Cartes faction and the Taiwan tie all reopen at once.'},
     {'id': 'switch', 'label': 'Paraguay switches recognition from Taiwan to Beijing', 'tripwires': ['switch_to_beijing'],
      'why': 'Taiwan would lose its last South American ally and Beijing would complete the continent.'},
     {'id': 'plot', 'label': 'A terror plot or attack (2+ outlets)', 'tripwires': ['terror_plot'],
@@ -185,8 +206,10 @@ MEANINGS = {
         'not_implied': 'Tariff talks are routine; a suspension would not be.',
     },
     'politics': {
-        'plain': ('Santiago Peña (Colorado Party) has been president since August 2023; his single term ends in 2028. '
-                  'Ex-president Horacio Cartes, sanctioned by the US in 2023, leads the party\'s dominant faction.'),
+        'plain': ('Santiago Peña (Colorado Party) took office in August 2023 for a single term to 2028; on Nov 5 2026 he '
+                  'resigned as the Chamber of Deputies moved to impeach him (background dated Nov 6 2026 -- check the '
+                  'live read for what followed). Ex-president Horacio Cartes, sanctioned by the US in 2023, leads the '
+                  'party\'s dominant faction.'),
         'not_implied': 'Political news volume is not instability.',
     },
     'us': {
@@ -197,6 +220,8 @@ MEANINGS = {
 
 TRIPWIRE_PLAIN = {
     'impeachment_move': ('an impeachment move against Peña', 'governance'),
+    'president_resigns': ('the president resigning under pressure', 'governance'),
+    'president_removed': ('the president removed from office', 'governance'),
     'cabinet_crisis': ('a cabinet crisis', 'governance'),
     'new_us_sanctions': ('new US sanctions on Paraguayan figures', 'diplomatic'),
     'cartes_charged': ('criminal charges against Horacio Cartes', 'governance'),
@@ -216,7 +241,8 @@ TRIPWIRE_PLAIN = {
     'us_troop_presence': ('US troops in Paraguay', 'diplomatic'),
 }
 TRIPWIRE_MEANING = {
-    'impeachment_move': 'politics', 'cabinet_crisis': 'politics', 'new_us_sanctions': 'politics',
+    'impeachment_move': 'politics', 'president_resigns': 'politics', 'president_removed': 'politics',
+    'cabinet_crisis': 'politics', 'new_us_sanctions': 'politics',
     'cartes_charged': 'politics', 'terror_plot': 'tba', 'hizballah_arrest': 'tba', 'laundering_bust': 'tba',
     'prison_break': 'crime', 'prison_riot': 'crime', 'official_killed': 'crime', 'switch_to_beijing': 'taiwan',
     'switch_motion': 'taiwan', 'taiwan_reaffirmed': 'taiwan', 'itaipu_dispute': 'itaipu', 'itaipu_deal': 'itaipu',
@@ -224,6 +250,13 @@ TRIPWIRE_MEANING = {
 }
 
 SO_WHAT_RULES = [
+    {'tripwires': ['president_resigns', 'president_removed'], 'weight': 6.5,
+     'confirmed': ('Paraguay\'s president has been forced out mid-term, confirmed by 2+ outlets. The unasked question is '
+                   'not who governs next week but what the transition reopens: the Cartes faction\'s grip on the '
+                   'Colorado Party, the Itaipú money, and the Taiwan tie -- a new government is the moment Beijing\'s '
+                   'beef-and-soy offer is easiest to accept.'),
+     'single': ('One outlet reports the president resigning or being removed; wait for a second before reading it as a '
+                'governance crisis.')},
     {'tripwires': ['switch_to_beijing'], 'weight': 7.5,
      'confirmed': ('Paraguay has switched recognition to Beijing, confirmed by 2+ outlets. Taiwan has no ally left in '
                    'South America; watch Washington\'s response and the beef and soy contracts that follow.'),
