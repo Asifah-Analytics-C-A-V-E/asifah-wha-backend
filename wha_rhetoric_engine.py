@@ -47,7 +47,7 @@ from urllib.parse import quote_plus
 
 import requests
 
-__version__ = '1.0.1'   # Nov 4 2026 night: no duplicate So What when an event bullet already covers its vector
+__version__ = '1.0.2'   # Nov 11 2026: the theatre read names what happened instead of 'X reads level N this cycle' | v1.0.1 Nov 4 2026 night: no duplicate So What when an event bullet already covers its vector
 
 try:
     import feedparser
@@ -722,7 +722,19 @@ class CountryRhetoricTracker:
         names = {vid: v.get('plain') or v['name'].lower() for vid, v in self.vectors.items()}
         busy = [names[v] for v, lv in vector_levels.items() if lv in ESCALATORY]
         hot = [names[v] for v, lv in vector_levels.items() if lv in ('high', 'surge')]
-        if hot:
+        # v1.0.2 (Nov 11 2026): lead with WHAT was confirmed, by name. The old
+        # opening ("Paraguay reads level 4 this cycle.") repeated the chip and
+        # was the first thing the maps, the BLUF and the GPI showed.
+        tw = [t for t in (ctx.get('tw_by_id') or {}).values() if t['id'] not in (ctx.get('green_ids') or set())]
+        sevk = lambda t: -LEVEL_INT.get(t.get('severity'), 3)
+        corro = [self.tw_plain(t['id'])[0] for t in sorted((t for t in tw if t['grade'] == 'corroborated'), key=sevk)]
+        single = [self.tw_plain(t['id'])[0] for t in sorted((t for t in tw if t['grade'] == 'single_source'), key=sevk)]
+        def _list(xs):
+            xs = xs[:3]
+            return xs[0] if len(xs) == 1 else ', '.join(xs[:-1]) + ' and ' + xs[-1]
+        if corro:
+            short = '%s: %s -- confirmed by 2+ outlets' % (self.name, corro[0])
+        elif hot:
             short = '%s: confirmed high-impact reporting on %s' % (self.name, ' and '.join(hot[:2]))
         elif busy:
             short = '%s: busier than usual on %s -- more news, nothing high-impact confirmed' % (
@@ -731,12 +743,18 @@ class CountryRhetoricTracker:
             short = '%s: thin coverage this cycle -- unread, not calm' % self.name
         else:
             short = '%s: quiet -- nothing high-impact confirmed' % self.name
-        parts = ['%s reads level %d this cycle.' % (self.name, level)]
+        parts = []
+        if corro:
+            parts.append('Confirmed by 2+ outlets: %s.' % _list(corro))
+        if single:
+            parts.append('One outlet only (not yet confirmed): %s.' % _list(single))
         if busy:
             parts.append('Reporting is above its usual level on ' + ', '.join(busy) + '.')
-        parts.append('At least one high-impact event is confirmed by more than one outlet.' if hot else
-                     'Volume alone never lifts %s above "elevated"; nothing high-impact is confirmed.' % self.name)
-        return short[:230], ' '.join(parts)
+        if not corro:
+            parts.append('At least one high-impact event is confirmed by more than one outlet.' if hot else
+                         'Volume alone never lifts %s above "elevated"; nothing high-impact is confirmed.' % self.name)
+        text = ' '.join(parts)
+        return short[:230], text[0].upper() + text[1:]
 
     def build_top_signals(self, ctx):
         sigs = []

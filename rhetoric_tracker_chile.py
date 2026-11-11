@@ -1218,7 +1218,7 @@ def _build_chile_signal_text(theatre_level, theatre_score, vector_levels, actor_
         short = 'Chile: busier than usual on ' + ' and '.join(busy[:2]) + ' -- more news, nothing high-impact confirmed'
     else:
         short = 'Chile: quiet -- nothing high-impact confirmed'
-    long_parts = [f'Chile reads level {theatre_level} this cycle.']
+    long_parts = []   # Nov 11 2026: was 'Chile reads level N this cycle.' -- it only repeated the chip
     if busy:
         long_parts.append('Reporting is above its usual level on ' + ', '.join(busy) + '.')
     if hot:

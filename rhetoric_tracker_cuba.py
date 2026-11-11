@@ -2252,7 +2252,7 @@ def _build_cuba_signal_text(theatre_level, vectors, civ_press_lvl, civ_press_lab
     if adv >= 3:
         bits.append('Russia / China / Iran activity')
     short = 'Cuba: ' + (', '.join(bits) if bits else 'no strong signal this cycle')
-    long_parts = [f'Cuba reads level {theatre_level} this cycle.']
+    long_parts = []   # Nov 11 2026: was 'Cuba reads level N this cycle.' -- it only repeated the chip
     if civ_press_lvl >= 2:
         long_parts.append(f'Everyday hardship: {civ_press_label.lower()} (power, fuel, food, medicine).')
     long_parts.append(f'US pressure {us_p}, street protest {fracture}, outside-power activity {adv} '
