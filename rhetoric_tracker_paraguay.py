@@ -1,5 +1,5 @@
 """
-rhetoric_tracker_paraguay.py -- Paraguay Rhetoric & Pressure Tracker v1.1.0
+rhetoric_tracker_paraguay.py -- Paraguay Rhetoric & Pressure Tracker v1.2.0
 Asifah Analytics -- WHA backend -- built Nov 4 2026 (shared engine: wha_rhetoric_engine.py)
 
 THE SO WHAT (why Paraguay matters)
@@ -25,6 +25,22 @@ president_removed tripwires (L4, governance crisis), a red line for a president
 forced out, a So What that asks the unasked question (does the Taiwan tie
 survive a new government?), and a dated background line.
 
+v1.2.0 (Nov 11 2026): THE UENO CRISIS. The tracker knew Peña fell but not why.
+The digital lender ueno bank failed: the central bank (BCP) opened resolution on
+Nov 2 2026 (solvency below half the legal minimum), cutting nearly 3 million
+customers off from their money, with ~US$850M of public-sector deposits
+(pension and health funds) reported inside. The guaraní slid (~5,900 -> 6,500
+per dollar, Oct 30 -> Nov 5) and USDT traded at a premium as people ran to
+crypto. Peña offered his resignation Nov 5 and was removed; Vice President
+Pedro Alliana (Colorado Party chair, a Cartes ally) serves to Aug 2028. Taipei
+said Nov 6 the tie is unaffected; Alliana backs Taiwan.
+Added: a Banking & Guaraní vector (financial_system actor: resolution, deposit
+freeze, bank run / contagion, withdrawal limits, public funds hit, guaraní
+slide, crypto flight, depositors repaid, IMF / bailout), a contagion red line,
+a depositors-repaid green line, Alliana keywords, and a So What that asks the
+unasked question: WHO LENDS PARAGUAY THE MONEY to make depositors whole --
+and does Taipei's tie survive if Beijing can lend more?
+
 Dated facts (re-verify ~Dec 19 2026): Santiago Peña (Colorado) took office Aug 2023
 for a single term to 2028 and RESIGNED Nov 5 2026 ahead of impeachment; Peña reaffirmed Taiwan ties in Taipei May 7 2026;
 Hizballah listed as terrorist 2019; US sanctions on Cartes 2023; 2020 Pedro Juan
@@ -36,14 +52,16 @@ COPYRIGHT (c) 2025-2026 Asifah Analytics. All rights reserved.
 
 from wha_rhetoric_engine import CountryRhetoricTracker
 
-VERSION = '1.1.0'
+VERSION = '1.2.0'
 
 ACTORS = {
     'pena_government': {
-        'name': 'Peña Government', 'flag': '🇵🇾', 'icon': '🏛️', 'vector': 'governance',
-        'role': 'President Santiago Peña (Colorado, 2023-2028), cabinet, Congress',
+        # key kept for continuity (Redis history); the actor is the presidency, whoever holds it
+        'name': 'The Presidency', 'flag': '🇵🇾', 'icon': '🏛️', 'vector': 'governance',
+        'role': 'President Pedro Alliana (Colorado, from Nov 2026 to Aug 2028; Peña removed Nov 2026), cabinet, Congress',
         'baseline': 10,
-        'keywords': ['santiago pena', 'presidente pena', 'gobierno de pena', 'pena palmieri', 'mburuvicha roga', 'palacio de lopez',
+        'keywords': ['pedro alliana', 'presidente alliana', 'gobierno de alliana', 'alliana',
+                     'santiago pena', 'presidente pena', 'gobierno de pena', 'pena palmieri', 'mburuvicha roga', 'palacio de lopez',
                      'gobierno paraguayo', 'paraguayan government', 'congreso paraguayo', 'senado paraguayo',
                      'camara de diputados', 'juicio politico', 'gabinete'],
         'tripwires': [
@@ -133,6 +151,39 @@ ACTORS = {
             ('river_crisis', 2, ['bajante historica', 'record low parana', 'barcazas varadas']),
         ],
     },
+    # v1.2.0 (Nov 11 2026): the ueno crisis -- the banks, the guaraní, the run to crypto
+    'financial_system': {
+        'name': 'Banks & the Guaraní', 'flag': '🇵🇾', 'icon': '🏦', 'vector': 'finance',
+        'role': 'Banco Central del Paraguay, ueno bank and the deposit guarantee, the guaraní, crypto as an exit',
+        'baseline': 6,
+        'keywords': ['ueno', 'ueno bank', 'banco central del paraguay', 'superintendencia de bancos', 'resolucion bancaria',
+                     'ahorristas', 'depositantes', 'fondo de garantia de depositos', 'corrida bancaria', 'guarani',
+                     'tipo de cambio', 'cotizacion del dolar', 'usdt', 'criptomonedas', 'bitcoin', 'stablecoin',
+                     'fondos de ips', 'cajas jubilatorias', 'paraguay bank', 'paraguayan bank', 'central bank of paraguay'],
+        'tripwires': [
+            ('bank_resolution', 3, ['resolucion de ueno', 'intervencion de ueno', 'intervencion del banco ueno',
+                                    'bcp interviene', 'banco central interviene', 'central bank seizes ueno',
+                                    'resolution of ueno', 'ueno bank collapse', 'colapso de ueno']),
+            ('deposit_freeze', 4, ['depositos congelados', 'cuentas congeladas', 'corralito', 'sin acceso a su dinero',
+                                   'frozen deposits', 'deposits frozen', 'accounts frozen', 'no access to their money']),
+            ('public_funds_hit', 4, ['fondos de ips en ueno', 'fondos publicos en ueno', 'fondos jubilatorios en ueno',
+                                     'pension funds in ueno', 'public deposits in ueno', 'public-sector deposits']),
+            ('bank_run_contagion', 4, ['corrida bancaria', 'corrida contra', 'retiro masivo de depositos', 'contagio bancario',
+                                       'contagio financiero', 'otro banco en problemas', 'bank run in paraguay',
+                                       'run on paraguayan banks', 'contagion to other banks']),
+            ('capital_controls', 4, ['limite de retiros', 'limita los retiros', 'control de cambios', 'cepo cambiario en paraguay',
+                                     'withdrawal limits', 'capital controls in paraguay']),
+            ('guarani_slide', 3, ['devaluacion del guarani', 'guarani se desploma', 'record del dolar', 'dolar supera los',
+                                  'guarani plunges', 'guarani slides', 'guarani falls']),
+            ('crypto_flight', 2, ['prima del usdt', 'usdt en paraguay', 'refugio en cripto', 'refugio en bitcoin',
+                                  'usdt premium', 'stablecoin premium', 'bitcoin premium in paraguay']),
+            ('rescue_lender', 2, ['fmi paraguay', 'rescate financiero', 'prestamo de emergencia', 'imf paraguay',
+                                  'bailout paraguay', 'emergency loan to paraguay', 'credito de taiwan', 'prestamo chino']),
+            ('depositors_paid', 1, ['devolucion a ahorristas', 'pago a depositantes', 'garantia de depositos paga',
+                                    'compensar a ahorristas', 'depositors repaid', 'depositors compensated',
+                                    'deposit guarantee payments']),
+        ],
+    },
     'us_paraguay': {
         'name': 'US-Paraguay', 'flag': '🇺🇸', 'icon': '🦅', 'vector': 'us',
         'role': 'Security co-operation, sanctions, SOUTHCOM, counter-narcotics, the embassy',
@@ -155,6 +206,7 @@ VECTORS = {
     'alignment': {'name': 'Taiwan vs China', 'plain': 'Taiwan and China', 'actors': ['taiwan_china']},
     'energy': {'name': 'Itaipú & the River', 'plain': 'Itaipú and the Paraná', 'actors': ['itaipu_brazil']},
     'us': {'name': 'US Alignment', 'plain': 'US-Paraguay relations', 'actors': ['us_paraguay']},
+    'finance': {'name': 'Banks & the Guaraní', 'plain': 'the banks and the currency', 'actors': ['financial_system']},
 }
 
 RED_LINES = [
@@ -162,6 +214,10 @@ RED_LINES = [
      'tripwires': ['president_resigns', 'president_removed'],
      'why': 'A stable, single-party system losing its head of state mid-term is the governance break the tracker exists '
             'to catch; succession, the Cartes faction and the Taiwan tie all reopen at once.'},
+    {'id': 'contagion', 'label': 'The ueno failure spreads: a run on other banks or withdrawal limits',
+     'tripwires': ['bank_run_contagion', 'capital_controls'],
+     'why': 'One failed digital bank is a scandal; a run or withdrawal limits make it a systemic crisis -- the point at '
+            'which Paraguay needs an outside lender, and who lends (IMF, Brazil, Taipei, Beijing) becomes the story.'},
     {'id': 'switch', 'label': 'Paraguay switches recognition from Taiwan to Beijing', 'tripwires': ['switch_to_beijing'],
      'why': 'Taiwan would lose its last South American ally and Beijing would complete the continent.'},
     {'id': 'plot', 'label': 'A terror plot or attack (2+ outlets)', 'tripwires': ['terror_plot'],
@@ -172,6 +228,8 @@ RED_LINES = [
      'why': '75 inmates, most from the PCC, escaped Pedro Juan Caballero in 2020.'},
 ]
 GREEN_LINES = [
+    {'id': 'repaid', 'label': 'ueno depositors repaid', 'tripwires': ['depositors_paid'],
+     'why': 'Money back in people\'s hands is what ends a bank panic, not statements.'},
     {'id': 'taiwan', 'label': 'Taiwan alliance reaffirmed', 'tripwires': ['taiwan_reaffirmed'],
      'why': 'Each reaffirmation buys Taipei time.'},
     {'id': 'us_sec', 'label': 'US-Paraguay security agreement step', 'tripwires': ['security_agreement'],
@@ -206,11 +264,22 @@ MEANINGS = {
         'not_implied': 'Tariff talks are routine; a suspension would not be.',
     },
     'politics': {
-        'plain': ('Santiago Peña (Colorado Party) took office in August 2023 for a single term to 2028; on Nov 5 2026 he '
-                  'resigned as the Chamber of Deputies moved to impeach him (background dated Nov 6 2026 -- check the '
-                  'live read for what followed). Ex-president Horacio Cartes, sanctioned by the US in 2023, leads the '
-                  'party\'s dominant faction.'),
+        'plain': ('Santiago Peña (Colorado Party, in office from Aug 2023) offered his resignation on Nov 5 2026 and was '
+                  'removed after the ueno bank collapse. Vice President Pedro Alliana -- Colorado Party chair and a long-'
+                  'time ally of ex-president Horacio Cartes (sanctioned by the US in 2023) -- serves the rest of the term '
+                  'to Aug 2028. Taipei said on Nov 6 the tie is unaffected; Alliana backs Taiwan. (Dated Nov 11 2026.)'),
         'not_implied': 'Political news volume is not instability.',
+    },
+    'banks': {
+        'plain': ('On Nov 2 2026 Paraguay\'s central bank took over the digital lender ueno bank after its solvency fell '
+                  'below half the legal minimum. Nearly 3 million customers lost access to their money, with about '
+                  'US$850M of public-sector deposits (pension and health funds) reported inside. The guaraní slid from '
+                  'about 5,900 to 6,500 per dollar (Oct 30 to Nov 5) and stablecoins traded at a premium as people looked '
+                  'for an exit. Deposit-guarantee payments began with small accounts. (Dated Nov 11 2026.)'),
+        'global': ('The unasked question is who lends Paraguay the money to make depositors whole. Taipei is a loyal ally '
+                   'with a small chequebook; Beijing has a large one and wants Taiwan\'s last South American ally.'),
+        'not_implied': ('A crypto premium shows distrust of the banks; it does not measure the losses. One bank failing is '
+                        'not yet a systemic crisis.'),
     },
     'us': {
         'plain': 'Washington works with Asunción on counter-narcotics and the Tri-Border while sanctioning Cartes.',
@@ -239,6 +308,15 @@ TRIPWIRE_PLAIN = {
     'river_crisis': ('a low Paraná river stranding barges', 'economic'),
     'security_agreement': ('a US-Paraguay security agreement step', 'diplomatic'),
     'us_troop_presence': ('US troops in Paraguay', 'diplomatic'),
+    'bank_resolution': ('the central bank taking over a failing bank', 'economic'),
+    'deposit_freeze': ('depositors cut off from their money', 'economic'),
+    'public_funds_hit': ('public pension or health funds caught in the failed bank', 'economic'),
+    'bank_run_contagion': ('a run spreading to other banks', 'economic'),
+    'capital_controls': ('withdrawal or currency limits', 'economic'),
+    'guarani_slide': ('the guaraní sliding against the dollar', 'economic'),
+    'crypto_flight': ('people running to crypto and stablecoins', 'economic'),
+    'rescue_lender': ('talk of an outside rescue loan', 'economic'),
+    'depositors_paid': ('depositors being repaid', 'economic'),
 }
 TRIPWIRE_MEANING = {
     'impeachment_move': 'politics', 'president_resigns': 'politics', 'president_removed': 'politics',
@@ -247,20 +325,36 @@ TRIPWIRE_MEANING = {
     'prison_break': 'crime', 'prison_riot': 'crime', 'official_killed': 'crime', 'switch_to_beijing': 'taiwan',
     'switch_motion': 'taiwan', 'taiwan_reaffirmed': 'taiwan', 'itaipu_dispute': 'itaipu', 'itaipu_deal': 'itaipu',
     'river_crisis': 'itaipu', 'security_agreement': 'us', 'us_troop_presence': 'us',
+    'bank_resolution': 'banks', 'deposit_freeze': 'banks', 'public_funds_hit': 'banks', 'bank_run_contagion': 'banks',
+    'capital_controls': 'banks', 'guarani_slide': 'banks', 'crypto_flight': 'banks', 'rescue_lender': 'banks',
+    'depositors_paid': 'banks',
 }
 
 SO_WHAT_RULES = [
     {'tripwires': ['president_resigns', 'president_removed'], 'weight': 6.5,
-     'confirmed': ('Paraguay\'s president has been forced out mid-term, confirmed by 2+ outlets. The unasked question is '
-                   'not who governs next week but what the transition reopens: the Cartes faction\'s grip on the '
-                   'Colorado Party, the Itaipú money, and the Taiwan tie -- a new government is the moment Beijing\'s '
-                   'beef-and-soy offer is easiest to accept.'),
+     'confirmed': ('Paraguay\'s president has been forced out mid-term over a bank collapse, confirmed by 2+ outlets. The '
+                   'unasked question is not who governs next week but what the transition reopens: a Cartes ally now holds '
+                   'the presidency, depositors want their money, and the Taiwan tie -- a new government that needs a lender '
+                   'is the moment Beijing\'s offer is easiest to accept.'),
      'single': ('One outlet reports the president resigning or being removed; wait for a second before reading it as a '
                 'governance crisis.')},
     {'tripwires': ['switch_to_beijing'], 'weight': 7.5,
      'confirmed': ('Paraguay has switched recognition to Beijing, confirmed by 2+ outlets. Taiwan has no ally left in '
                    'South America; watch Washington\'s response and the beef and soy contracts that follow.'),
      'single': 'One outlet reports a switch to Beijing; not corroborated. These reports recur -- wait for a second outlet.'},
+    {'tripwires': ['bank_run_contagion', 'capital_controls'], 'weight': 6.8,
+     'confirmed': ('The ueno failure is spreading -- a run on other banks or withdrawal limits, confirmed by 2+ outlets. '
+                   'That makes it a systemic crisis. ' + MEANINGS['banks']['global']),
+     'single': 'One outlet reports a run or withdrawal limits; wait for a second before reading it as contagion.'},
+    {'tripwires': ['deposit_freeze', 'public_funds_hit'], 'weight': 6.0,
+     'confirmed': ('Paraguayans are cut off from their money (ueno), confirmed by 2+ outlets. ' + MEANINGS['banks']['global'] +
+                   ' Watch for a second bank, withdrawal limits, or a named rescue lender.')},
+    {'tripwires': ['rescue_lender'], 'weight': 5.0,
+     'confirmed': ('An outside rescue is being discussed. Who lends matters more than how much: an IMF or Brazilian line '
+                   'keeps the alignment where it is; a Chinese offer puts the Taiwan tie on the table.')},
+    {'tripwires': ['guarani_slide', 'crypto_flight'], 'weight': 4.2,
+     'confirmed': ('Paraguayans are moving money out of guaraníes and banks -- into dollars and stablecoins. '
+                   + MEANINGS['banks']['not_implied'])},
     {'tripwires': ['terror_plot'], 'weight': 7.0,
      'confirmed': ('A terror plot in Paraguay is confirmed by 2+ outlets -- the Tri-Border networks moving from money '
                    'to operations. Read it against the Middle East: Iran-Israel tension sets the tempo.')},
@@ -280,8 +374,11 @@ SO_WHAT_RULES = [
 VECTOR_SO_WHAT = {
     'security': (3.4, 'Tri-Border and organised-crime reporting is up. ' + MEANINGS['tba']['not_implied']),
     'alignment': (3.4, 'Taiwan-China reporting is up. ' + MEANINGS['taiwan']['global']),
+    'finance': (3.6, 'Banking and currency reporting is up. ' + MEANINGS['banks']['global']),
 }
 STANDING_SO_WHAT = [
+    'The unasked question since ueno: who lends Paraguay the money to make depositors whole -- and what does the '
+    'lender want for it?',
     'The unasked question: is money -- to Lebanon through the Tri-Border, from beef and soy toward China, '
     'through Itaipú -- moving Paraguay faster than its politics admit?',
 ]
@@ -306,7 +403,7 @@ def _hizballah_signal(t, ctx):
 
 
 CONFIG = {
-    'slug': 'paraguay', 'name': 'Paraguay', 'flag': '🇵🇾', 'version': VERSION, 'facts_as_of': '2026-11-04',
+    'slug': 'paraguay', 'name': 'Paraguay', 'flag': '🇵🇾', 'version': VERSION, 'facts_as_of': '2026-11-11',
     'actors': ACTORS, 'vectors': VECTORS,
     'rss_feeds': {
         'abc_color': {'url': 'https://www.abc.com.py/arc/outboundfeeds/rss/?outputType=xml', 'name': 'ABC Color',
@@ -315,18 +412,21 @@ CONFIG = {
                          'name': 'La Nación (Paraguay)', 'language': 'es', 'max': 60},
     },
     'google_queries': [
+        ('ueno bank', 'es-419', 'PY'), ('Banco Central del Paraguay', 'es-419', 'PY'), ('Pedro Alliana', 'es-419', 'PY'),
+        ('Paraguay bank crisis', 'en-US', 'US'),
         ('Santiago Peña', 'es-419', 'PY'), ('Horacio Cartes', 'es-419', 'PY'), ('Ciudad del Este lavado', 'es-419', 'PY'),
         ('Paraguay Taiwán China', 'es-419', 'PY'), ('Itaipú Anexo C', 'es-419', 'PY'), ('PCC Paraguay', 'es-419', 'PY'),
         ('Paraguay Hezbollah', 'en-US', 'US'), ('Paraguay Taiwan', 'en-US', 'US'),
     ],
-    'gdelt_en': ['Paraguay Taiwan', 'Paraguay Pena', 'Ciudad del Este'],
+    'gdelt_en': ['Paraguay Taiwan', 'Paraguay Pena', 'Ciudad del Este', 'Paraguay ueno'],
     'gdelt_es': ['Paraguay Peña', 'Triple Frontera Paraguay'],
-    'newsapi_queries': ['Paraguay', 'Ciudad del Este'],
-    'brave_queries': ['Paraguay news Pena', 'Paraguay Taiwan'],
+    'newsapi_queries': ['Paraguay', 'Ciudad del Este', 'ueno bank'],
+    'brave_queries': ['Paraguay news Alliana', 'Paraguay Taiwan', 'ueno bank Paraguay'],
     'scrub': [],
     'context_terms': ('paraguay', 'paraguayo', 'paraguaya', 'paraguayos', 'paraguayan', 'asuncion', 'asunción',
                       'ciudad del este', 'santiago pena', 'presidente pena', 'cartes', 'pedro juan caballero', 'encarnacion',
-                      'itaipu', 'yacyreta', 'chaco paraguayo', 'senad', 'tacumbu', 'mburuvicha roga', 'alto parana'),
+                      'itaipu', 'yacyreta', 'chaco paraguayo', 'senad', 'tacumbu', 'mburuvicha roga', 'alto parana',
+                      'ueno', 'alliana', 'banco central del paraguay', 'guarani', 'guaranies'),
     'own_outlets': ('abc color', 'abc.com.py', 'la nacion (paraguay)', 'lanacion.com.py', 'ultima hora', 'ultimahora',
                     'hoy.com.py', 'npy', 'unicanal', 'lanacion.com.py'),
     'own_tld': '.com.py/',
@@ -338,20 +438,25 @@ CONFIG = {
                               'nicaragua', 'panama', 'republica dominicana', 'el salvador'),
         'prison_break': ('recapturan', 'recaptured', '2020', 'aniversario'),
         'official_killed': ('pecci', 'aniversario', 'anniversary', '2022'),
+        'deposit_freeze': ('2001', 'corralito argentino', 'argentina'),
+        'capital_controls': ('argentina', 'cepo argentino', 'milei'),
     },
     'red_lines': RED_LINES, 'green_lines': GREEN_LINES,
     'meanings': MEANINGS, 'tripwire_plain': TRIPWIRE_PLAIN, 'tripwire_meaning': TRIPWIRE_MEANING,
     'actor_meaning': {'pena_government': 'politics', 'cartes_colorado': 'politics', 'tba_hizballah': 'tba',
-                      'pcc_crime': 'crime', 'taiwan_china': 'taiwan', 'itaipu_brazil': 'itaipu', 'us_paraguay': 'us'},
+                      'pcc_crime': 'crime', 'taiwan_china': 'taiwan', 'itaipu_brazil': 'itaipu', 'us_paraguay': 'us',
+                      'financial_system': 'banks'},
     'vector_pressure': {'governance': 'governance', 'security': 'kinetic', 'alignment': 'diplomatic',
-                        'energy': 'economic', 'us': 'diplomatic'},
+                        'energy': 'economic', 'us': 'diplomatic', 'finance': 'economic'},
     'so_what_rules': SO_WHAT_RULES, 'vector_so_what': VECTOR_SO_WHAT, 'standing_so_what': STANDING_SO_WHAT,
-    'quiet_so_what': ('Paraguay reads quiet this cycle. What would change that: a switch to Beijing, a terror plot '
+    'quiet_so_what': ('Paraguay reads quiet this cycle. What would change that: the ueno failure spreading to other banks, '
+                      'a switch to Beijing, a terror plot '
                       'confirmed by 2+ outlets, a mass prison break, or the killing of a prosecutor or journalist.'),
     'background': MEANINGS['politics']['plain'],
     'spokes': [
         ('china', 'taiwan_china', 'holdout',
-         'Paraguay is Taiwan\'s last South American ally; its beef and soy lobby wants the Chinese market.'),
+         'Paraguay is Taiwan\'s last South American ally; its beef and soy lobby wants the Chinese market -- and since '
+         'the ueno collapse (Nov 2026) a new government may need a lender.'),
         ('iran', 'tba_hizballah', 'finance_node',
          'Ciudad del Este is the hemisphere\'s best-known Hizballah finance hub (Tri-Border Area).'),
         ('us', 'us_paraguay', 'hemispheric_partner',
@@ -359,7 +464,8 @@ CONFIG = {
     ],
     'hub_names': {'us': 'US', 'china': 'China', 'iran': 'Iran'},
     'fingerprints': {'paraguay_taiwan_switch': ['switch_to_beijing', 'switch_motion'],
-                     'paraguay_tba_signal': ['terror_plot', 'hizballah_arrest', 'laundering_bust']},
+                     'paraguay_tba_signal': ['terror_plot', 'hizballah_arrest', 'laundering_bust'],
+                     'paraguay_bank_crisis': ['deposit_freeze', 'public_funds_hit', 'bank_run_contagion', 'capital_controls']},
     'extra_reads': {'hizballah': _hizballah_read},
     'extra_signals': [_hizballah_signal],
 }
